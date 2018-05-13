@@ -42,6 +42,8 @@
 
 #include "precomp.hpp"
 
+#include <thread>
+
 using namespace cv;
 using namespace cv::cuda;
 
@@ -193,6 +195,8 @@ namespace
                              OutputArray descriptors,
                              Stream& stream);
 
+        virtual void* detect_node_top(node_t* _node);
+        void* thread_detect(node_t* _node, pthread_mutex_t* out_mutex, struct params_display* out_buf, struct params_detect* params); /* detect node function */
     private:
         Size win_size_;
         Size block_size_;
@@ -220,6 +224,125 @@ namespace
         float free_coef_;
         GpuMat detector_;
     };
+
+    struct params_detect
+    {
+        cv::cuda::GpuMat * gpu_img;
+        vector<Rect> * found;
+        Mat * img_to_show;
+    };
+
+    struct params_display
+    {
+        vector<Rect> * found;
+        Mat * img_to_show;
+    };
+
+    void* HOG_Impl::detect_node_top(node_t* _node)
+    {
+        node_t node = *_node;
+#ifdef DEBUG
+        char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
+        tabbuf[node.node] = '\0';
+#endif
+        CheckError(pgm_claim_node(node));
+        int ret = 0;
+
+        edge_t *in_edge = (edge_t *)calloc(1, sizeof(edge_t));
+        CheckError(pgm_get_edges_in(node, in_edge, 1));
+        struct params_detect *in_buf = (struct params_detect *)pgm_get_edge_buf_c(*in_edge);
+        if (in_buf == NULL)
+            fprintf(stderr, "compute gradients in buffer is NULL\n");
+
+        edge_t *out_edge = (edge_t *)calloc(1, sizeof(edge_t));
+        CheckError(pgm_get_edges_out(node, out_edge, 1));
+        struct params_display *out_buf = (struct params_display *)pgm_get_edge_buf_p(*out_edge);
+        if (out_buf == NULL)
+            fprintf(stderr, "compute gradients out buffer is NULL\n");
+
+        std::thread** t = (std::thread** )calloc(4, sizeof (std::thread *));
+
+        pthread_mutex_t out_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+        pthread_barrier_wait(&init_barrier);
+
+        int i = 0;
+        unsigned int indx = 0;
+        struct params_detect* tp;
+
+        if(!hog_sample_errors)
+        {
+            do {
+                ret = pgm_wait(node);
+
+                if(ret != PGM_TERMINATE)
+                {
+                    CheckError(ret);
+#ifdef DEBUG
+                    fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
+#endif
+                    tp = (struct params_detect*)malloc(sizeof(struct params_detect));
+                    tp->gpu_img = in_buf->gpu_img;
+                    tp->found = in_buf->found;
+                    tp->img_to_show = in_buf->img_to_show;
+
+                    i = indx++ % 4;
+                    if (t[i] == NULL) {
+                        t[i] = new std::thread(&HOG_Impl::thread_detect, this, _node, &out_mutex, out_buf, tp);
+                        //t[i]->join();
+                    } else {
+                        t[i]->join();
+                        delete t[i];
+                        t[i] = new std::thread(&HOG_Impl::thread_detect, this, _node, &out_mutex, out_buf, tp);
+                        //t[i]->join();
+                    }
+                }
+                else
+                {
+                    for (i=0; i<4; i++) {
+                        if (t[i] != NULL && t[i]->joinable()) {
+                            t[i]->join();
+                        }
+                    }
+#ifdef DEBUG
+                    fprintf(stdout, "%s- %d terminates\n", tabbuf, node.node);
+#endif
+                    pgm_terminate(node);
+                }
+
+            } while(ret != PGM_TERMINATE);
+        }
+
+        pthread_barrier_wait(&init_barrier);
+
+        CheckError(pgm_release_node(node));
+
+        free(in_edge);
+        free(out_edge);
+        free(t);
+        pthread_exit(0);
+    }
+
+    void* HOG_Impl::thread_detect(node_t* _node, pthread_mutex_t* out_mutex, struct params_display* out_buf, struct params_detect* params) /* detect node function */
+    {
+        node_t node = *_node;
+#ifdef DEBUG
+        char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
+        tabbuf[node.node] = '\0';
+        fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
+#endif
+
+        detectMultiScale(*(params->gpu_img), *(params->found));
+        delete params->gpu_img;
+
+        pthread_mutex_lock(out_mutex);
+        out_buf->found = params->found;
+        out_buf->img_to_show = params->img_to_show;
+        CheckError(pgm_complete(node));
+        pthread_mutex_unlock(out_mutex);
+        free(params);
+        pthread_exit(0);
+    }
 
     HOG_Impl::HOG_Impl(Size win_size,
                        Size block_size,

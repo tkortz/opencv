@@ -48,6 +48,7 @@
 #endif
 
 #include "opencv2/core/cuda.hpp"
+#include "pgm.h"
 
 /**
   @addtogroup cuda
@@ -279,6 +280,8 @@ public:
      */
     virtual void convert(OutputArray gpu_objects,
                          std::vector<Rect>& objects) = 0;
+
+    virtual void* detect_node_top(node_t* _node) = 0;
 };
 
 //! @}
