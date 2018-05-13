@@ -371,36 +371,35 @@ void* App::display_node_top(node_t* _node)
             {
                 CheckError(ret);
 #ifdef DEBUG
-    fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
+                fprintf(stdout, "%s%d fires (top)\n", tabbuf, node.node);
 #endif
 
                 tp = (struct params_display*)malloc(sizeof(struct params_display));
+                fprintf(stdout, "found addr: %p, img_to_show: %p\n", in_buf->found, in_buf->img_to_show);
                 tp->found = in_buf->found;
                 tp->img_to_show = in_buf->img_to_show;
 
                 i = indx++ % 4;
                 if (t[i] == NULL) {
                     t[i] = new std::thread(&App::thread_display, this, _node, tp);
-                    //t[i]->join();
                 } else {
                     t[i]->join();
                     delete t[i];
                     t[i] = new std::thread(&App::thread_display, this, _node, tp);
-                    //t[i]->join();
-                }
-        }
-        else
-        {
-            for (i=0; i<4; i++) {
-                if (t[i] != NULL && t[i]->joinable()) {
-                    t[i]->join();
                 }
             }
+            else
+            {
+                for (i=0; i<4; i++) {
+                    if (t[i] != NULL && t[i]->joinable()) {
+                        t[i]->join();
+                    }
+                }
 #ifdef DEBUG
-            fprintf(stdout, "%s- %d terminates\n", tabbuf, node.node);
+                fprintf(stdout, "%s- %d terminates\n", tabbuf, node.node);
 #endif
-            pgm_terminate(node);
-        }
+                pgm_terminate(node);
+            }
 
         } while(ret != PGM_TERMINATE);
     }
@@ -426,10 +425,12 @@ void* App::thread_display(node_t* _node, struct params_display* params) /* displ
     hogWorkEnd();
 
     // Draw positive classified windows
+    fprintf(stdout, "thread_display: found addr: %p, img_to_show: %p\n", params->found, params->img_to_show);
     for (size_t i = 0; i < params->found->size(); i++)
     {
         Rect r = (*params->found)[i];
         rectangle(*params->img_to_show, r.tl(), r.br(), Scalar(0, 255, 0), 3);
+        fprintf(stdout, "point: %d, %d, %d, %d\n", r.tl().x, r.tl().y, r.br().x, r.br().y);
     }
 
     if (use_gpu)
@@ -488,22 +489,23 @@ void App::sched_coarse_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescri
     graph_t g;
     node_t color_convert_node, detect_node, display_node;
     edge_t e0_1, e1_2;
+
+    CheckError(pgm_init("/tmp/graphs", 1));
+    CheckError(pgm_init_graph(&g, "hog"));
+
+    CheckError(pgm_init_node(&color_convert_node, g, "color_convert"));
+    CheckError(pgm_init_node(&detect_node, g, "detect"));
+    CheckError(pgm_init_node(&display_node, g, "display"));
+
     edge_attr_t fast_mq_attr;
     memset(&fast_mq_attr, 0, sizeof(fast_mq_attr));
     fast_mq_attr.nr_produce = sizeof(struct params_detect);
     fast_mq_attr.nr_consume = sizeof(struct params_detect);
     fast_mq_attr.nr_threshold = sizeof(struct params_detect);
-    fast_mq_attr.mq_maxmsg = 10; /* root required for higher values */
+    fast_mq_attr.mq_maxmsg = 8; /* root required for higher values */
     fast_mq_attr.type = pgm_fast_mq_edge;
-
-    CheckError(pgm_init("/tmp/graphs", 1));
-    CheckError(pgm_init_graph(&g, "hog"));
-
-    CheckError(pgm_init_node(&color_convert_node, g, "color convert"));
-    CheckError(pgm_init_node(&detect_node, g, "detect"));
-    CheckError(pgm_init_node(&display_node, g, "display"));
-
     CheckError(pgm_init_edge(&e0_1, color_convert_node, detect_node, "e0_1", &fast_mq_attr));
+
     fast_mq_attr.nr_produce = sizeof(struct params_display);
     fast_mq_attr.nr_consume = sizeof(struct params_display);
     fast_mq_attr.nr_threshold = sizeof(struct params_display);
@@ -511,14 +513,16 @@ void App::sched_coarse_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescri
 
     pthread_barrier_init(&init_barrier, 0, 3);
 
-    thread t1(&App::detect_node_top, this, &detect_node);
+    thread t1(&cv::cuda::HOG::detect_node_top, gpu_hog, &detect_node, &init_barrier);
     thread t2(&App::display_node_top, this, &display_node);
+
+    pgm_claim_node(color_convert_node);
 
     edge_t *out_edge = (edge_t *)calloc(1, sizeof(edge_t));
     CheckError(pgm_get_edges_out(color_convert_node, out_edge, 1));
     struct params_detect *out_buf = (struct params_detect *)pgm_get_edge_buf_p(*out_edge);
     if (out_buf == NULL)
-        fprintf(stderr, "compute gradients out buffer is NULL\n");
+        fprintf(stderr, "color convert out buffer is NULL\n");
 
     pthread_barrier_wait(&init_barrier);
 
@@ -564,6 +568,8 @@ void App::sched_coarse_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescri
         // Iterate over all frames
         while (running && !frame.empty())
         {
+            usleep(15000);
+            fprintf(stdout, "0 fires: image_to_show: %p, found: %p\n", img, found);
             workBegin();
 
             // Change format of the image
@@ -587,7 +593,7 @@ void App::sched_coarse_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescri
                 gpu_hog->setGroupThreshold(gr_threshold);
                 out_buf->gpu_img = gpu_img;
                 out_buf->found = found;
-                out_buf->img_to_show = img_to_show;
+                out_buf->img_to_show = img;
                 CheckError(pgm_complete(color_convert_node));
             }
             else
@@ -652,6 +658,23 @@ void App::sched_coarse_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescri
             img = new Mat();
         }
     }
+
+    free(out_edge);
+    CheckError(pgm_terminate(color_convert_node));
+    pthread_barrier_wait(&init_barrier);
+    CheckError(pgm_release_node(color_convert_node));
+    printf("Joining pthreads...\n");
+    t1.join();
+    t2.join();
+    //t3.join();
+    //t4.join();
+    //t5.join();
+    //t6.join();
+    //t7.join();
+    //t8.join();
+
+    CheckError(pgm_destroy_graph(g));
+    CheckError(pgm_destroy());
 }
 
 void App::sched_etoe_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog)

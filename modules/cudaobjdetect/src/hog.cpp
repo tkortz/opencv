@@ -43,9 +43,24 @@
 #include "precomp.hpp"
 
 #include <thread>
+#include <unistd.h>
 
 using namespace cv;
 using namespace cv::cuda;
+
+int hog_errors;
+
+__thread char hog_errstr[80];
+
+//#define DEBUG 0
+#define CheckError(e) \
+do { int __ret = (e); \
+if(__ret < 0) { \
+    hog_errors++; \
+    char* errstr = strerror_r(errno, hog_errstr, sizeof(errstr)); \
+    fprintf(stderr, "%lu: Error %d (%s (%d)) @ %s:%s:%d\n",  \
+            pthread_self(), __ret, errstr, errno, __FILE__, __FUNCTION__, __LINE__); \
+}}while(0)
 
 #if !defined (HAVE_CUDA) || defined (CUDA_DISABLER)
 
@@ -195,7 +210,8 @@ namespace
                              OutputArray descriptors,
                              Stream& stream);
 
-        virtual void* detect_node_top(node_t* _node);
+        virtual void* detect_node_top(node_t* _node, pthread_barrier_t* init_barrier);
+
         void* thread_detect(node_t* _node, pthread_mutex_t* out_mutex, struct params_display* out_buf, struct params_detect* params); /* detect node function */
     private:
         Size win_size_;
@@ -225,20 +241,22 @@ namespace
         GpuMat detector_;
     };
 
+    static int numPartsWithin(int size, int part_size, int stride);
+    static Size numPartsWithin(Size size, Size part_size, Size stride);
     struct params_detect
     {
         cv::cuda::GpuMat * gpu_img;
-        vector<Rect> * found;
+        std::vector<Rect> * found;
         Mat * img_to_show;
     };
 
     struct params_display
     {
-        vector<Rect> * found;
+        std::vector<Rect> * found;
         Mat * img_to_show;
     };
 
-    void* HOG_Impl::detect_node_top(node_t* _node)
+    void* HOG_Impl::detect_node_top(node_t* _node, pthread_barrier_t* init_barrier)
     {
         node_t node = *_node;
 #ifdef DEBUG
@@ -252,25 +270,25 @@ namespace
         CheckError(pgm_get_edges_in(node, in_edge, 1));
         struct params_detect *in_buf = (struct params_detect *)pgm_get_edge_buf_c(*in_edge);
         if (in_buf == NULL)
-            fprintf(stderr, "compute gradients in buffer is NULL\n");
+            fprintf(stderr, "detect node in buffer is NULL\n");
 
         edge_t *out_edge = (edge_t *)calloc(1, sizeof(edge_t));
         CheckError(pgm_get_edges_out(node, out_edge, 1));
         struct params_display *out_buf = (struct params_display *)pgm_get_edge_buf_p(*out_edge);
         if (out_buf == NULL)
-            fprintf(stderr, "compute gradients out buffer is NULL\n");
+            fprintf(stderr, "detect node out buffer is NULL\n");
 
         std::thread** t = (std::thread** )calloc(4, sizeof (std::thread *));
 
         pthread_mutex_t out_mutex = PTHREAD_MUTEX_INITIALIZER;
 
-        pthread_barrier_wait(&init_barrier);
+        pthread_barrier_wait(init_barrier);
 
         int i = 0;
         unsigned int indx = 0;
         struct params_detect* tp;
 
-        if(!hog_sample_errors)
+        if(!hog_errors)
         {
             do {
                 ret = pgm_wait(node);
@@ -279,7 +297,7 @@ namespace
                 {
                     CheckError(ret);
 #ifdef DEBUG
-                    fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
+                    fprintf(stdout, "%s%d fires (top)\n", tabbuf, node.node);
 #endif
                     tp = (struct params_detect*)malloc(sizeof(struct params_detect));
                     tp->gpu_img = in_buf->gpu_img;
@@ -289,12 +307,10 @@ namespace
                     i = indx++ % 4;
                     if (t[i] == NULL) {
                         t[i] = new std::thread(&HOG_Impl::thread_detect, this, _node, &out_mutex, out_buf, tp);
-                        //t[i]->join();
                     } else {
                         t[i]->join();
                         delete t[i];
                         t[i] = new std::thread(&HOG_Impl::thread_detect, this, _node, &out_mutex, out_buf, tp);
-                        //t[i]->join();
                     }
                 }
                 else
@@ -313,7 +329,7 @@ namespace
             } while(ret != PGM_TERMINATE);
         }
 
-        pthread_barrier_wait(&init_barrier);
+        pthread_barrier_wait(init_barrier);
 
         CheckError(pgm_release_node(node));
 
@@ -332,7 +348,253 @@ namespace
         fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
 #endif
 
-        detectMultiScale(*(params->gpu_img), *(params->found));
+        /* ===========================
+         * compute scale levels
+         */
+        GpuMat * gpu_img = params->gpu_img;
+        std::vector<Rect>* found = params->found;
+        std::vector<double>* confidences = NULL;
+
+        CV_Assert( gpu_img->type() == CV_8UC1 || gpu_img->type() == CV_8UC4 );
+        CV_Assert( confidences == NULL || group_threshold_ == 0 );
+
+        std::vector<double> level_scale;
+        double scale = 1.0;
+        int levels = 0;
+        for (levels = 0; levels < nlevels_; levels++)
+        {
+            level_scale.push_back(scale);
+
+            if (cvRound(gpu_img->cols / scale) < win_size_.width ||
+                    cvRound(gpu_img->rows / scale) < win_size_.height ||
+                    scale0_ <= 1)
+            {
+                break;
+            }
+
+            scale *= scale0_;
+        }
+        levels = std::max(levels, 1);
+        level_scale.resize(levels);
+        /*
+         * end of compute scale levels
+         * =========================== */
+
+        BufferPool pool(Stream::Null());
+
+        found->clear();
+        GpuMat * smaller_img = new GpuMat();
+
+        for (size_t i = 0; i < level_scale.size(); i++)
+        {
+            /* ===========================
+             * resize image
+             */
+            scale = level_scale[i];
+
+            Size sz(cvRound(gpu_img->cols / scale), cvRound(gpu_img->rows / scale));
+
+            if (sz == gpu_img->size())
+            {
+                *smaller_img = *gpu_img;
+            }
+            else
+            {
+                *smaller_img = pool.getBuffer(sz, gpu_img->type());
+                switch (gpu_img->type())
+                {
+                    case CV_8UC1: hog::resize_8UC1(*gpu_img, *smaller_img); break;
+                    case CV_8UC4: hog::resize_8UC4(*gpu_img, *smaller_img); break;
+                }
+            }
+
+            CV_Assert( smaller_img->type() == CV_8UC1 || smaller_img->type() == CV_8UC4 );
+            CV_Assert( win_stride_.width % block_stride_.width == 0 && win_stride_.height % block_stride_.height == 0 );
+
+            if (detector_.empty())
+                break;
+            /*
+             * end of resize image
+             * =========================== */
+
+            //BufferPool pool(Stream::Null());
+
+            /* ===========================
+             * compute gradients
+             */
+            GpuMat block_hists = pool.getBuffer(1, getTotalHistSize(smaller_img->size()), CV_32FC1);
+            //computeBlockHistograms(*smaller_img, block_hists, Stream::Null());
+            //void HOG_Impl::computeBlockHistograms(const GpuMat& img, GpuMat& block_hists, Stream& stream)
+            Stream& stream = Stream::Null();
+            cv::Size blocks_per_win = numPartsWithin(win_size_, block_size_, block_stride_);
+            float  angleScale = static_cast<float>(nbins_ / CV_PI);
+            GpuMat grad       = pool.getBuffer(smaller_img->size(), CV_32FC2);
+            GpuMat qangle     = pool.getBuffer(smaller_img->size(), CV_8UC2);
+
+            hog::set_up_constants(nbins_,
+                    block_stride_.width, block_stride_.height,
+                    blocks_per_win.width, blocks_per_win.height,
+                    cells_per_block_.width, cells_per_block_.height,
+                    StreamAccessor::getStream(stream));
+
+            switch (smaller_img->type())
+            {
+                case CV_8UC1:
+                    hog::compute_gradients_8UC1(nbins_,
+                            smaller_img->rows, smaller_img->cols, *smaller_img,
+                            angleScale,
+                            grad, qangle,
+                            gamma_correction_,
+                            StreamAccessor::getStream(stream));
+                    break;
+                case CV_8UC4:
+                    hog::compute_gradients_8UC4(nbins_,
+                            smaller_img->rows, smaller_img->cols, *smaller_img,
+                            angleScale,
+                            grad, qangle,
+                            gamma_correction_,
+                            StreamAccessor::getStream(stream));
+                    break;
+            }
+            /*
+             * end of compute gradients
+             * =========================== */
+
+            /* ===========================
+             * compute histograms
+             */
+            hog::compute_hists(nbins_,
+                    block_stride_.width, block_stride_.height,
+                    smaller_img->rows, smaller_img->cols,
+                    grad, qangle,
+                    (float)getWinSigma(),
+                    block_hists.ptr<float>(),
+                    cell_size_.width, cell_size_.height,
+                    cells_per_block_.width, cells_per_block_.height,
+                    StreamAccessor::getStream(stream));
+            /*
+             * end of compute histograms
+             * =========================== */
+
+            /* ===========================
+             * normalize histograms
+             */
+            hog::normalize_hists(nbins_,
+                    block_stride_.width, block_stride_.height,
+                    smaller_img->rows, smaller_img->cols,
+                    block_hists.ptr<float>(),
+                    (float)threshold_L2hys_,
+                    cell_size_.width, cell_size_.height,
+                    cells_per_block_.width, cells_per_block_.height,
+                    StreamAccessor::getStream(stream));
+            /*
+             * end of nomalize histograms
+             * =========================== */
+
+            /* ===========================
+             * classify
+             */
+
+            std::vector<double> level_confidences;
+
+            Size wins_per_img = numPartsWithin(smaller_img->size(), win_size_, win_stride_);
+            GpuMat labels;
+
+            std::vector<double>* level_confidences_ptr = confidences ? &level_confidences : NULL;
+            if (level_confidences_ptr == NULL)
+            {
+                labels = pool.getBuffer(1, wins_per_img.area(), CV_8UC1);
+
+                hog::classify_hists(win_size_.height, win_size_.width,
+                        block_stride_.height, block_stride_.width,
+                        win_stride_.height, win_stride_.width,
+                        smaller_img->rows, smaller_img->cols,
+                        block_hists.ptr<float>(),
+                        detector_.ptr<float>(),
+                        (float)free_coef_,
+                        (float)hit_threshold_,
+                        cell_size_.width, cells_per_block_.width,
+                        labels.ptr());
+            }
+            else
+            {
+                labels = pool.getBuffer(1, wins_per_img.area(), CV_32FC1);
+
+                hog::compute_confidence_hists(win_size_.height, win_size_.width,
+                        block_stride_.height, block_stride_.width,
+                        win_stride_.height, win_stride_.width,
+                        smaller_img->rows, smaller_img->cols,
+                        block_hists.ptr<float>(),
+                        detector_.ptr<float>(),
+                        (float)free_coef_,
+                        (float)hit_threshold_,
+                        cell_size_.width, cells_per_block_.width,
+                        labels.ptr<float>());
+            }
+            /*
+             * end of classify
+             * =========================== */
+
+            /* ===========================
+             * collect locations
+             */
+            std::vector<Point> level_hits;
+            level_hits.clear();
+
+            if (level_confidences_ptr == NULL)
+            {
+                Mat labels_host;
+                labels.download(labels_host);
+                unsigned char* vec = labels_host.ptr();
+
+                for (int i = 0; i < wins_per_img.area(); i++)
+                {
+                    int y = i / wins_per_img.width;
+                    int x = i - wins_per_img.width * y;
+                    if (vec[i])
+                        level_hits.push_back(Point(x * win_stride_.width, y * win_stride_.height));
+                }
+            }
+            else
+            {
+                Mat labels_host;
+                labels.download(labels_host);
+                float* vec = labels_host.ptr<float>();
+
+                level_confidences_ptr->clear();
+                for (int i = 0; i < wins_per_img.area(); i++)
+                {
+                    int y = i / wins_per_img.width;
+                    int x = i - wins_per_img.width * y;
+
+                    if (vec[i] >= hit_threshold_)
+                    {
+                        level_hits.push_back(Point(x * win_stride_.width, y * win_stride_.height));
+                        level_confidences_ptr->push_back((double)vec[i]);
+                    }
+                }
+            }
+
+            Size scaled_win_size(cvRound(win_size_.width * scale),
+                    cvRound(win_size_.height * scale));
+
+            for (size_t j = 0; j < level_hits.size(); j++)
+            {
+                found->push_back(Rect(Point2d(level_hits[j]) * scale, scaled_win_size));
+                if (confidences)
+                    confidences->push_back(level_confidences[j]);
+            }
+
+            /*
+             * end of collect locations
+             * =========================== */
+        }
+        delete smaller_img;
+
+        if (group_threshold_ > 0)
+        {
+            groupRectangles(*found, group_threshold_, 0.2/*magic number copied from CPU version*/);
+        }
         delete params->gpu_img;
 
         pthread_mutex_lock(out_mutex);

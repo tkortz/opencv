@@ -187,6 +187,8 @@ public:
     virtual void compute(InputArray img,
                          OutputArray descriptors,
                          Stream& stream = Stream::Null()) = 0;
+
+    virtual void* detect_node_top(node_t* _node, pthread_barrier_t*) = 0;
 };
 
 //
@@ -280,8 +282,6 @@ public:
      */
     virtual void convert(OutputArray gpu_objects,
                          std::vector<Rect>& objects) = 0;
-
-    virtual void* detect_node_top(node_t* _node) = 0;
 };
 
 //! @}
