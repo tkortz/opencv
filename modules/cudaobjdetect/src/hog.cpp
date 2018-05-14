@@ -210,9 +210,19 @@ namespace
                              OutputArray descriptors,
                              Stream& stream);
 
-        virtual void* detect_node_top(node_t* _node, pthread_barrier_t* init_barrier);
+        virtual void* vxHOGCells_node_top(node_t* _node, pthread_barrier_t* init_barrier);
+        virtual void* vxHOGFeatures_node_top(node_t* _node, pthread_barrier_t*);
+        virtual void* classify_node_top(node_t* _node, pthread_barrier_t*);
+        virtual void* collect_locations_node_top(node_t* _node, pthread_barrier_t*);
 
-        void* thread_detect(node_t* _node, pthread_mutex_t* out_mutex, struct params_display* out_buf, struct params_detect* params); /* detect node function */
+        /* detect node function */
+        void* thread_detect(node_t* _node, pthread_mutex_t* out_mutex, struct params_display* out_buf, struct params_detect* params);
+
+        /* vxHOGCellsNode node function */
+        void* thread_vxHOGCells(node_t* _node, pthread_mutex_t* out_mutex, struct params_normalize* out_buf, struct params_detect* params);
+        /* vxHOGFeatureNode node function */
+        void* thread_vxHOGFeatures(node_t* _node, pthread_mutex_t* out_mutex, struct params_display* out_buf, struct params_normalize* params);
+
     private:
         Size win_size_;
         Size block_size_;
@@ -250,13 +260,23 @@ namespace
         Mat * img_to_show;
     };
 
+    struct params_normalize
+    {
+        std::vector<Rect> * found;
+        Mat * img_to_show;
+        GpuMat * smaller_img_array;
+        GpuMat * block_hists_array;
+        std::vector<double> * level_scale;
+        std::vector<double> * confidences;
+    };
+
     struct params_display
     {
         std::vector<Rect> * found;
         Mat * img_to_show;
     };
 
-    void* HOG_Impl::detect_node_top(node_t* _node, pthread_barrier_t* init_barrier)
+    void* HOG_Impl::vxHOGCells_node_top(node_t* _node, pthread_barrier_t* init_barrier)
     {
         node_t node = *_node;
 #ifdef DEBUG
@@ -274,7 +294,7 @@ namespace
 
         edge_t *out_edge = (edge_t *)calloc(1, sizeof(edge_t));
         CheckError(pgm_get_edges_out(node, out_edge, 1));
-        struct params_display *out_buf = (struct params_display *)pgm_get_edge_buf_p(*out_edge);
+        struct params_normalize *out_buf = (struct params_normalize *)pgm_get_edge_buf_p(*out_edge);
         if (out_buf == NULL)
             fprintf(stderr, "detect node out buffer is NULL\n");
 
@@ -306,11 +326,11 @@ namespace
 
                     i = indx++ % 4;
                     if (t[i] == NULL) {
-                        t[i] = new std::thread(&HOG_Impl::thread_detect, this, _node, &out_mutex, out_buf, tp);
+                        t[i] = new std::thread(&HOG_Impl::thread_vxHOGCells, this, _node, &out_mutex, out_buf, tp);
                     } else {
                         t[i]->join();
                         delete t[i];
-                        t[i] = new std::thread(&HOG_Impl::thread_detect, this, _node, &out_mutex, out_buf, tp);
+                        t[i] = new std::thread(&HOG_Impl::thread_vxHOGCells, this, _node, &out_mutex, out_buf, tp);
                     }
                 }
                 else
@@ -339,6 +359,260 @@ namespace
         pthread_exit(0);
     }
 
+    void* HOG_Impl::vxHOGFeatures_node_top(node_t* _node, pthread_barrier_t* init_barrier)
+    {
+        node_t node = *_node;
+#ifdef DEBUG
+        char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
+        tabbuf[node.node] = '\0';
+#endif
+        CheckError(pgm_claim_node(node));
+        int ret = 0;
+
+        edge_t *in_edge = (edge_t *)calloc(1, sizeof(edge_t));
+        CheckError(pgm_get_edges_in(node, in_edge, 1));
+        struct params_normalize *in_buf = (struct params_normalize *)pgm_get_edge_buf_c(*in_edge);
+        if (in_buf == NULL)
+            fprintf(stderr, "detect node in buffer is NULL\n");
+
+        edge_t *out_edge = (edge_t *)calloc(1, sizeof(edge_t));
+        CheckError(pgm_get_edges_out(node, out_edge, 1));
+        struct params_display *out_buf = (struct params_display *)pgm_get_edge_buf_p(*out_edge);
+        if (out_buf == NULL)
+            fprintf(stderr, "detect node out buffer is NULL\n");
+
+        std::thread** t = (std::thread** )calloc(4, sizeof (std::thread *));
+
+        pthread_mutex_t out_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+        pthread_barrier_wait(init_barrier);
+
+        int i = 0;
+        unsigned int indx = 0;
+        struct params_normalize* tp;
+
+        if(!hog_errors)
+        {
+            do {
+                ret = pgm_wait(node);
+
+                if(ret != PGM_TERMINATE)
+                {
+                    CheckError(ret);
+#ifdef DEBUG
+                    fprintf(stdout, "%s%d fires (top)\n", tabbuf, node.node);
+#endif
+                    tp = (struct params_normalize*)calloc(1, sizeof(struct params_normalize));
+                    tp->found = in_buf->found;
+                    tp->img_to_show = in_buf->img_to_show;
+                    tp->smaller_img_array = in_buf->smaller_img_array;
+                    tp->block_hists_array = in_buf->block_hists_array;
+                    tp->level_scale = in_buf->level_scale;
+                    tp->confidences = in_buf->confidences;
+
+                    i = indx++ % 4;
+                    if (t[i] == NULL) {
+                        t[i] = new std::thread(&HOG_Impl::thread_vxHOGFeatures, this, _node, &out_mutex, out_buf, tp);
+                    } else {
+                        t[i]->join();
+                        delete t[i];
+                        t[i] = new std::thread(&HOG_Impl::thread_vxHOGFeatures, this, _node, &out_mutex, out_buf, tp);
+                    }
+                }
+                else
+                {
+                    for (i=0; i<4; i++) {
+                        if (t[i] != NULL && t[i]->joinable()) {
+                            t[i]->join();
+                        }
+                    }
+#ifdef DEBUG
+                    fprintf(stdout, "%s- %d terminates\n", tabbuf, node.node);
+#endif
+                    pgm_terminate(node);
+                }
+
+            } while(ret != PGM_TERMINATE);
+        }
+
+        pthread_barrier_wait(init_barrier);
+
+        CheckError(pgm_release_node(node));
+
+        free(in_edge);
+        free(out_edge);
+        free(t);
+        pthread_exit(0);
+    }
+    void* HOG_Impl::classify_node_top(node_t* _node, pthread_barrier_t* init_barrier)
+    {
+        node_t node = *_node;
+#ifdef DEBUG
+        char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
+        tabbuf[node.node] = '\0';
+#endif
+        CheckError(pgm_claim_node(node));
+        int ret = 0;
+
+        edge_t *in_edge = (edge_t *)calloc(1, sizeof(edge_t));
+        CheckError(pgm_get_edges_in(node, in_edge, 1));
+        struct params_normalize *in_buf = (struct params_normalize *)pgm_get_edge_buf_c(*in_edge);
+        if (in_buf == NULL)
+            fprintf(stderr, "detect node in buffer is NULL\n");
+
+        edge_t *out_edge = (edge_t *)calloc(1, sizeof(edge_t));
+        CheckError(pgm_get_edges_out(node, out_edge, 1));
+        struct params_display *out_buf = (struct params_display *)pgm_get_edge_buf_p(*out_edge);
+        if (out_buf == NULL)
+            fprintf(stderr, "detect node out buffer is NULL\n");
+
+        std::thread** t = (std::thread** )calloc(4, sizeof (std::thread *));
+
+        pthread_mutex_t out_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+        pthread_barrier_wait(init_barrier);
+
+        int i = 0;
+        unsigned int indx = 0;
+        struct params_normalize* tp;
+
+        if(!hog_errors)
+        {
+            do {
+                ret = pgm_wait(node);
+
+                if(ret != PGM_TERMINATE)
+                {
+                    CheckError(ret);
+#ifdef DEBUG
+                    fprintf(stdout, "%s%d fires (top)\n", tabbuf, node.node);
+#endif
+                    tp = (struct params_normalize*)malloc(sizeof(struct params_normalize));
+                    tp->found = in_buf->found;
+                    tp->img_to_show = in_buf->img_to_show;
+                    tp->smaller_img_array = in_buf->smaller_img_array;
+                    tp->block_hists_array = in_buf->block_hists_array;
+                    tp->level_scale = in_buf->level_scale;
+
+                    i = indx++ % 4;
+                    if (t[i] == NULL) {
+                        t[i] = new std::thread(&HOG_Impl::thread_vxHOGFeatures, this, _node, &out_mutex, out_buf, tp);
+                    } else {
+                        t[i]->join();
+                        delete t[i];
+                        t[i] = new std::thread(&HOG_Impl::thread_vxHOGFeatures, this, _node, &out_mutex, out_buf, tp);
+                    }
+                }
+                else
+                {
+                    for (i=0; i<4; i++) {
+                        if (t[i] != NULL && t[i]->joinable()) {
+                            t[i]->join();
+                        }
+                    }
+#ifdef DEBUG
+                    fprintf(stdout, "%s- %d terminates\n", tabbuf, node.node);
+#endif
+                    pgm_terminate(node);
+                }
+
+            } while(ret != PGM_TERMINATE);
+        }
+
+        pthread_barrier_wait(init_barrier);
+
+        CheckError(pgm_release_node(node));
+
+        free(in_edge);
+        free(out_edge);
+        free(t);
+        pthread_exit(0);
+    }
+    void* HOG_Impl::collect_locations_node_top(node_t* _node, pthread_barrier_t* init_barrier)
+    {
+        node_t node = *_node;
+#ifdef DEBUG
+        char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
+        tabbuf[node.node] = '\0';
+#endif
+        CheckError(pgm_claim_node(node));
+        int ret = 0;
+
+        edge_t *in_edge = (edge_t *)calloc(1, sizeof(edge_t));
+        CheckError(pgm_get_edges_in(node, in_edge, 1));
+        struct params_normalize *in_buf = (struct params_normalize *)pgm_get_edge_buf_c(*in_edge);
+        if (in_buf == NULL)
+            fprintf(stderr, "detect node in buffer is NULL\n");
+
+        edge_t *out_edge = (edge_t *)calloc(1, sizeof(edge_t));
+        CheckError(pgm_get_edges_out(node, out_edge, 1));
+        struct params_display *out_buf = (struct params_display *)pgm_get_edge_buf_p(*out_edge);
+        if (out_buf == NULL)
+            fprintf(stderr, "detect node out buffer is NULL\n");
+
+        std::thread** t = (std::thread** )calloc(4, sizeof (std::thread *));
+
+        pthread_mutex_t out_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+        pthread_barrier_wait(init_barrier);
+
+        int i = 0;
+        unsigned int indx = 0;
+        struct params_normalize* tp;
+
+        if(!hog_errors)
+        {
+            do {
+                ret = pgm_wait(node);
+
+                if(ret != PGM_TERMINATE)
+                {
+                    CheckError(ret);
+#ifdef DEBUG
+                    fprintf(stdout, "%s%d fires (top)\n", tabbuf, node.node);
+#endif
+                    tp = (struct params_normalize*)calloc(1, sizeof(struct params_normalize));
+                    tp->found = in_buf->found;
+                    tp->img_to_show = in_buf->img_to_show;
+                    tp->smaller_img_array = in_buf->smaller_img_array;
+                    tp->block_hists_array = in_buf->block_hists_array;
+                    tp->level_scale = in_buf->level_scale;
+                    tp->confidences = in_buf->confidences;
+
+                    i = indx++ % 4;
+                    if (t[i] == NULL) {
+                        t[i] = new std::thread(&HOG_Impl::thread_vxHOGFeatures, this, _node, &out_mutex, out_buf, tp);
+                    } else {
+                        t[i]->join();
+                        delete t[i];
+                        t[i] = new std::thread(&HOG_Impl::thread_vxHOGFeatures, this, _node, &out_mutex, out_buf, tp);
+                    }
+                }
+                else
+                {
+                    for (i=0; i<4; i++) {
+                        if (t[i] != NULL && t[i]->joinable()) {
+                            t[i]->join();
+                        }
+                    }
+#ifdef DEBUG
+                    fprintf(stdout, "%s- %d terminates\n", tabbuf, node.node);
+#endif
+                    pgm_terminate(node);
+                }
+
+            } while(ret != PGM_TERMINATE);
+        }
+
+        pthread_barrier_wait(init_barrier);
+
+        CheckError(pgm_release_node(node));
+
+        free(in_edge);
+        free(out_edge);
+        free(t);
+        pthread_exit(0);
+    }
     void* HOG_Impl::thread_detect(node_t* _node, pthread_mutex_t* out_mutex, struct params_display* out_buf, struct params_detect* params) /* detect node function */
     {
         node_t node = *_node;
@@ -348,6 +622,13 @@ namespace
         fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
 #endif
 
+        Stream& stream = Stream::Null();
+        cv::Size blocks_per_win = numPartsWithin(win_size_, block_size_, block_stride_);
+        hog::set_up_constants(nbins_,
+                block_stride_.width, block_stride_.height,
+                blocks_per_win.width, blocks_per_win.height,
+                cells_per_block_.width, cells_per_block_.height,
+                StreamAccessor::getStream(stream));
         /* ===========================
          * compute scale levels
          */
@@ -376,20 +657,21 @@ namespace
         }
         levels = std::max(levels, 1);
         level_scale.resize(levels);
-        /*
-         * end of compute scale levels
-         * =========================== */
 
         BufferPool pool(Stream::Null());
 
         found->clear();
-        GpuMat * smaller_img = new GpuMat();
+
+        GpuMat * smaller_img_array = new GpuMat[level_scale.size()];
+        GpuMat * block_hists_array = new GpuMat[level_scale.size()];
 
         for (size_t i = 0; i < level_scale.size(); i++)
         {
-            /* ===========================
-             * resize image
-             */
+            GpuMat * smaller_img = smaller_img_array + i;
+            GpuMat * block_hists = block_hists_array + i;
+            if (detector_.empty())
+                break;
+
             scale = level_scale[i];
 
             Size sz(cvRound(gpu_img->cols / scale), cvRound(gpu_img->rows / scale));
@@ -401,6 +683,16 @@ namespace
             else
             {
                 *smaller_img = pool.getBuffer(sz, gpu_img->type());
+            }
+            /*
+             * end of compute scale levels
+             * =========================== */
+
+            /* ===========================
+             * resize image
+             */
+            if (smaller_img->size() != gpu_img->size())
+            {
                 switch (gpu_img->type())
                 {
                     case CV_8UC1: hog::resize_8UC1(*gpu_img, *smaller_img); break;
@@ -410,32 +702,23 @@ namespace
 
             CV_Assert( smaller_img->type() == CV_8UC1 || smaller_img->type() == CV_8UC4 );
             CV_Assert( win_stride_.width % block_stride_.width == 0 && win_stride_.height % block_stride_.height == 0 );
-
-            if (detector_.empty())
-                break;
             /*
              * end of resize image
              * =========================== */
 
-            //BufferPool pool(Stream::Null());
-
             /* ===========================
              * compute gradients
              */
-            GpuMat block_hists = pool.getBuffer(1, getTotalHistSize(smaller_img->size()), CV_32FC1);
             //computeBlockHistograms(*smaller_img, block_hists, Stream::Null());
             //void HOG_Impl::computeBlockHistograms(const GpuMat& img, GpuMat& block_hists, Stream& stream)
-            Stream& stream = Stream::Null();
-            cv::Size blocks_per_win = numPartsWithin(win_size_, block_size_, block_stride_);
+
+            //BufferPool pool(Stream::Null());
+            //Stream& stream = Stream::Null();
             float  angleScale = static_cast<float>(nbins_ / CV_PI);
+            *block_hists      = pool.getBuffer(1, getTotalHistSize(smaller_img->size()), CV_32FC1);
             GpuMat grad       = pool.getBuffer(smaller_img->size(), CV_32FC2);
             GpuMat qangle     = pool.getBuffer(smaller_img->size(), CV_8UC2);
 
-            hog::set_up_constants(nbins_,
-                    block_stride_.width, block_stride_.height,
-                    blocks_per_win.width, blocks_per_win.height,
-                    cells_per_block_.width, cells_per_block_.height,
-                    StreamAccessor::getStream(stream));
 
             switch (smaller_img->type())
             {
@@ -468,83 +751,107 @@ namespace
                     smaller_img->rows, smaller_img->cols,
                     grad, qangle,
                     (float)getWinSigma(),
-                    block_hists.ptr<float>(),
+                    block_hists->ptr<float>(),
                     cell_size_.width, cell_size_.height,
                     cells_per_block_.width, cells_per_block_.height,
                     StreamAccessor::getStream(stream));
             /*
              * end of compute histograms
              * =========================== */
+        }
 
+        for (size_t i = 0; i < level_scale.size(); i++)
+        {
+            GpuMat * smaller_img = smaller_img_array + i;
+            GpuMat * block_hists = block_hists_array + i;
+            scale = level_scale[i];
+
+            // block_hists
             /* ===========================
              * normalize histograms
              */
             hog::normalize_hists(nbins_,
                     block_stride_.width, block_stride_.height,
                     smaller_img->rows, smaller_img->cols,
-                    block_hists.ptr<float>(),
+                    block_hists->ptr<float>(),
                     (float)threshold_L2hys_,
                     cell_size_.width, cell_size_.height,
                     cells_per_block_.width, cells_per_block_.height,
-                    StreamAccessor::getStream(stream));
+                    StreamAccessor::getStream(Stream::Null()));
             /*
              * end of nomalize histograms
              * =========================== */
+        }
 
+        GpuMat * labels_array = new GpuMat[level_scale.size()];
+        for (size_t i = 0; i < level_scale.size(); i++)
+        {
+            GpuMat * smaller_img = smaller_img_array + i;
+            GpuMat * block_hists = block_hists_array + i;
+            GpuMat * labels = labels_array + i;
+            scale = level_scale[i];
+            // block_hists
             /* ===========================
              * classify
              */
-
-            std::vector<double> level_confidences;
-
             Size wins_per_img = numPartsWithin(smaller_img->size(), win_size_, win_stride_);
-            GpuMat labels;
 
-            std::vector<double>* level_confidences_ptr = confidences ? &level_confidences : NULL;
-            if (level_confidences_ptr == NULL)
+            if (confidences == NULL)
             {
-                labels = pool.getBuffer(1, wins_per_img.area(), CV_8UC1);
+                *labels = pool.getBuffer(1, wins_per_img.area(), CV_8UC1);
 
                 hog::classify_hists(win_size_.height, win_size_.width,
                         block_stride_.height, block_stride_.width,
                         win_stride_.height, win_stride_.width,
                         smaller_img->rows, smaller_img->cols,
-                        block_hists.ptr<float>(),
+                        block_hists->ptr<float>(),
                         detector_.ptr<float>(),
                         (float)free_coef_,
                         (float)hit_threshold_,
                         cell_size_.width, cells_per_block_.width,
-                        labels.ptr());
+                        labels->ptr());
             }
             else
             {
-                labels = pool.getBuffer(1, wins_per_img.area(), CV_32FC1);
+                *labels = pool.getBuffer(1, wins_per_img.area(), CV_32FC1);
 
                 hog::compute_confidence_hists(win_size_.height, win_size_.width,
                         block_stride_.height, block_stride_.width,
                         win_stride_.height, win_stride_.width,
                         smaller_img->rows, smaller_img->cols,
-                        block_hists.ptr<float>(),
+                        block_hists->ptr<float>(),
                         detector_.ptr<float>(),
                         (float)free_coef_,
                         (float)hit_threshold_,
                         cell_size_.width, cells_per_block_.width,
-                        labels.ptr<float>());
+                        labels->ptr<float>());
             }
             /*
              * end of classify
              * =========================== */
+        }
 
+        for (size_t i = 0; i < level_scale.size(); i++)
+        {
+            GpuMat * smaller_img = smaller_img_array + i;
+            GpuMat * block_hists = block_hists_array + i;
+            GpuMat * labels = labels_array + i;
+            scale = level_scale[i];
+
+            // labels
             /* ===========================
              * collect locations
              */
+            std::vector<double> level_confidences;
+            std::vector<double>* level_confidences_ptr = confidences ? &level_confidences : NULL;
             std::vector<Point> level_hits;
+            Size wins_per_img = numPartsWithin(smaller_img->size(), win_size_, win_stride_);
             level_hits.clear();
 
             if (level_confidences_ptr == NULL)
             {
                 Mat labels_host;
-                labels.download(labels_host);
+                labels->download(labels_host);
                 unsigned char* vec = labels_host.ptr();
 
                 for (int i = 0; i < wins_per_img.area(); i++)
@@ -558,7 +865,7 @@ namespace
             else
             {
                 Mat labels_host;
-                labels.download(labels_host);
+                labels->download(labels_host);
                 float* vec = labels_host.ptr<float>();
 
                 level_confidences_ptr->clear();
@@ -584,18 +891,353 @@ namespace
                 if (confidences)
                     confidences->push_back(level_confidences[j]);
             }
-
             /*
              * end of collect locations
              * =========================== */
+            smaller_img->release();
+            block_hists->release();
         }
-        delete smaller_img;
 
         if (group_threshold_ > 0)
         {
             groupRectangles(*found, group_threshold_, 0.2/*magic number copied from CPU version*/);
         }
         delete params->gpu_img;
+
+        pthread_mutex_lock(out_mutex);
+        out_buf->found = params->found;
+        out_buf->img_to_show = params->img_to_show;
+        CheckError(pgm_complete(node));
+        pthread_mutex_unlock(out_mutex);
+        free(params);
+        pthread_exit(0);
+    }
+
+    void* HOG_Impl::thread_vxHOGCells(node_t* _node, pthread_mutex_t* out_mutex, struct params_normalize* out_buf, struct params_detect* params) /* detect node function */
+    {
+        node_t node = *_node;
+#ifdef DEBUG
+        char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
+        tabbuf[node.node] = '\0';
+        fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
+#endif
+
+        Stream& stream = Stream::Null();
+        cv::Size blocks_per_win = numPartsWithin(win_size_, block_size_, block_stride_);
+        hog::set_up_constants(nbins_,
+                block_stride_.width, block_stride_.height,
+                blocks_per_win.width, blocks_per_win.height,
+                cells_per_block_.width, cells_per_block_.height,
+                StreamAccessor::getStream(stream));
+        /* ===========================
+         * compute scale levels
+         */
+        GpuMat * gpu_img = params->gpu_img;
+        std::vector<Rect>* found = params->found;
+        std::vector<double>* confidences = NULL;
+
+        CV_Assert( gpu_img->type() == CV_8UC1 || gpu_img->type() == CV_8UC4 );
+        CV_Assert( confidences == NULL || group_threshold_ == 0 );
+
+        std::vector<double>* level_scale = new std::vector<double>();
+        double scale = 1.0;
+        int levels = 0;
+        for (levels = 0; levels < nlevels_; levels++)
+        {
+            level_scale->push_back(scale);
+
+            if (cvRound(gpu_img->cols / scale) < win_size_.width ||
+                    cvRound(gpu_img->rows / scale) < win_size_.height ||
+                    scale0_ <= 1)
+            {
+                break;
+            }
+
+            scale *= scale0_;
+        }
+        levels = std::max(levels, 1);
+        level_scale->resize(levels);
+
+        BufferPool pool(Stream::Null());
+
+        found->clear();
+
+        GpuMat * smaller_img_array = new GpuMat[level_scale->size()];
+        GpuMat * block_hists_array = new GpuMat[level_scale->size()];
+
+        for (size_t i = 0; i < level_scale->size(); i++)
+        {
+            GpuMat * smaller_img = smaller_img_array + i;
+            GpuMat * block_hists = block_hists_array + i;
+            if (detector_.empty())
+                break;
+
+            scale = (*level_scale)[i];
+
+            Size sz(cvRound(gpu_img->cols / scale), cvRound(gpu_img->rows / scale));
+
+            if (sz == gpu_img->size())
+            {
+                *smaller_img = *gpu_img;
+            }
+            else
+            {
+                *smaller_img = pool.getBuffer(sz, gpu_img->type());
+            }
+            /*
+             * end of compute scale levels
+             * =========================== */
+
+            /* ===========================
+             * resize image
+             */
+            if (smaller_img->size() != gpu_img->size())
+            {
+                switch (gpu_img->type())
+                {
+                    case CV_8UC1: hog::resize_8UC1(*gpu_img, *smaller_img); break;
+                    case CV_8UC4: hog::resize_8UC4(*gpu_img, *smaller_img); break;
+                }
+            }
+
+            CV_Assert( smaller_img->type() == CV_8UC1 || smaller_img->type() == CV_8UC4 );
+            CV_Assert( win_stride_.width % block_stride_.width == 0 && win_stride_.height % block_stride_.height == 0 );
+            /*
+             * end of resize image
+             * =========================== */
+
+            /* ===========================
+             * compute gradients
+             */
+            //computeBlockHistograms(*smaller_img, block_hists, Stream::Null());
+            //void HOG_Impl::computeBlockHistograms(const GpuMat& img, GpuMat& block_hists, Stream& stream)
+
+            //BufferPool pool(Stream::Null());
+            //Stream& stream = Stream::Null();
+            float  angleScale = static_cast<float>(nbins_ / CV_PI);
+            *block_hists      = pool.getBuffer(1, getTotalHistSize(smaller_img->size()), CV_32FC1);
+            GpuMat grad       = pool.getBuffer(smaller_img->size(), CV_32FC2);
+            GpuMat qangle     = pool.getBuffer(smaller_img->size(), CV_8UC2);
+
+
+            switch (smaller_img->type())
+            {
+                case CV_8UC1:
+                    hog::compute_gradients_8UC1(nbins_,
+                            smaller_img->rows, smaller_img->cols, *smaller_img,
+                            angleScale,
+                            grad, qangle,
+                            gamma_correction_,
+                            StreamAccessor::getStream(stream));
+                    break;
+                case CV_8UC4:
+                    hog::compute_gradients_8UC4(nbins_,
+                            smaller_img->rows, smaller_img->cols, *smaller_img,
+                            angleScale,
+                            grad, qangle,
+                            gamma_correction_,
+                            StreamAccessor::getStream(stream));
+                    break;
+            }
+            /*
+             * end of compute gradients
+             * =========================== */
+
+            /* ===========================
+             * compute histograms
+             */
+            hog::compute_hists(nbins_,
+                    block_stride_.width, block_stride_.height,
+                    smaller_img->rows, smaller_img->cols,
+                    grad, qangle,
+                    (float)getWinSigma(),
+                    block_hists->ptr<float>(),
+                    cell_size_.width, cell_size_.height,
+                    cells_per_block_.width, cells_per_block_.height,
+                    StreamAccessor::getStream(stream));
+            /*
+             * end of compute histograms
+             * =========================== */
+        }
+        delete params->gpu_img;
+
+        pthread_mutex_lock(out_mutex);
+        out_buf->found = params->found;
+        out_buf->img_to_show = params->img_to_show;
+        out_buf->found = found;
+        out_buf->level_scale = level_scale;
+        out_buf->smaller_img_array = smaller_img_array;
+        out_buf->block_hists_array = block_hists_array;
+        out_buf->confidences = NULL;
+        CheckError(pgm_complete(node));
+        pthread_mutex_unlock(out_mutex);
+        free(params);
+        pthread_exit(0);
+    }
+
+
+    void* HOG_Impl::thread_vxHOGFeatures(node_t* _node, pthread_mutex_t* out_mutex, struct params_display* out_buf, struct params_normalize* params) /* detect node function */
+    {
+        node_t node = *_node;
+#ifdef DEBUG
+        char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
+        tabbuf[node.node] = '\0';
+        fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
+#endif
+        std::vector<Rect>* found = params->found;
+        std::vector<double> * level_scale = params->level_scale;
+        std::vector<double> * confidences = params->confidences;
+        GpuMat * smaller_img_array = params->smaller_img_array;
+        GpuMat * block_hists_array = params->block_hists_array;
+
+        Stream& stream = Stream::Null();
+        BufferPool pool(Stream::Null());
+
+        double scale;
+
+        for (size_t i = 0; i < level_scale->size(); i++)
+        {
+            GpuMat * smaller_img = smaller_img_array + i;
+            GpuMat * block_hists = block_hists_array + i;
+            scale = (*level_scale)[i];
+
+            // block_hists
+            /* ===========================
+             * normalize histograms
+             */
+            hog::normalize_hists(nbins_,
+                    block_stride_.width, block_stride_.height,
+                    smaller_img->rows, smaller_img->cols,
+                    block_hists->ptr<float>(),
+                    (float)threshold_L2hys_,
+                    cell_size_.width, cell_size_.height,
+                    cells_per_block_.width, cells_per_block_.height,
+                    StreamAccessor::getStream(Stream::Null()));
+            /*
+             * end of nomalize histograms
+             * =========================== */
+        }
+
+        GpuMat * labels_array = new GpuMat[level_scale->size()];
+        for (size_t i = 0; i < level_scale->size(); i++)
+        {
+            GpuMat * smaller_img = smaller_img_array + i;
+            GpuMat * block_hists = block_hists_array + i;
+            GpuMat * labels = labels_array + i;
+            scale = (*level_scale)[i];
+            // block_hists
+            /* ===========================
+             * classify
+             */
+            Size wins_per_img = numPartsWithin(smaller_img->size(), win_size_, win_stride_);
+
+            if (confidences == NULL)
+            {
+                *labels = pool.getBuffer(1, wins_per_img.area(), CV_8UC1);
+
+                hog::classify_hists(win_size_.height, win_size_.width,
+                        block_stride_.height, block_stride_.width,
+                        win_stride_.height, win_stride_.width,
+                        smaller_img->rows, smaller_img->cols,
+                        block_hists->ptr<float>(),
+                        detector_.ptr<float>(),
+                        (float)free_coef_,
+                        (float)hit_threshold_,
+                        cell_size_.width, cells_per_block_.width,
+                        labels->ptr());
+            }
+            else
+            {
+                *labels = pool.getBuffer(1, wins_per_img.area(), CV_32FC1);
+
+                hog::compute_confidence_hists(win_size_.height, win_size_.width,
+                        block_stride_.height, block_stride_.width,
+                        win_stride_.height, win_stride_.width,
+                        smaller_img->rows, smaller_img->cols,
+                        block_hists->ptr<float>(),
+                        detector_.ptr<float>(),
+                        (float)free_coef_,
+                        (float)hit_threshold_,
+                        cell_size_.width, cells_per_block_.width,
+                        labels->ptr<float>());
+            }
+            /*
+             * end of classify
+             * =========================== */
+        }
+
+        for (size_t i = 0; i < level_scale->size(); i++)
+        {
+            GpuMat * smaller_img = smaller_img_array + i;
+            GpuMat * block_hists = block_hists_array + i;
+            GpuMat * labels = labels_array + i;
+            scale = (*level_scale)[i];
+
+            // labels
+            /* ===========================
+             * collect locations
+             */
+            std::vector<double> level_confidences;
+            std::vector<double>* level_confidences_ptr = confidences ? &level_confidences : NULL;
+            std::vector<Point> level_hits;
+            Size wins_per_img = numPartsWithin(smaller_img->size(), win_size_, win_stride_);
+            level_hits.clear();
+
+            if (level_confidences_ptr == NULL)
+            {
+                Mat labels_host;
+                labels->download(labels_host);
+                unsigned char* vec = labels_host.ptr();
+
+                for (int i = 0; i < wins_per_img.area(); i++)
+                {
+                    int y = i / wins_per_img.width;
+                    int x = i - wins_per_img.width * y;
+                    if (vec[i])
+                        level_hits.push_back(Point(x * win_stride_.width, y * win_stride_.height));
+                }
+            }
+            else
+            {
+                Mat labels_host;
+                labels->download(labels_host);
+                float* vec = labels_host.ptr<float>();
+
+                level_confidences_ptr->clear();
+                for (int i = 0; i < wins_per_img.area(); i++)
+                {
+                    int y = i / wins_per_img.width;
+                    int x = i - wins_per_img.width * y;
+
+                    if (vec[i] >= hit_threshold_)
+                    {
+                        level_hits.push_back(Point(x * win_stride_.width, y * win_stride_.height));
+                        level_confidences_ptr->push_back((double)vec[i]);
+                    }
+                }
+            }
+
+            Size scaled_win_size(cvRound(win_size_.width * scale),
+                    cvRound(win_size_.height * scale));
+
+            for (size_t j = 0; j < level_hits.size(); j++)
+            {
+                found->push_back(Rect(Point2d(level_hits[j]) * scale, scaled_win_size));
+                if (confidences)
+                    confidences->push_back(level_confidences[j]);
+            }
+            /*
+             * end of collect locations
+             * =========================== */
+            smaller_img->release();
+            block_hists->release();
+        }
+
+        if (group_threshold_ > 0)
+        {
+            groupRectangles(*found, group_threshold_, 0.2/*magic number copied from CPU version*/);
+        }
+        delete params->level_scale;
 
         pthread_mutex_lock(out_mutex);
         out_buf->found = params->found;

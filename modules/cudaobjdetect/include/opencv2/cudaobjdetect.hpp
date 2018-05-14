@@ -188,7 +188,11 @@ public:
                          OutputArray descriptors,
                          Stream& stream = Stream::Null()) = 0;
 
-    virtual void* detect_node_top(node_t* _node, pthread_barrier_t*) = 0;
+    virtual void* vxHOGCells_node_top(node_t* _node, pthread_barrier_t*) = 0;
+    virtual void* vxHOGFeatures_node_top(node_t* _node, pthread_barrier_t*) = 0;
+    virtual void* classify_node_top(node_t* _node, pthread_barrier_t*) = 0;
+    virtual void* collect_locations_node_top(node_t* _node, pthread_barrier_t*) = 0;
+
 };
 
 //
