@@ -213,7 +213,7 @@ namespace
         virtual void* vxHOGCells_node_top(node_t* _node, pthread_barrier_t* init_barrier);
         virtual void* vxHOGFeatures_node_top(node_t* _node, pthread_barrier_t*);
         virtual void* classify_node_top(node_t* _node, pthread_barrier_t*);
-        virtual void* collect_locations_node_top(node_t* _node, pthread_barrier_t*);
+        virtual void* collect_location_node_top(node_t* _node, pthread_barrier_t*);
 
         /* detect node function */
         void* thread_detect(node_t* _node, pthread_mutex_t* out_mutex, struct params_display* out_buf, struct params_detect* params);
@@ -222,7 +222,9 @@ namespace
         /* vxHOGFeatureNode node function */
         void* thread_vxHOGFeatures(node_t* _node, pthread_mutex_t* out_mutex, struct params_classify* out_buf, struct params_normalize* params);
         /* classify node function */
-        void* thread_classify(node_t* _node, pthread_mutex_t* out_mutex, struct params_display* out_buf, struct params_classify* params);
+        void* thread_classify(node_t* _node, pthread_mutex_t* out_mutex, struct params_collect_location* out_buf, struct params_classify* params);
+        /* collect location node function */
+        void* thread_collect_location(node_t* _node, pthread_mutex_t* out_mutex, struct params_display* out_buf, struct params_collect_location* params);
 
     private:
         Size win_size_;
@@ -279,6 +281,17 @@ namespace
         GpuMat * block_hists_array;
         std::vector<double> * level_scale;
         std::vector<double> * confidences;
+    };
+
+    struct params_collect_location
+    {
+        std::vector<Rect> * found;
+        Mat * img_to_show;
+        GpuMat * smaller_img_array;
+        GpuMat * block_hists_array;
+        std::vector<double> * level_scale;
+        std::vector<double> * confidences;
+        GpuMat * labels_array;
     };
 
     struct params_display
@@ -473,7 +486,7 @@ namespace
 
         edge_t *out_edge = (edge_t *)calloc(1, sizeof(edge_t));
         CheckError(pgm_get_edges_out(node, out_edge, 1));
-        struct params_display *out_buf = (struct params_display *)pgm_get_edge_buf_p(*out_edge);
+        struct params_collect_location *out_buf = (struct params_collect_location *)pgm_get_edge_buf_p(*out_edge);
         if (out_buf == NULL)
             fprintf(stderr, "detect node out buffer is NULL\n");
 
@@ -540,7 +553,7 @@ namespace
         free(t);
         pthread_exit(0);
     }
-    void* HOG_Impl::collect_locations_node_top(node_t* _node, pthread_barrier_t* init_barrier)
+    void* HOG_Impl::collect_location_node_top(node_t* _node, pthread_barrier_t* init_barrier)
     {
         node_t node = *_node;
 #ifdef DEBUG
@@ -552,7 +565,7 @@ namespace
 
         edge_t *in_edge = (edge_t *)calloc(1, sizeof(edge_t));
         CheckError(pgm_get_edges_in(node, in_edge, 1));
-        struct params_normalize *in_buf = (struct params_normalize *)pgm_get_edge_buf_c(*in_edge);
+        struct params_collect_location *in_buf = (struct params_collect_location *)pgm_get_edge_buf_c(*in_edge);
         if (in_buf == NULL)
             fprintf(stderr, "detect node in buffer is NULL\n");
 
@@ -570,7 +583,7 @@ namespace
 
         int i = 0;
         unsigned int indx = 0;
-        struct params_normalize* tp;
+        struct params_collect_location* tp;
 
         if(!hog_errors)
         {
@@ -583,21 +596,22 @@ namespace
 #ifdef DEBUG
                     fprintf(stdout, "%s%d fires (top)\n", tabbuf, node.node);
 #endif
-                    tp = (struct params_normalize*)calloc(1, sizeof(struct params_normalize));
+                    tp = (struct params_collect_location*)calloc(1, sizeof(struct params_collect_location));
                     tp->found = in_buf->found;
                     tp->img_to_show = in_buf->img_to_show;
                     tp->smaller_img_array = in_buf->smaller_img_array;
                     tp->block_hists_array = in_buf->block_hists_array;
                     tp->level_scale = in_buf->level_scale;
                     tp->confidences = in_buf->confidences;
+                    tp->labels_array = in_buf->labels_array;
 
                     i = indx++ % 4;
                     if (t[i] == NULL) {
-                        //t[i] = new std::thread(&HOG_Impl::thread_vxHOGFeatures, this, _node, &out_mutex, out_buf, tp);
+                        t[i] = new std::thread(&HOG_Impl::thread_collect_location, this, _node, &out_mutex, out_buf, tp);
                     } else {
                         t[i]->join();
                         delete t[i];
-                        //t[i] = new std::thread(&HOG_Impl::thread_vxHOGFeatures, this, _node, &out_mutex, out_buf, tp);
+                        t[i] = new std::thread(&HOG_Impl::thread_collect_location, this, _node, &out_mutex, out_buf, tp);
                     }
                 }
                 else
@@ -1139,7 +1153,7 @@ namespace
         pthread_exit(0);
     }
 
-    void* HOG_Impl::thread_classify(node_t* _node, pthread_mutex_t* out_mutex, struct params_display* out_buf, struct params_classify* params)
+    void* HOG_Impl::thread_classify(node_t* _node, pthread_mutex_t* out_mutex, struct params_collect_location* out_buf, struct params_classify* params)
     {
         node_t node = *_node;
 #ifdef DEBUG
@@ -1204,6 +1218,40 @@ namespace
              * end of classify
              * =========================== */
         }
+
+        pthread_mutex_lock(out_mutex);
+        out_buf->found = params->found;
+        out_buf->img_to_show = params->img_to_show;
+        out_buf->level_scale = level_scale;
+        out_buf->smaller_img_array = smaller_img_array;
+        out_buf->block_hists_array = block_hists_array;
+        out_buf->confidences = params->confidences;
+        out_buf->labels_array = labels_array;
+        CheckError(pgm_complete(node));
+        pthread_mutex_unlock(out_mutex);
+        free(params);
+        pthread_exit(0);
+    }
+
+    void* HOG_Impl::thread_collect_location(node_t* _node, pthread_mutex_t* out_mutex, struct params_display* out_buf, struct params_collect_location* params)
+    {
+        node_t node = *_node;
+#ifdef DEBUG
+        char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
+        tabbuf[node.node] = '\0';
+        fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
+#endif
+        std::vector<Rect>* found = params->found;
+        std::vector<double> * level_scale = params->level_scale;
+        std::vector<double> * confidences = params->confidences;
+        GpuMat * smaller_img_array = params->smaller_img_array;
+        GpuMat * block_hists_array = params->block_hists_array;
+        GpuMat * labels_array = params->labels_array;
+
+        //Stream& stream = Stream::Null();
+        //BufferPool pool(Stream::Null());
+
+        double scale;
 
         for (size_t i = 0; i < level_scale->size(); i++)
         {
@@ -1270,13 +1318,15 @@ namespace
              * =========================== */
             smaller_img->release();
             block_hists->release();
+            labels->release();
         }
 
         if (group_threshold_ > 0)
         {
             groupRectangles(*found, group_threshold_, 0.2/*magic number copied from CPU version*/);
         }
-        delete params->level_scale;
+        if (params->level_scale != NULL) delete params->level_scale;
+        if (params->confidences != NULL) delete params->confidences;
 
         pthread_mutex_lock(out_mutex);
         out_buf->found = params->found;
