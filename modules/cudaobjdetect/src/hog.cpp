@@ -52,7 +52,7 @@ int hog_errors;
 
 __thread char hog_errstr[80];
 
-//#define DEBUG 0
+//#define LOG_DEBUG 1
 #define CheckError(e) \
 do { int __ret = (e); \
 if(__ret < 0) { \
@@ -400,7 +400,7 @@ namespace
     void* HOG_Impl::fine_compute_scales_node_top(node_t* _node, pthread_barrier_t* init_barrier)
     {
         node_t node = *_node;
-#ifdef DEBUG
+#ifdef LOG_DEBUG
         char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
         tabbuf[node.node] = '\0';
 #endif
@@ -437,7 +437,7 @@ namespace
                 if(ret != PGM_TERMINATE)
                 {
                     CheckError(ret);
-#ifdef DEBUG
+#ifdef LOG_DEBUG
                     fprintf(stdout, "%s%d fires (top)\n", tabbuf, node.node);
 #endif
                     tp = (struct params_compute*)malloc(sizeof(struct params_compute));
@@ -461,7 +461,7 @@ namespace
                             t[i]->join();
                         }
                     }
-#ifdef DEBUG
+#ifdef LOG_DEBUG
                     fprintf(stdout, "%s- %d terminates\n", tabbuf, node.node);
 #endif
                     pgm_terminate(node);
@@ -484,7 +484,7 @@ namespace
             struct params_resize* out_buf, struct params_compute* params)
     {
         node_t node = *_node;
-#ifdef DEBUG
+#ifdef LOG_DEBUG
         char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
         tabbuf[node.node] = '\0';
         fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
@@ -573,7 +573,7 @@ namespace
     void* HOG_Impl::fine_resize_node_top(node_t* _node, pthread_barrier_t* init_barrier)
     {
         node_t node = *_node;
-#ifdef DEBUG
+#ifdef LOG_DEBUG
         char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
         tabbuf[node.node] = '\0';
 #endif
@@ -610,7 +610,7 @@ namespace
                 if(ret != PGM_TERMINATE)
                 {
                     CheckError(ret);
-#ifdef DEBUG
+#ifdef LOG_DEBUG
                     fprintf(stdout, "%s%d fires (top)\n", tabbuf, node.node);
 #endif
                     tp = (struct params_resize*)malloc(sizeof(struct params_resize));
@@ -639,7 +639,7 @@ namespace
                             t[i]->join();
                         }
                     }
-#ifdef DEBUG
+#ifdef LOG_DEBUG
                     fprintf(stdout, "%s- %d terminates\n", tabbuf, node.node);
 #endif
                     pgm_terminate(node);
@@ -662,7 +662,7 @@ namespace
             struct params_compute_gradients* out_buf, struct params_resize* params)
     {
         node_t node = *_node;
-#ifdef DEBUG
+#ifdef LOG_DEBUG
         char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
         tabbuf[node.node] = '\0';
         fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
@@ -708,7 +708,7 @@ namespace
     void* HOG_Impl::fine_compute_gradients_node_top(node_t* _node, pthread_barrier_t* init_barrier)
     {
         node_t node = *_node;
-#ifdef DEBUG
+#ifdef LOG_DEBUG
         char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
         tabbuf[node.node] = '\0';
 #endif
@@ -745,7 +745,7 @@ namespace
                 if(ret != PGM_TERMINATE)
                 {
                     CheckError(ret);
-#ifdef DEBUG
+#ifdef LOG_DEBUG
                     fprintf(stdout, "%s%d fires (top)\n", tabbuf, node.node);
 #endif
                     tp = (struct params_compute_gradients*)malloc(sizeof(struct params_compute_gradients));
@@ -774,7 +774,7 @@ namespace
                             t[i]->join();
                         }
                     }
-#ifdef DEBUG
+#ifdef LOG_DEBUG
                     fprintf(stdout, "%s- %d terminates\n", tabbuf, node.node);
 #endif
                     pgm_terminate(node);
@@ -797,7 +797,7 @@ namespace
             struct params_compute_histograms* out_buf, struct params_compute_gradients* params)
     {
         node_t node = *_node;
-#ifdef DEBUG
+#ifdef LOG_DEBUG
         char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
         tabbuf[node.node] = '\0';
         fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
@@ -862,7 +862,7 @@ namespace
     void* HOG_Impl::fine_compute_histograms_node_top(node_t* _node, pthread_barrier_t* init_barrier)
     {
         node_t node = *_node;
-#ifdef DEBUG
+#ifdef LOG_DEBUG
         char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
         tabbuf[node.node] = '\0';
 #endif
@@ -899,7 +899,7 @@ namespace
                 if(ret != PGM_TERMINATE)
                 {
                     CheckError(ret);
-#ifdef DEBUG
+#ifdef LOG_DEBUG
                     fprintf(stdout, "%s%d fires (top)\n", tabbuf, node.node);
 #endif
                     tp = (struct params_compute_histograms*)malloc(sizeof(struct params_compute_histograms));
@@ -930,7 +930,7 @@ namespace
                             t[i]->join();
                         }
                     }
-#ifdef DEBUG
+#ifdef LOG_DEBUG
                     fprintf(stdout, "%s- %d terminates\n", tabbuf, node.node);
 #endif
                     pgm_terminate(node);
@@ -953,7 +953,7 @@ namespace
             struct params_fine_normalize* out_buf, struct params_compute_histograms* params)
     {
         node_t node = *_node;
-#ifdef DEBUG
+#ifdef LOG_DEBUG
         char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
         tabbuf[node.node] = '\0';
         fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
@@ -1010,7 +1010,7 @@ namespace
     void* HOG_Impl::fine_normalize_histograms_node_top(node_t* _node, pthread_barrier_t* init_barrier)
     {
         node_t node = *_node;
-#ifdef DEBUG
+#ifdef LOG_DEBUG
         char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
         tabbuf[node.node] = '\0';
 #endif
@@ -1047,7 +1047,7 @@ namespace
                 if(ret != PGM_TERMINATE)
                 {
                     CheckError(ret);
-#ifdef DEBUG
+#ifdef LOG_DEBUG
                     fprintf(stdout, "%s%d fires (top)\n", tabbuf, node.node);
 #endif
                     tp = (struct params_fine_normalize*)malloc(sizeof(struct params_fine_normalize));
@@ -1077,7 +1077,7 @@ namespace
                             t[i]->join();
                         }
                     }
-#ifdef DEBUG
+#ifdef LOG_DEBUG
                     fprintf(stdout, "%s- %d terminates\n", tabbuf, node.node);
 #endif
                     pgm_terminate(node);
@@ -1100,7 +1100,7 @@ namespace
             struct params_fine_classify* out_buf, struct params_fine_normalize* params)
     {
         node_t node = *_node;
-#ifdef DEBUG
+#ifdef LOG_DEBUG
         char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
         tabbuf[node.node] = '\0';
         fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
@@ -1147,7 +1147,7 @@ namespace
     void* HOG_Impl::fine_classify_node_top(node_t* _node, pthread_barrier_t* init_barrier)
     {
         node_t node = *_node;
-#ifdef DEBUG
+#ifdef LOG_DEBUG
         char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
         tabbuf[node.node] = '\0';
 #endif
@@ -1184,7 +1184,7 @@ namespace
                 if(ret != PGM_TERMINATE)
                 {
                     CheckError(ret);
-#ifdef DEBUG
+#ifdef LOG_DEBUG
                     fprintf(stdout, "%s%d fires (top)\n", tabbuf, node.node);
 #endif
                     tp = (struct params_fine_classify*)malloc(sizeof(struct params_fine_classify));
@@ -1214,7 +1214,7 @@ namespace
                             t[i]->join();
                         }
                     }
-#ifdef DEBUG
+#ifdef LOG_DEBUG
                     fprintf(stdout, "%s- %d terminates\n", tabbuf, node.node);
 #endif
                     pgm_terminate(node);
@@ -1237,7 +1237,7 @@ namespace
             struct params_fine_collect_locations* out_buf, struct params_fine_classify* params)
     {
         node_t node = *_node;
-#ifdef DEBUG
+#ifdef LOG_DEBUG
         char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
         tabbuf[node.node] = '\0';
         fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
@@ -1318,7 +1318,7 @@ namespace
     void* HOG_Impl::fine_collect_locations_node_top(node_t* _node, pthread_barrier_t* init_barrier)
     {
         node_t node = *_node;
-#ifdef DEBUG
+#ifdef LOG_DEBUG
         char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
         tabbuf[node.node] = '\0';
 #endif
@@ -1361,7 +1361,7 @@ namespace
                 if(ret != PGM_TERMINATE)
                 {
                     CheckError(ret);
-#ifdef DEBUG
+#ifdef LOG_DEBUG
                     fprintf(stdout, "%s%d fires (top)\n", tabbuf, node.node);
 #endif
                     tp = (struct params_fine_collect_locations*)
@@ -1425,7 +1425,7 @@ namespace
                             t[i]->join();
                         }
                     }
-#ifdef DEBUG
+#ifdef LOG_DEBUG
                     fprintf(stdout, "%s- %d terminates\n", tabbuf, node.node);
 #endif
                     pgm_terminate(node);
@@ -1448,7 +1448,7 @@ namespace
             struct params_display* out_buf, struct params_fine_collect_locations* params)
     {
         node_t node = *_node;
-#ifdef DEBUG
+#ifdef LOG_DEBUG
         char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
         tabbuf[node.node] = '\0';
         fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
@@ -1549,7 +1549,7 @@ namespace
     void* HOG_Impl::vxHOGCells_node_top(node_t* _node, pthread_barrier_t* init_barrier)
     {
         node_t node = *_node;
-#ifdef DEBUG
+#ifdef LOG_DEBUG
         char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
         tabbuf[node.node] = '\0';
 #endif
@@ -1586,7 +1586,7 @@ namespace
                 if(ret != PGM_TERMINATE)
                 {
                     CheckError(ret);
-#ifdef DEBUG
+#ifdef LOG_DEBUG
                     fprintf(stdout, "%s%d fires (top)\n", tabbuf, node.node);
 #endif
                     tp = (struct params_compute*)malloc(sizeof(struct params_compute));
@@ -1610,7 +1610,7 @@ namespace
                             t[i]->join();
                         }
                     }
-#ifdef DEBUG
+#ifdef LOG_DEBUG
                     fprintf(stdout, "%s- %d terminates\n", tabbuf, node.node);
 #endif
                     pgm_terminate(node);
@@ -1632,7 +1632,7 @@ namespace
     void* HOG_Impl::vxHOGFeatures_node_top(node_t* _node, pthread_barrier_t* init_barrier)
     {
         node_t node = *_node;
-#ifdef DEBUG
+#ifdef LOG_DEBUG
         char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
         tabbuf[node.node] = '\0';
 #endif
@@ -1669,7 +1669,7 @@ namespace
                 if(ret != PGM_TERMINATE)
                 {
                     CheckError(ret);
-#ifdef DEBUG
+#ifdef LOG_DEBUG
                     fprintf(stdout, "%s%d fires (top)\n", tabbuf, node.node);
 #endif
                     tp = (struct params_normalize*)calloc(1, sizeof(struct params_normalize));
@@ -1696,7 +1696,7 @@ namespace
                             t[i]->join();
                         }
                     }
-#ifdef DEBUG
+#ifdef LOG_DEBUG
                     fprintf(stdout, "%s- %d terminates\n", tabbuf, node.node);
 #endif
                     pgm_terminate(node);
@@ -1717,7 +1717,7 @@ namespace
     void* HOG_Impl::classify_node_top(node_t* _node, pthread_barrier_t* init_barrier)
     {
         node_t node = *_node;
-#ifdef DEBUG
+#ifdef LOG_DEBUG
         char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
         tabbuf[node.node] = '\0';
 #endif
@@ -1754,7 +1754,7 @@ namespace
                 if(ret != PGM_TERMINATE)
                 {
                     CheckError(ret);
-#ifdef DEBUG
+#ifdef LOG_DEBUG
                     fprintf(stdout, "%s%d fires (top)\n", tabbuf, node.node);
 #endif
                     tp = (struct params_classify*)malloc(sizeof(struct params_classify));
@@ -1781,7 +1781,7 @@ namespace
                             t[i]->join();
                         }
                     }
-#ifdef DEBUG
+#ifdef LOG_DEBUG
                     fprintf(stdout, "%s- %d terminates\n", tabbuf, node.node);
 #endif
                     pgm_terminate(node);
@@ -1802,7 +1802,7 @@ namespace
     void* HOG_Impl::collect_locations_node_top(node_t* _node, pthread_barrier_t* init_barrier)
     {
         node_t node = *_node;
-#ifdef DEBUG
+#ifdef LOG_DEBUG
         char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
         tabbuf[node.node] = '\0';
 #endif
@@ -1839,7 +1839,7 @@ namespace
                 if(ret != PGM_TERMINATE)
                 {
                     CheckError(ret);
-#ifdef DEBUG
+#ifdef LOG_DEBUG
                     fprintf(stdout, "%s%d fires (top)\n", tabbuf, node.node);
 #endif
                     tp = (struct params_collect_locations*)calloc(1, sizeof(struct params_collect_locations));
@@ -1867,7 +1867,7 @@ namespace
                             t[i]->join();
                         }
                     }
-#ifdef DEBUG
+#ifdef LOG_DEBUG
                     fprintf(stdout, "%s- %d terminates\n", tabbuf, node.node);
 #endif
                     pgm_terminate(node);
@@ -1890,7 +1890,7 @@ namespace
     void* HOG_Impl::thread_vxHOGCells(node_t* _node, pthread_mutex_t* out_mutex, struct params_normalize* out_buf, struct params_compute* params) /* detect node function */
     {
         node_t node = *_node;
-#ifdef DEBUG
+#ifdef LOG_DEBUG
         char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
         tabbuf[node.node] = '\0';
         fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
@@ -2052,7 +2052,7 @@ namespace
     void* HOG_Impl::thread_vxHOGFeatures(node_t* _node, pthread_mutex_t* out_mutex, struct params_classify* out_buf, struct params_normalize* params)
     {
         node_t node = *_node;
-#ifdef DEBUG
+#ifdef LOG_DEBUG
         char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
         tabbuf[node.node] = '\0';
         fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
@@ -2103,7 +2103,7 @@ namespace
     void* HOG_Impl::thread_classify(node_t* _node, pthread_mutex_t* out_mutex, struct params_collect_locations* out_buf, struct params_classify* params)
     {
         node_t node = *_node;
-#ifdef DEBUG
+#ifdef LOG_DEBUG
         char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
         tabbuf[node.node] = '\0';
         fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
@@ -2180,7 +2180,7 @@ namespace
     void* HOG_Impl::thread_collect_location(node_t* _node, pthread_mutex_t* out_mutex, struct params_display* out_buf, struct params_collect_locations* params)
     {
         node_t node = *_node;
-#ifdef DEBUG
+#ifdef LOG_DEBUG
         char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
         tabbuf[node.node] = '\0';
         fprintf(stdout, "%s%d fires\n", tabbuf, node.node);

@@ -27,7 +27,7 @@ int hog_sample_errors;
 
 __thread char hog_sample_errstr[80];
 
-//#define DEBUG 0
+//#define LOG_DEBUG 1
 #define CheckError(e) \
 do { int __ret = (e); \
 if(__ret < 0) { \
@@ -252,6 +252,7 @@ private:
     bool gamma_corr;
 
     int64 hog_work_begin;
+    int64 hog_work_end;
     double hog_work_fps;
 
     int64 work_begin;
@@ -451,7 +452,7 @@ App::App(const Args& s)
 void* App::display_node_top(node_t* _node)
 {
     node_t node = *_node;
-#ifdef DEBUG
+#ifdef LOG_DEBUG
     char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
     tabbuf[node.node] = '\0';
 #endif
@@ -480,12 +481,14 @@ void* App::display_node_top(node_t* _node)
             if(ret != PGM_TERMINATE)
             {
                 CheckError(ret);
-#ifdef DEBUG
+#ifdef LOG_DEBUG
                 fprintf(stdout, "%s%d fires (top)\n", tabbuf, node.node);
 #endif
 
                 tp = (struct params_display*)malloc(sizeof(struct params_display));
+#ifdef LOG_DEBUG
                 fprintf(stdout, "found addr: %p, img_to_show: %p\n", in_buf->found, in_buf->img_to_show);
+#endif
                 tp->found = in_buf->found;
                 tp->img_to_show = in_buf->img_to_show;
 
@@ -505,7 +508,7 @@ void* App::display_node_top(node_t* _node)
                         t[i]->join();
                     }
                 }
-#ifdef DEBUG
+#ifdef LOG_DEBUG
                 fprintf(stdout, "%s- %d terminates\n", tabbuf, node.node);
 #endif
                 pgm_terminate(node);
@@ -526,21 +529,23 @@ void* App::display_node_top(node_t* _node)
 void* App::thread_display(node_t* _node, struct params_display* params) /* display node function */
 {
     node_t node = *_node;
-#ifdef DEBUG
+#ifdef LOG_DEBUG
     char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
     tabbuf[node.node] = '\0';
     fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
 #endif
 
     hogWorkEnd();
+    printf("response time: %f\n", 1/hog_work_fps);
 
     // Draw positive classified windows
-    fprintf(stdout, "thread_display: found addr: %p, img_to_show: %p\n", params->found, params->img_to_show);
     for (size_t i = 0; i < params->found->size(); i++)
     {
         Rect r = (*params->found)[i];
         rectangle(*params->img_to_show, r.tl(), r.br(), Scalar(0, 255, 0), 3);
+#ifdef LOG_DEBUG
         fprintf(stdout, "point: %d, %d, %d, %d\n", r.tl().x, r.tl().y, r.br().x, r.br().y);
+#endif
     }
 
     if (use_gpu)
@@ -659,7 +664,8 @@ void App::sched_coarse_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescri
     pthread_barrier_wait(&init_barrier);
 
 
-    while (running)
+    int count_frame = 0;
+    while (count_frame++ < 1000 && running)
     {
         unsigned int count = 1;
 
@@ -698,10 +704,9 @@ void App::sched_coarse_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescri
 
 
         // Iterate over all frames
-        while (running && !frame.empty())
+        while (count_frame++ < 1000 && running && !frame.empty())
         {
-            usleep(15000);
-            fprintf(stdout, "0 fires: image_to_show: %p, found: %p\n", img, found);
+            usleep(51000);
             workBegin();
 
             // Change format of the image
@@ -912,7 +917,8 @@ void App::sched_fine_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
     pthread_barrier_wait(&init_barrier);
 
 
-    while (running)
+    int count_frame = 0;
+    while (count_frame++ < 1000 && running)
     {
         unsigned int count = 1;
 
@@ -951,10 +957,10 @@ void App::sched_fine_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
 
 
         // Iterate over all frames
-        while (running && !frame.empty())
+        while (count_frame++ < 1000 && running && !frame.empty())
         {
             usleep(51000);
-            fprintf(stdout, "0 fires: image_to_show: %p, found: %p\n", img, found);
+            //fprintf(stdout, "0 fires: image_to_show: %p, found: %p\n", img, found);
             workBegin();
 
             // Change format of the image
@@ -1077,7 +1083,8 @@ void App::sched_etoe_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_h
     Mat frame;
     vector<String> filenames;
 
-    while (running)
+    int count_frame = 0;
+    while (count_frame++ < 1000 && running)
     {
 
         unsigned int count = 1;
@@ -1116,7 +1123,7 @@ void App::sched_etoe_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_h
         }
 
         // Iterate over all frames
-        while (running && !frame.empty())
+        while (count_frame++ < 1000 && running && !frame.empty())
         {
             workBegin();
 
@@ -1151,6 +1158,7 @@ void App::sched_etoe_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_h
             hogWorkEnd();
 
             // Draw positive classified windows
+            printf("response time: %f\n", 1/hog_work_fps);
             for (size_t i = 0; i < found->size(); i++)
             {
                 Rect r = (*found)[i];
@@ -1336,7 +1344,9 @@ inline void App::hogWorkBegin() { hog_work_begin = getTickCount(); }
 
 inline void App::hogWorkEnd()
 {
-    int64 delta = getTickCount() - hog_work_begin;
+    hog_work_end = getTickCount();
+
+    int64 delta = hog_work_end - hog_work_begin;
     double freq = getTickFrequency();
     hog_work_fps = freq / delta;
 }
