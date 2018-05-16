@@ -89,42 +89,13 @@ public:
     scheduling_option sched;
 };
 
-struct params_compute
-{
-    cv::cuda::GpuMat * gpu_img;
-    vector<Rect> * found;
-    Mat * img_to_show;
-};
-
-struct params_resize
+struct params_compute  // a.k.a. compute scales node
 {
     cv::cuda::GpuMat * gpu_img;
     std::vector<Rect> * found;
     Mat * img_to_show;
-    cv::cuda::GpuMat * smaller_img_array;
-    std::vector<double> * level_scale;
-    std::vector<double> * confidences;
 };
 
-struct params_compute_gradients
-{
-    std::vector<Rect> * found;
-    Mat * img_to_show;
-    cv::cuda::GpuMat * smaller_img_array;
-    std::vector<double> * level_scale;
-    std::vector<double> * confidences;
-};
-
-struct params_compute_histograms
-{
-    std::vector<Rect> * found;
-    Mat * img_to_show;
-    cv::cuda::GpuMat * smaller_img_array;
-    cv::cuda::GpuMat * grad_array;
-    cv::cuda::GpuMat * qangle_array;
-    std::vector<double> * level_scale;
-    std::vector<double> * confidences;
-};
 
 struct params_normalize
 {
@@ -135,6 +106,7 @@ struct params_normalize
     std::vector<double> * level_scale;
     std::vector<double> * confidences;
 };
+
 struct params_classify
 {
     std::vector<Rect> * found;
@@ -144,6 +116,7 @@ struct params_classify
     std::vector<double> * level_scale;
     std::vector<double> * confidences;
 };
+
 struct params_collect_locations
 {
     std::vector<Rect> * found;
@@ -154,11 +127,90 @@ struct params_collect_locations
     std::vector<double> * confidences;
     cv::cuda::GpuMat * labels_array;
 };
+
+/* fine-grained */
+struct params_resize
+{
+    cv::cuda::GpuMat * gpu_img;
+    std::vector<Rect> * found;
+    Mat * img_to_show;
+    cv::cuda::GpuMat * smaller_img;
+    cv::cuda::GpuMat * labels;
+    std::vector<double> * level_scale;
+    std::vector<double> * confidences;
+    int index;
+};
+
+struct params_compute_gradients
+{
+    cv::cuda::GpuMat * gpu_img;
+    std::vector<Rect> * found;
+    Mat * img_to_show;
+    cv::cuda::GpuMat * smaller_img;
+    cv::cuda::GpuMat * labels;
+    std::vector<double> * level_scale;
+    std::vector<double> * confidences;
+    int index;
+};
+
+struct params_compute_histograms
+{
+    cv::cuda::GpuMat * gpu_img;
+    std::vector<Rect> * found;
+    Mat * img_to_show;
+    cv::cuda::GpuMat * smaller_img;
+    cv::cuda::GpuMat * labels;
+    cv::cuda::GpuMat * grad;
+    cv::cuda::GpuMat * qangle;
+    std::vector<double> * level_scale;
+    std::vector<double> * confidences;
+    int index;
+};
+
+struct params_fine_normalize
+{
+    cv::cuda::GpuMat * gpu_img;
+    std::vector<Rect> * found;
+    Mat * img_to_show;
+    cv::cuda::GpuMat * smaller_img;
+    cv::cuda::GpuMat * labels;
+    cv::cuda::GpuMat * block_hists;
+    std::vector<double> * level_scale;
+    std::vector<double> * confidences;
+    int index;
+};
+
+struct params_fine_classify
+{
+    cv::cuda::GpuMat * gpu_img;
+    std::vector<Rect> * found;
+    Mat * img_to_show;
+    cv::cuda::GpuMat * smaller_img;
+    cv::cuda::GpuMat * labels;
+    cv::cuda::GpuMat * block_hists;
+    std::vector<double> * level_scale;
+    std::vector<double> * confidences;
+    int index;
+};
+
+struct params_fine_collect_locations
+{
+    cv::cuda::GpuMat * gpu_img;
+    std::vector<Rect> * found;
+    Mat * img_to_show;
+    cv::cuda::GpuMat * smaller_img;
+    cv::cuda::GpuMat * labels;
+    std::vector<double> * level_scale;
+    std::vector<double> * confidences;
+    int index;
+};
+
 struct params_display
 {
-    vector<Rect> * found;
+    std::vector<Rect> * found;
     Mat * img_to_show;
 };
+
 
 class App
 {
@@ -794,7 +846,7 @@ void App::sched_fine_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
 
     edge_attr_t fast_mq_attr;
     memset(&fast_mq_attr, 0, sizeof(fast_mq_attr));
-    fast_mq_attr.mq_maxmsg = 2; /* root required for higher values */
+    fast_mq_attr.mq_maxmsg = 4; /* root required for higher values */
     fast_mq_attr.type = pgm_fast_mq_edge;
 
     fast_mq_attr.nr_produce = sizeof(struct params_compute);
@@ -817,19 +869,20 @@ void App::sched_fine_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
     fast_mq_attr.nr_threshold = sizeof(struct params_compute_histograms);
     CheckError(pgm_init_edge(&e3_4, compute_gradients_node, compute_histograms_node, "e3_4", &fast_mq_attr));
 
-    fast_mq_attr.nr_produce = sizeof(struct params_normalize);
-    fast_mq_attr.nr_consume = sizeof(struct params_normalize);
-    fast_mq_attr.nr_threshold = sizeof(struct params_normalize);
+    fast_mq_attr.nr_produce = sizeof(struct params_fine_normalize);
+    fast_mq_attr.nr_consume = sizeof(struct params_fine_normalize);
+    fast_mq_attr.nr_threshold = sizeof(struct params_fine_normalize);
     CheckError(pgm_init_edge(&e4_5, compute_histograms_node, normalize_node, "e4_5", &fast_mq_attr));
 
-    fast_mq_attr.nr_produce = sizeof(struct params_classify);
-    fast_mq_attr.nr_consume = sizeof(struct params_classify);
-    fast_mq_attr.nr_threshold = sizeof(struct params_classify);
+    fast_mq_attr.nr_produce = sizeof(struct params_fine_classify);
+    fast_mq_attr.nr_consume = sizeof(struct params_fine_classify);
+    fast_mq_attr.nr_threshold = sizeof(struct params_fine_classify);
     CheckError(pgm_init_edge(&e5_6, normalize_node, classify_node, "e5_6", &fast_mq_attr));
 
-    fast_mq_attr.nr_produce = sizeof(struct params_collect_locations);
-    fast_mq_attr.nr_consume = sizeof(struct params_collect_locations);
-    fast_mq_attr.nr_threshold = sizeof(struct params_collect_locations);
+    fast_mq_attr.nr_produce = sizeof(struct params_fine_collect_locations);
+    fast_mq_attr.nr_consume = sizeof(struct params_fine_collect_locations);
+    fast_mq_attr.nr_threshold = sizeof(struct params_fine_collect_locations);
+    fast_mq_attr.mq_maxmsg = 64;
     CheckError(pgm_init_edge(&e6_7, classify_node, collect_locations_node, "e6_7", &fast_mq_attr));
 
     fast_mq_attr.nr_produce = sizeof(struct params_display);
@@ -900,7 +953,7 @@ void App::sched_fine_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
         // Iterate over all frames
         while (running && !frame.empty())
         {
-            usleep(15000);
+            usleep(51000);
             fprintf(stdout, "0 fires: image_to_show: %p, found: %p\n", img, found);
             workBegin();
 

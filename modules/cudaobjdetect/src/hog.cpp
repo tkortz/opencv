@@ -240,10 +240,10 @@ namespace
         void* thread_fine_compute_scales(node_t* _node, pthread_mutex_t* out_mutex, struct params_resize* out_buf, struct params_compute* params);
         void* thread_fine_resize(node_t* _node, pthread_mutex_t* out_mutex, struct params_compute_gradients* out_buf, struct params_resize* params);
         void* thread_fine_compute_gradients(node_t* _node, pthread_mutex_t* out_mutex, struct params_compute_histograms* out_buf, struct params_compute_gradients* params);
-        void* thread_fine_compute_histograms(node_t* _node, pthread_mutex_t* out_mutex, struct params_normalize* out_buf, struct params_compute_histograms* params);
-        void* thread_fine_normalize_histograms(node_t* _node, pthread_mutex_t* out_mutex, struct params_classify* out_buf, struct params_normalize* params);
-        void* thread_fine_classify(node_t* _node, pthread_mutex_t* out_mutex, struct params_collect_locations* out_buf, struct params_classify* params);
-        void* thread_fine_collect_locations(node_t* _node, pthread_mutex_t* out_mutex, struct params_display* out_buf, struct params_collect_locations* params);
+        void* thread_fine_compute_histograms(node_t* _node, pthread_mutex_t* out_mutex, struct params_fine_normalize* out_buf, struct params_compute_histograms* params);
+        void* thread_fine_normalize_histograms(node_t* _node, pthread_mutex_t* out_mutex, struct params_fine_classify* out_buf, struct params_fine_normalize* params);
+        void* thread_fine_classify(node_t* _node, pthread_mutex_t* out_mutex, struct params_fine_collect_locations* out_buf, struct params_fine_classify* params);
+        void* thread_fine_collect_locations(node_t* _node, pthread_mutex_t* out_mutex, struct params_display* out_buf, struct params_fine_collect_locations* params);
     private:
         Size win_size_;
         Size block_size_;
@@ -281,35 +281,6 @@ namespace
         Mat * img_to_show;
     };
 
-    struct params_resize
-    {
-        cv::cuda::GpuMat * gpu_img;
-        std::vector<Rect> * found;
-        Mat * img_to_show;
-        GpuMat * smaller_img_array;
-        std::vector<double> * level_scale;
-        std::vector<double> * confidences;
-    };
-
-    struct params_compute_gradients
-    {
-        std::vector<Rect> * found;
-        Mat * img_to_show;
-        GpuMat * smaller_img_array;
-        std::vector<double> * level_scale;
-        std::vector<double> * confidences;
-    };
-
-    struct params_compute_histograms
-    {
-        std::vector<Rect> * found;
-        Mat * img_to_show;
-        GpuMat * smaller_img_array;
-        GpuMat * grad_array;
-        GpuMat * qangle_array;
-        std::vector<double> * level_scale;
-        std::vector<double> * confidences;
-    };
 
     struct params_normalize
     {
@@ -342,13 +313,90 @@ namespace
         GpuMat * labels_array;
     };
 
+    /* fine-grained */
+    struct params_resize
+    {
+        cv::cuda::GpuMat * gpu_img;
+        std::vector<Rect> * found;
+        Mat * img_to_show;
+        GpuMat * smaller_img;
+        GpuMat * labels;
+        std::vector<double> * level_scale;
+        std::vector<double> * confidences;
+        int index;
+    };
+
+    struct params_compute_gradients
+    {
+        cv::cuda::GpuMat * gpu_img;
+        std::vector<Rect> * found;
+        Mat * img_to_show;
+        GpuMat * smaller_img;
+        GpuMat * labels;
+        std::vector<double> * level_scale;
+        std::vector<double> * confidences;
+        int index;
+    };
+
+    struct params_compute_histograms
+    {
+        cv::cuda::GpuMat * gpu_img;
+        std::vector<Rect> * found;
+        Mat * img_to_show;
+        GpuMat * smaller_img;
+        GpuMat * labels;
+        GpuMat * grad;
+        GpuMat * qangle;
+        std::vector<double> * level_scale;
+        std::vector<double> * confidences;
+        int index;
+    };
+
+    struct params_fine_normalize
+    {
+        cv::cuda::GpuMat * gpu_img;
+        std::vector<Rect> * found;
+        Mat * img_to_show;
+        GpuMat * smaller_img;
+        GpuMat * labels;
+        GpuMat * block_hists;
+        std::vector<double> * level_scale;
+        std::vector<double> * confidences;
+        int index;
+    };
+
+    struct params_fine_classify
+    {
+        cv::cuda::GpuMat * gpu_img;
+        std::vector<Rect> * found;
+        Mat * img_to_show;
+        GpuMat * smaller_img;
+        GpuMat * labels;
+        GpuMat * block_hists;
+        std::vector<double> * level_scale;
+        std::vector<double> * confidences;
+        int index;
+    };
+
+    struct params_fine_collect_locations
+    {
+        cv::cuda::GpuMat * gpu_img;
+        std::vector<Rect> * found;
+        Mat * img_to_show;
+        GpuMat * smaller_img;
+        GpuMat * labels;
+        std::vector<double> * level_scale;
+        std::vector<double> * confidences;
+        int index;
+    };
+
     struct params_display
     {
         std::vector<Rect> * found;
         Mat * img_to_show;
     };
 
-#define NUM_PARALLEL_JOB 1
+#define NUM_PARALLEL_JOB 4
     void* HOG_Impl::fine_compute_scales_node_top(node_t* _node, pthread_barrier_t* init_barrier)
     {
         node_t node = *_node;
@@ -432,523 +480,6 @@ namespace
         pthread_exit(0);
     }
 
-    void* HOG_Impl::fine_resize_node_top(node_t* _node, pthread_barrier_t* init_barrier)
-    {
-        node_t node = *_node;
-#ifdef DEBUG
-        char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
-        tabbuf[node.node] = '\0';
-#endif
-        CheckError(pgm_claim_node(node));
-        int ret = 0;
-
-        edge_t *in_edge = (edge_t *)calloc(1, sizeof(edge_t));
-        CheckError(pgm_get_edges_in(node, in_edge, 1));
-        struct params_resize *in_buf = (struct params_resize *)pgm_get_edge_buf_c(*in_edge);
-        if (in_buf == NULL)
-            fprintf(stderr, "detect node in buffer is NULL\n");
-
-        edge_t *out_edge = (edge_t *)calloc(1, sizeof(edge_t));
-        CheckError(pgm_get_edges_out(node, out_edge, 1));
-        struct params_compute_gradients *out_buf = (struct params_compute_gradients *)pgm_get_edge_buf_p(*out_edge);
-        if (out_buf == NULL)
-            fprintf(stderr, "detect node out buffer is NULL\n");
-
-        std::thread** t = (std::thread** )calloc(NUM_PARALLEL_JOB, sizeof (std::thread *));
-
-        pthread_mutex_t out_mutex = PTHREAD_MUTEX_INITIALIZER;
-
-        pthread_barrier_wait(init_barrier);
-
-        int i = 0;
-        unsigned int indx = 0;
-        struct params_resize* tp;
-
-        if(!hog_errors)
-        {
-            do {
-                ret = pgm_wait(node);
-
-                if(ret != PGM_TERMINATE)
-                {
-                    CheckError(ret);
-#ifdef DEBUG
-                    fprintf(stdout, "%s%d fires (top)\n", tabbuf, node.node);
-#endif
-                    tp = (struct params_resize*)malloc(sizeof(struct params_resize));
-                    tp->gpu_img = in_buf->gpu_img;
-                    tp->found = in_buf->found;
-                    tp->img_to_show = in_buf->img_to_show;
-                    tp->smaller_img_array = in_buf->smaller_img_array;
-                    tp->level_scale = in_buf->level_scale;
-                    tp->confidences = in_buf->confidences;
-
-                    i = indx++ % NUM_PARALLEL_JOB;
-                    if (t[i] == NULL) {
-                        t[i] = new std::thread(&HOG_Impl::thread_fine_resize, this, _node, &out_mutex, out_buf, tp);
-                    } else {
-                        t[i]->join();
-                        delete t[i];
-                        t[i] = new std::thread(&HOG_Impl::thread_fine_resize, this, _node, &out_mutex, out_buf, tp);
-                    }
-                }
-                else
-                {
-                    for (i=0; i<NUM_PARALLEL_JOB; i++) {
-                        if (t[i] != NULL && t[i]->joinable()) {
-                            t[i]->join();
-                        }
-                    }
-#ifdef DEBUG
-                    fprintf(stdout, "%s- %d terminates\n", tabbuf, node.node);
-#endif
-                    pgm_terminate(node);
-                }
-
-            } while(ret != PGM_TERMINATE);
-        }
-
-        pthread_barrier_wait(init_barrier);
-
-        CheckError(pgm_release_node(node));
-
-        free(in_edge);
-        free(out_edge);
-        free(t);
-        pthread_exit(0);
-    }
-
-    void* HOG_Impl::fine_compute_gradients_node_top(node_t* _node, pthread_barrier_t* init_barrier)
-    {
-        node_t node = *_node;
-#ifdef DEBUG
-        char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
-        tabbuf[node.node] = '\0';
-#endif
-        CheckError(pgm_claim_node(node));
-        int ret = 0;
-
-        edge_t *in_edge = (edge_t *)calloc(1, sizeof(edge_t));
-        CheckError(pgm_get_edges_in(node, in_edge, 1));
-        struct params_compute_gradients *in_buf = (struct params_compute_gradients *)pgm_get_edge_buf_c(*in_edge);
-        if (in_buf == NULL)
-            fprintf(stderr, "detect node in buffer is NULL\n");
-
-        edge_t *out_edge = (edge_t *)calloc(1, sizeof(edge_t));
-        CheckError(pgm_get_edges_out(node, out_edge, 1));
-        struct params_compute_histograms *out_buf = (struct params_compute_histograms *)pgm_get_edge_buf_p(*out_edge);
-        if (out_buf == NULL)
-            fprintf(stderr, "detect node out buffer is NULL\n");
-
-        std::thread** t = (std::thread** )calloc(NUM_PARALLEL_JOB, sizeof (std::thread *));
-
-        pthread_mutex_t out_mutex = PTHREAD_MUTEX_INITIALIZER;
-
-        pthread_barrier_wait(init_barrier);
-
-        int i = 0;
-        unsigned int indx = 0;
-        struct params_compute_gradients* tp;
-
-        if(!hog_errors)
-        {
-            do {
-                ret = pgm_wait(node);
-
-                if(ret != PGM_TERMINATE)
-                {
-                    CheckError(ret);
-#ifdef DEBUG
-                    fprintf(stdout, "%s%d fires (top)\n", tabbuf, node.node);
-#endif
-                    tp = (struct params_compute_gradients*)malloc(sizeof(struct params_compute_gradients));
-                    tp->found = in_buf->found;
-                    tp->img_to_show = in_buf->img_to_show;
-                    tp->smaller_img_array = in_buf->smaller_img_array;
-                    tp->level_scale = in_buf->level_scale;
-                    tp->confidences = in_buf->confidences;
-
-                    i = indx++ % NUM_PARALLEL_JOB;
-                    if (t[i] == NULL) {
-                        t[i] = new std::thread(&HOG_Impl::thread_fine_compute_gradients, this, _node, &out_mutex, out_buf, tp);
-                    } else {
-                        t[i]->join();
-                        delete t[i];
-                        t[i] = new std::thread(&HOG_Impl::thread_fine_compute_gradients, this, _node, &out_mutex, out_buf, tp);
-                    }
-                }
-                else
-                {
-                    for (i=0; i<NUM_PARALLEL_JOB; i++) {
-                        if (t[i] != NULL && t[i]->joinable()) {
-                            t[i]->join();
-                        }
-                    }
-#ifdef DEBUG
-                    fprintf(stdout, "%s- %d terminates\n", tabbuf, node.node);
-#endif
-                    pgm_terminate(node);
-                }
-
-            } while(ret != PGM_TERMINATE);
-        }
-
-        pthread_barrier_wait(init_barrier);
-
-        CheckError(pgm_release_node(node));
-
-        free(in_edge);
-        free(out_edge);
-        free(t);
-        pthread_exit(0);
-    }
-
-    void* HOG_Impl::fine_compute_histograms_node_top(node_t* _node, pthread_barrier_t* init_barrier)
-    {
-        node_t node = *_node;
-#ifdef DEBUG
-        char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
-        tabbuf[node.node] = '\0';
-#endif
-        CheckError(pgm_claim_node(node));
-        int ret = 0;
-
-        edge_t *in_edge = (edge_t *)calloc(1, sizeof(edge_t));
-        CheckError(pgm_get_edges_in(node, in_edge, 1));
-        struct params_compute_histograms *in_buf = (struct params_compute_histograms *)pgm_get_edge_buf_c(*in_edge);
-        if (in_buf == NULL)
-            fprintf(stderr, "detect node in buffer is NULL\n");
-
-        edge_t *out_edge = (edge_t *)calloc(1, sizeof(edge_t));
-        CheckError(pgm_get_edges_out(node, out_edge, 1));
-        struct params_normalize *out_buf = (struct params_normalize *)pgm_get_edge_buf_p(*out_edge);
-        if (out_buf == NULL)
-            fprintf(stderr, "detect node out buffer is NULL\n");
-
-        std::thread** t = (std::thread** )calloc(NUM_PARALLEL_JOB, sizeof (std::thread *));
-
-        pthread_mutex_t out_mutex = PTHREAD_MUTEX_INITIALIZER;
-
-        pthread_barrier_wait(init_barrier);
-
-        int i = 0;
-        unsigned int indx = 0;
-        struct params_compute_histograms* tp;
-
-        if(!hog_errors)
-        {
-            do {
-                ret = pgm_wait(node);
-
-                if(ret != PGM_TERMINATE)
-                {
-                    CheckError(ret);
-#ifdef DEBUG
-                    fprintf(stdout, "%s%d fires (top)\n", tabbuf, node.node);
-#endif
-                    tp = (struct params_compute_histograms*)malloc(sizeof(struct params_compute_histograms));
-                    tp->found = in_buf->found;
-                    tp->img_to_show = in_buf->img_to_show;
-                    tp->smaller_img_array = in_buf->smaller_img_array;
-                    tp->level_scale = in_buf->level_scale;
-                    tp->confidences = in_buf->confidences;
-                    tp->grad_array = in_buf->grad_array;
-                    tp->qangle_array = in_buf->qangle_array;
-
-                    i = indx++ % NUM_PARALLEL_JOB;
-                    if (t[i] == NULL) {
-                        t[i] = new std::thread(&HOG_Impl::thread_fine_compute_histograms, this, _node, &out_mutex, out_buf, tp);
-                    } else {
-                        t[i]->join();
-                        delete t[i];
-                        t[i] = new std::thread(&HOG_Impl::thread_fine_compute_histograms, this, _node, &out_mutex, out_buf, tp);
-                    }
-                }
-                else
-                {
-                    for (i=0; i<NUM_PARALLEL_JOB; i++) {
-                        if (t[i] != NULL && t[i]->joinable()) {
-                            t[i]->join();
-                        }
-                    }
-#ifdef DEBUG
-                    fprintf(stdout, "%s- %d terminates\n", tabbuf, node.node);
-#endif
-                    pgm_terminate(node);
-                }
-
-            } while(ret != PGM_TERMINATE);
-        }
-
-        pthread_barrier_wait(init_barrier);
-
-        CheckError(pgm_release_node(node));
-
-        free(in_edge);
-        free(out_edge);
-        free(t);
-        pthread_exit(0);
-    }
-
-    void* HOG_Impl::fine_normalize_histograms_node_top(node_t* _node, pthread_barrier_t* init_barrier)
-    {
-        node_t node = *_node;
-#ifdef DEBUG
-        char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
-        tabbuf[node.node] = '\0';
-#endif
-        CheckError(pgm_claim_node(node));
-        int ret = 0;
-
-        edge_t *in_edge = (edge_t *)calloc(1, sizeof(edge_t));
-        CheckError(pgm_get_edges_in(node, in_edge, 1));
-        struct params_normalize *in_buf = (struct params_normalize *)pgm_get_edge_buf_c(*in_edge);
-        if (in_buf == NULL)
-            fprintf(stderr, "detect node in buffer is NULL\n");
-
-        edge_t *out_edge = (edge_t *)calloc(1, sizeof(edge_t));
-        CheckError(pgm_get_edges_out(node, out_edge, 1));
-        struct params_classify *out_buf = (struct params_classify *)pgm_get_edge_buf_p(*out_edge);
-        if (out_buf == NULL)
-            fprintf(stderr, "detect node out buffer is NULL\n");
-
-        std::thread** t = (std::thread** )calloc(NUM_PARALLEL_JOB, sizeof (std::thread *));
-
-        pthread_mutex_t out_mutex = PTHREAD_MUTEX_INITIALIZER;
-
-        pthread_barrier_wait(init_barrier);
-
-        int i = 0;
-        unsigned int indx = 0;
-        struct params_normalize* tp;
-
-        if(!hog_errors)
-        {
-            do {
-                ret = pgm_wait(node);
-
-                if(ret != PGM_TERMINATE)
-                {
-                    CheckError(ret);
-#ifdef DEBUG
-                    fprintf(stdout, "%s%d fires (top)\n", tabbuf, node.node);
-#endif
-                    tp = (struct params_normalize*)malloc(sizeof(struct params_normalize));
-                    tp->found = in_buf->found;
-                    tp->img_to_show = in_buf->img_to_show;
-                    tp->smaller_img_array = in_buf->smaller_img_array;
-                    tp->block_hists_array = in_buf->block_hists_array;
-                    tp->level_scale = in_buf->level_scale;
-                    tp->confidences = in_buf->confidences;
-
-                    i = indx++ % NUM_PARALLEL_JOB;
-                    if (t[i] == NULL) {
-                        t[i] = new std::thread(&HOG_Impl::thread_fine_normalize_histograms, this, _node, &out_mutex, out_buf, tp);
-                    } else {
-                        t[i]->join();
-                        delete t[i];
-                        t[i] = new std::thread(&HOG_Impl::thread_fine_normalize_histograms, this, _node, &out_mutex, out_buf, tp);
-                    }
-                }
-                else
-                {
-                    for (i=0; i<NUM_PARALLEL_JOB; i++) {
-                        if (t[i] != NULL && t[i]->joinable()) {
-                            t[i]->join();
-                        }
-                    }
-#ifdef DEBUG
-                    fprintf(stdout, "%s- %d terminates\n", tabbuf, node.node);
-#endif
-                    pgm_terminate(node);
-                }
-
-            } while(ret != PGM_TERMINATE);
-        }
-
-        pthread_barrier_wait(init_barrier);
-
-        CheckError(pgm_release_node(node));
-
-        free(in_edge);
-        free(out_edge);
-        free(t);
-        pthread_exit(0);
-    }
-
-    void* HOG_Impl::fine_classify_node_top(node_t* _node, pthread_barrier_t* init_barrier)
-    {
-        node_t node = *_node;
-#ifdef DEBUG
-        char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
-        tabbuf[node.node] = '\0';
-#endif
-        CheckError(pgm_claim_node(node));
-        int ret = 0;
-
-        edge_t *in_edge = (edge_t *)calloc(1, sizeof(edge_t));
-        CheckError(pgm_get_edges_in(node, in_edge, 1));
-        struct params_classify *in_buf = (struct params_classify *)pgm_get_edge_buf_c(*in_edge);
-        if (in_buf == NULL)
-            fprintf(stderr, "detect node in buffer is NULL\n");
-
-        edge_t *out_edge = (edge_t *)calloc(1, sizeof(edge_t));
-        CheckError(pgm_get_edges_out(node, out_edge, 1));
-        struct params_collect_locations *out_buf = (struct params_collect_locations *)pgm_get_edge_buf_p(*out_edge);
-        if (out_buf == NULL)
-            fprintf(stderr, "detect node out buffer is NULL\n");
-
-        std::thread** t = (std::thread** )calloc(NUM_PARALLEL_JOB, sizeof (std::thread *));
-
-        pthread_mutex_t out_mutex = PTHREAD_MUTEX_INITIALIZER;
-
-        pthread_barrier_wait(init_barrier);
-
-        int i = 0;
-        unsigned int indx = 0;
-        struct params_classify* tp;
-
-        if(!hog_errors)
-        {
-            do {
-                ret = pgm_wait(node);
-
-                if(ret != PGM_TERMINATE)
-                {
-                    CheckError(ret);
-#ifdef DEBUG
-                    fprintf(stdout, "%s%d fires (top)\n", tabbuf, node.node);
-#endif
-                    tp = (struct params_classify*)malloc(sizeof(struct params_classify));
-                    tp->found = in_buf->found;
-                    tp->img_to_show = in_buf->img_to_show;
-                    tp->smaller_img_array = in_buf->smaller_img_array;
-                    tp->block_hists_array = in_buf->block_hists_array;
-                    tp->level_scale = in_buf->level_scale;
-                    tp->confidences = in_buf->confidences;
-
-                    i = indx++ % NUM_PARALLEL_JOB;
-                    if (t[i] == NULL) {
-                        t[i] = new std::thread(&HOG_Impl::thread_fine_classify, this, _node, &out_mutex, out_buf, tp);
-                    } else {
-                        t[i]->join();
-                        delete t[i];
-                        t[i] = new std::thread(&HOG_Impl::thread_fine_classify, this, _node, &out_mutex, out_buf, tp);
-                    }
-                }
-                else
-                {
-                    for (i=0; i<NUM_PARALLEL_JOB; i++) {
-                        if (t[i] != NULL && t[i]->joinable()) {
-                            t[i]->join();
-                        }
-                    }
-#ifdef DEBUG
-                    fprintf(stdout, "%s- %d terminates\n", tabbuf, node.node);
-#endif
-                    pgm_terminate(node);
-                }
-
-            } while(ret != PGM_TERMINATE);
-        }
-
-        pthread_barrier_wait(init_barrier);
-
-        CheckError(pgm_release_node(node));
-
-        free(in_edge);
-        free(out_edge);
-        free(t);
-        pthread_exit(0);
-    }
-
-    void* HOG_Impl::fine_collect_locations_node_top(node_t* _node, pthread_barrier_t* init_barrier)
-    {
-        node_t node = *_node;
-#ifdef DEBUG
-        char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
-        tabbuf[node.node] = '\0';
-#endif
-        CheckError(pgm_claim_node(node));
-        int ret = 0;
-
-        edge_t *in_edge = (edge_t *)calloc(1, sizeof(edge_t));
-        CheckError(pgm_get_edges_in(node, in_edge, 1));
-        struct params_collect_locations *in_buf = (struct params_collect_locations *)pgm_get_edge_buf_c(*in_edge);
-        if (in_buf == NULL)
-            fprintf(stderr, "detect node in buffer is NULL\n");
-
-        edge_t *out_edge = (edge_t *)calloc(1, sizeof(edge_t));
-        CheckError(pgm_get_edges_out(node, out_edge, 1));
-        struct params_display *out_buf = (struct params_display *)pgm_get_edge_buf_p(*out_edge);
-        if (out_buf == NULL)
-            fprintf(stderr, "detect node out buffer is NULL\n");
-
-        std::thread** t = (std::thread** )calloc(NUM_PARALLEL_JOB, sizeof (std::thread *));
-
-        pthread_mutex_t out_mutex = PTHREAD_MUTEX_INITIALIZER;
-
-        pthread_barrier_wait(init_barrier);
-
-        int i = 0;
-        unsigned int indx = 0;
-        struct params_collect_locations* tp;
-
-        if(!hog_errors)
-        {
-            do {
-                ret = pgm_wait(node);
-
-                if(ret != PGM_TERMINATE)
-                {
-                    CheckError(ret);
-#ifdef DEBUG
-                    fprintf(stdout, "%s%d fires (top)\n", tabbuf, node.node);
-#endif
-                    tp = (struct params_collect_locations*)malloc(sizeof(struct params_collect_locations));
-                    tp->found = in_buf->found;
-                    tp->img_to_show = in_buf->img_to_show;
-                    tp->smaller_img_array = in_buf->smaller_img_array;
-                    tp->block_hists_array = in_buf->block_hists_array;
-                    tp->level_scale = in_buf->level_scale;
-                    tp->confidences = in_buf->confidences;
-                    tp->labels_array = in_buf->labels_array;
-
-                    i = indx++ % NUM_PARALLEL_JOB;
-                    if (t[i] == NULL) {
-                        t[i] = new std::thread(&HOG_Impl::thread_fine_collect_locations, this, _node, &out_mutex, out_buf, tp);
-                    } else {
-                        t[i]->join();
-                        delete t[i];
-                        t[i] = new std::thread(&HOG_Impl::thread_fine_collect_locations, this, _node, &out_mutex, out_buf, tp);
-                    }
-                }
-                else
-                {
-                    for (i=0; i<NUM_PARALLEL_JOB; i++) {
-                        if (t[i] != NULL && t[i]->joinable()) {
-                            t[i]->join();
-                        }
-                    }
-#ifdef DEBUG
-                    fprintf(stdout, "%s- %d terminates\n", tabbuf, node.node);
-#endif
-                    pgm_terminate(node);
-                }
-
-            } while(ret != PGM_TERMINATE);
-        }
-
-        pthread_barrier_wait(init_barrier);
-
-        CheckError(pgm_release_node(node));
-
-        free(in_edge);
-        free(out_edge);
-        free(t);
-        pthread_exit(0);
-    }
-
     void* HOG_Impl::thread_fine_compute_scales(node_t* _node, pthread_mutex_t* out_mutex,
             struct params_resize* out_buf, struct params_compute* params)
     {
@@ -998,10 +529,12 @@ namespace
 
 
         GpuMat * smaller_img_array = new GpuMat[level_scale->size()];
+        GpuMat * labels_array = new GpuMat[level_scale->size()];
 
         for (size_t i = 0; i < level_scale->size(); i++)
         {
             GpuMat * smaller_img = smaller_img_array + i;
+            GpuMat * labels = labels_array + i;
             if (detector_.empty())
                 break;
 
@@ -1017,21 +550,111 @@ namespace
             {
                 *smaller_img = pool.getBuffer(sz, gpu_img->type());
             }
+            pthread_mutex_lock(out_mutex);
+            out_buf->gpu_img = params->gpu_img;
+            out_buf->found = params->found;
+            out_buf->img_to_show = params->img_to_show;
+            out_buf->smaller_img = smaller_img;
+            out_buf->labels = labels;
+            out_buf->level_scale = level_scale;
+            out_buf->confidences = confidences;
+            out_buf->index = i;
+            CheckError(pgm_complete(node));
+            pthread_mutex_unlock(out_mutex);
         }
         /*
          * end of compute scale levels
          * =========================== */
 
-        pthread_mutex_lock(out_mutex);
-        out_buf->gpu_img = params->gpu_img;
-        out_buf->found = params->found;
-        out_buf->img_to_show = params->img_to_show;
-        out_buf->smaller_img_array = smaller_img_array;
-        out_buf->level_scale = level_scale;
-        out_buf->confidences = confidences;
-        CheckError(pgm_complete(node));
-        pthread_mutex_unlock(out_mutex);
         free(params);
+        pthread_exit(0);
+    }
+
+    void* HOG_Impl::fine_resize_node_top(node_t* _node, pthread_barrier_t* init_barrier)
+    {
+        node_t node = *_node;
+#ifdef DEBUG
+        char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
+        tabbuf[node.node] = '\0';
+#endif
+        CheckError(pgm_claim_node(node));
+        int ret = 0;
+
+        edge_t *in_edge = (edge_t *)calloc(1, sizeof(edge_t));
+        CheckError(pgm_get_edges_in(node, in_edge, 1));
+        struct params_resize *in_buf = (struct params_resize *)pgm_get_edge_buf_c(*in_edge);
+        if (in_buf == NULL)
+            fprintf(stderr, "detect node in buffer is NULL\n");
+
+        edge_t *out_edge = (edge_t *)calloc(1, sizeof(edge_t));
+        CheckError(pgm_get_edges_out(node, out_edge, 1));
+        struct params_compute_gradients *out_buf = (struct params_compute_gradients *)pgm_get_edge_buf_p(*out_edge);
+        if (out_buf == NULL)
+            fprintf(stderr, "detect node out buffer is NULL\n");
+
+        std::thread** t = (std::thread** )calloc(NUM_PARALLEL_JOB, sizeof (std::thread *));
+
+        pthread_mutex_t out_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+        pthread_barrier_wait(init_barrier);
+
+        int i = 0;
+        unsigned int indx = 0;
+        struct params_resize* tp;
+
+        if(!hog_errors)
+        {
+            do {
+                ret = pgm_wait(node);
+
+                if(ret != PGM_TERMINATE)
+                {
+                    CheckError(ret);
+#ifdef DEBUG
+                    fprintf(stdout, "%s%d fires (top)\n", tabbuf, node.node);
+#endif
+                    tp = (struct params_resize*)malloc(sizeof(struct params_resize));
+                    tp->gpu_img = in_buf->gpu_img;
+                    tp->found = in_buf->found;
+                    tp->img_to_show = in_buf->img_to_show;
+                    tp->smaller_img= in_buf->smaller_img;
+                    tp->level_scale = in_buf->level_scale;
+                    tp->confidences = in_buf->confidences;
+                    tp->index = in_buf->index;
+                    tp->labels = in_buf->labels;
+
+                    i = indx++ % NUM_PARALLEL_JOB;
+                    if (t[i] == NULL) {
+                        t[i] = new std::thread(&HOG_Impl::thread_fine_resize, this, _node, &out_mutex, out_buf, tp);
+                    } else {
+                        t[i]->join();
+                        delete t[i];
+                        t[i] = new std::thread(&HOG_Impl::thread_fine_resize, this, _node, &out_mutex, out_buf, tp);
+                    }
+                }
+                else
+                {
+                    for (i=0; i<NUM_PARALLEL_JOB; i++) {
+                        if (t[i] != NULL && t[i]->joinable()) {
+                            t[i]->join();
+                        }
+                    }
+#ifdef DEBUG
+                    fprintf(stdout, "%s- %d terminates\n", tabbuf, node.node);
+#endif
+                    pgm_terminate(node);
+                }
+
+            } while(ret != PGM_TERMINATE);
+        }
+
+        pthread_barrier_wait(init_barrier);
+
+        CheckError(pgm_release_node(node));
+
+        free(in_edge);
+        free(out_edge);
+        free(t);
         pthread_exit(0);
     }
 
@@ -1045,15 +668,13 @@ namespace
         fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
 #endif
 
-        GpuMat * smaller_img_array = params->smaller_img_array;
+        GpuMat * smaller_img = params->smaller_img;
         std::vector<double> * level_scale = params->level_scale;
         GpuMat * gpu_img = params->gpu_img;
+        int i = params->index;
         /* ===========================
          * resize image
          */
-        for (size_t i = 0; i < level_scale->size(); i++)
-        {
-            GpuMat * smaller_img = smaller_img_array + i;
             if (smaller_img->size() != gpu_img->size())
             {
                 switch (gpu_img->type())
@@ -1065,21 +686,110 @@ namespace
 
             CV_Assert( smaller_img->type() == CV_8UC1 || smaller_img->type() == CV_8UC4 );
             CV_Assert( win_stride_.width % block_stride_.width == 0 && win_stride_.height % block_stride_.height == 0 );
-        }
-        params->gpu_img->release();
         /*
          * end of resize image
          * =========================== */
 
         pthread_mutex_lock(out_mutex);
+        out_buf->gpu_img = params->gpu_img;
         out_buf->found = params->found;
         out_buf->img_to_show = params->img_to_show;
-        out_buf->smaller_img_array = params->smaller_img_array;
+        out_buf->smaller_img = params->smaller_img;
         out_buf->level_scale = params->level_scale;
         out_buf->confidences = params->confidences;
+        out_buf->index = params->index;
+        out_buf->labels = params->labels;
         CheckError(pgm_complete(node));
         pthread_mutex_unlock(out_mutex);
         free(params);
+        pthread_exit(0);
+    }
+
+    void* HOG_Impl::fine_compute_gradients_node_top(node_t* _node, pthread_barrier_t* init_barrier)
+    {
+        node_t node = *_node;
+#ifdef DEBUG
+        char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
+        tabbuf[node.node] = '\0';
+#endif
+        CheckError(pgm_claim_node(node));
+        int ret = 0;
+
+        edge_t *in_edge = (edge_t *)calloc(1, sizeof(edge_t));
+        CheckError(pgm_get_edges_in(node, in_edge, 1));
+        struct params_compute_gradients *in_buf = (struct params_compute_gradients *)pgm_get_edge_buf_c(*in_edge);
+        if (in_buf == NULL)
+            fprintf(stderr, "detect node in buffer is NULL\n");
+
+        edge_t *out_edge = (edge_t *)calloc(1, sizeof(edge_t));
+        CheckError(pgm_get_edges_out(node, out_edge, 1));
+        struct params_compute_histograms *out_buf = (struct params_compute_histograms *)pgm_get_edge_buf_p(*out_edge);
+        if (out_buf == NULL)
+            fprintf(stderr, "detect node out buffer is NULL\n");
+
+        std::thread** t = (std::thread** )calloc(NUM_PARALLEL_JOB, sizeof (std::thread *));
+
+        pthread_mutex_t out_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+        pthread_barrier_wait(init_barrier);
+
+        int i = 0;
+        unsigned int indx = 0;
+        struct params_compute_gradients* tp;
+
+        if(!hog_errors)
+        {
+            do {
+                ret = pgm_wait(node);
+
+                if(ret != PGM_TERMINATE)
+                {
+                    CheckError(ret);
+#ifdef DEBUG
+                    fprintf(stdout, "%s%d fires (top)\n", tabbuf, node.node);
+#endif
+                    tp = (struct params_compute_gradients*)malloc(sizeof(struct params_compute_gradients));
+                    tp->gpu_img = in_buf->gpu_img;
+                    tp->found = in_buf->found;
+                    tp->img_to_show = in_buf->img_to_show;
+                    tp->smaller_img = in_buf->smaller_img;
+                    tp->level_scale = in_buf->level_scale;
+                    tp->confidences = in_buf->confidences;
+                    tp->index = in_buf->index;
+                    tp->labels = in_buf->labels;
+
+                    i = indx++ % NUM_PARALLEL_JOB;
+                    if (t[i] == NULL) {
+                        t[i] = new std::thread(&HOG_Impl::thread_fine_compute_gradients, this, _node, &out_mutex, out_buf, tp);
+                    } else {
+                        t[i]->join();
+                        delete t[i];
+                        t[i] = new std::thread(&HOG_Impl::thread_fine_compute_gradients, this, _node, &out_mutex, out_buf, tp);
+                    }
+                }
+                else
+                {
+                    for (i=0; i<NUM_PARALLEL_JOB; i++) {
+                        if (t[i] != NULL && t[i]->joinable()) {
+                            t[i]->join();
+                        }
+                    }
+#ifdef DEBUG
+                    fprintf(stdout, "%s- %d terminates\n", tabbuf, node.node);
+#endif
+                    pgm_terminate(node);
+                }
+
+            } while(ret != PGM_TERMINATE);
+        }
+
+        pthread_barrier_wait(init_barrier);
+
+        CheckError(pgm_release_node(node));
+
+        free(in_edge);
+        free(out_edge);
+        free(t);
         pthread_exit(0);
     }
 
@@ -1093,18 +803,14 @@ namespace
         fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
 #endif
 
-        GpuMat * smaller_img_array = params->smaller_img_array;
+        GpuMat * smaller_img = params->smaller_img;
         std::vector<double> * level_scale = params->level_scale;
+        int i = params->index;
         /* ===========================
          * compute gradients
          */
-        GpuMat * grad_array = new GpuMat[level_scale->size()];
-        GpuMat * qangle_array = new GpuMat[level_scale->size()];
-        for (size_t i = 0; i < level_scale->size(); i++)
-        {
-            GpuMat * smaller_img = smaller_img_array + i;
-            GpuMat * grad = grad_array + i;
-            GpuMat * qangle = qangle_array + i;
+            GpuMat * grad = new GpuMat();
+            GpuMat * qangle = new GpuMat();
 
             BufferPool pool(Stream::Null());
             Stream& stream = Stream::Null();
@@ -1132,27 +838,119 @@ namespace
                             StreamAccessor::getStream(stream));
                     break;
             }
-        }
         /*
          * end of compute gradients
          * =========================== */
 
         pthread_mutex_lock(out_mutex);
+        out_buf->gpu_img = params->gpu_img;
         out_buf->found = params->found;
         out_buf->img_to_show = params->img_to_show;
-        out_buf->smaller_img_array = params->smaller_img_array;
+        out_buf->smaller_img = params->smaller_img;
         out_buf->level_scale = params->level_scale;
         out_buf->confidences = params->confidences;
-        out_buf->grad_array = grad_array;
-        out_buf->qangle_array = qangle_array;
+        out_buf->labels = params->labels;
+        out_buf->grad= grad;
+        out_buf->qangle= qangle;
+        out_buf->index = params->index;
         CheckError(pgm_complete(node));
         pthread_mutex_unlock(out_mutex);
         free(params);
         pthread_exit(0);
     }
 
+    void* HOG_Impl::fine_compute_histograms_node_top(node_t* _node, pthread_barrier_t* init_barrier)
+    {
+        node_t node = *_node;
+#ifdef DEBUG
+        char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
+        tabbuf[node.node] = '\0';
+#endif
+        CheckError(pgm_claim_node(node));
+        int ret = 0;
+
+        edge_t *in_edge = (edge_t *)calloc(1, sizeof(edge_t));
+        CheckError(pgm_get_edges_in(node, in_edge, 1));
+        struct params_compute_histograms *in_buf = (struct params_compute_histograms *)pgm_get_edge_buf_c(*in_edge);
+        if (in_buf == NULL)
+            fprintf(stderr, "detect node in buffer is NULL\n");
+
+        edge_t *out_edge = (edge_t *)calloc(1, sizeof(edge_t));
+        CheckError(pgm_get_edges_out(node, out_edge, 1));
+        struct params_fine_normalize *out_buf = (struct params_fine_normalize *)pgm_get_edge_buf_p(*out_edge);
+        if (out_buf == NULL)
+            fprintf(stderr, "detect node out buffer is NULL\n");
+
+        std::thread** t = (std::thread** )calloc(NUM_PARALLEL_JOB, sizeof (std::thread *));
+
+        pthread_mutex_t out_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+        pthread_barrier_wait(init_barrier);
+
+        int i = 0;
+        unsigned int indx = 0;
+        struct params_compute_histograms* tp;
+
+        if(!hog_errors)
+        {
+            do {
+                ret = pgm_wait(node);
+
+                if(ret != PGM_TERMINATE)
+                {
+                    CheckError(ret);
+#ifdef DEBUG
+                    fprintf(stdout, "%s%d fires (top)\n", tabbuf, node.node);
+#endif
+                    tp = (struct params_compute_histograms*)malloc(sizeof(struct params_compute_histograms));
+                    tp->gpu_img = in_buf->gpu_img;
+                    tp->found = in_buf->found;
+                    tp->img_to_show = in_buf->img_to_show;
+                    tp->smaller_img = in_buf->smaller_img;
+                    tp->level_scale = in_buf->level_scale;
+                    tp->confidences = in_buf->confidences;
+                    tp->grad = in_buf->grad;
+                    tp->qangle = in_buf->qangle;
+                    tp->index = in_buf->index;
+                    tp->labels = in_buf->labels;
+
+                    i = indx++ % NUM_PARALLEL_JOB;
+                    if (t[i] == NULL) {
+                        t[i] = new std::thread(&HOG_Impl::thread_fine_compute_histograms, this, _node, &out_mutex, out_buf, tp);
+                    } else {
+                        t[i]->join();
+                        delete t[i];
+                        t[i] = new std::thread(&HOG_Impl::thread_fine_compute_histograms, this, _node, &out_mutex, out_buf, tp);
+                    }
+                }
+                else
+                {
+                    for (i=0; i<NUM_PARALLEL_JOB; i++) {
+                        if (t[i] != NULL && t[i]->joinable()) {
+                            t[i]->join();
+                        }
+                    }
+#ifdef DEBUG
+                    fprintf(stdout, "%s- %d terminates\n", tabbuf, node.node);
+#endif
+                    pgm_terminate(node);
+                }
+
+            } while(ret != PGM_TERMINATE);
+        }
+
+        pthread_barrier_wait(init_barrier);
+
+        CheckError(pgm_release_node(node));
+
+        free(in_edge);
+        free(out_edge);
+        free(t);
+        pthread_exit(0);
+    }
+
     void* HOG_Impl::thread_fine_compute_histograms(node_t* _node, pthread_mutex_t* out_mutex,
-            struct params_normalize* out_buf, struct params_compute_histograms* params)
+            struct params_fine_normalize* out_buf, struct params_compute_histograms* params)
     {
         node_t node = *_node;
 #ifdef DEBUG
@@ -1161,25 +959,19 @@ namespace
         fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
 #endif
 
-        GpuMat * smaller_img_array = params->smaller_img_array;
-        GpuMat * grad_array = params->grad_array;
-        GpuMat * qangle_array = params->qangle_array;
+        GpuMat * smaller_img = params->smaller_img;
+        GpuMat * grad = params->grad;
+        GpuMat * qangle = params->qangle;
         std::vector<double> * level_scale = params->level_scale;
+        int i = params->index;
 
         BufferPool pool(Stream::Null());
         Stream& stream = Stream::Null();
 
-        GpuMat * block_hists_array = new GpuMat[level_scale->size()];
+        GpuMat * block_hists = new GpuMat();
         /* ===========================
          * compute histograms
          */
-        for (size_t i = 0; i < level_scale->size(); i++)
-        {
-            GpuMat * smaller_img = smaller_img_array + i;
-            GpuMat * block_hists = block_hists_array + i;
-            GpuMat * grad = grad_array + i;
-            GpuMat * qangle = qangle_array + i;
-
             *block_hists      = pool.getBuffer(1, getTotalHistSize(smaller_img->size()), CV_32FC1);
 
             hog::compute_hists(nbins_,
@@ -1193,28 +985,119 @@ namespace
                     StreamAccessor::getStream(stream));
             grad->release();
             qangle->release();
-        }
         /*
          * end of compute histograms
          * =========================== */
 
 
         pthread_mutex_lock(out_mutex);
+        out_buf->gpu_img = params->gpu_img;
         out_buf->found = params->found;
         out_buf->img_to_show = params->img_to_show;
-        out_buf->smaller_img_array = params->smaller_img_array;
+        out_buf->smaller_img = params->smaller_img;
         out_buf->level_scale = params->level_scale;
         out_buf->confidences = params->confidences;
+        out_buf->index = params->index;
+        out_buf->labels = params->labels;
 
-        out_buf->block_hists_array = block_hists_array;
+        out_buf->block_hists= block_hists;
         CheckError(pgm_complete(node));
         pthread_mutex_unlock(out_mutex);
         free(params);
         pthread_exit(0);
     }
 
+    void* HOG_Impl::fine_normalize_histograms_node_top(node_t* _node, pthread_barrier_t* init_barrier)
+    {
+        node_t node = *_node;
+#ifdef DEBUG
+        char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
+        tabbuf[node.node] = '\0';
+#endif
+        CheckError(pgm_claim_node(node));
+        int ret = 0;
+
+        edge_t *in_edge = (edge_t *)calloc(1, sizeof(edge_t));
+        CheckError(pgm_get_edges_in(node, in_edge, 1));
+        struct params_fine_normalize *in_buf = (struct params_fine_normalize *)pgm_get_edge_buf_c(*in_edge);
+        if (in_buf == NULL)
+            fprintf(stderr, "detect node in buffer is NULL\n");
+
+        edge_t *out_edge = (edge_t *)calloc(1, sizeof(edge_t));
+        CheckError(pgm_get_edges_out(node, out_edge, 1));
+        struct params_fine_classify *out_buf = (struct params_fine_classify *)pgm_get_edge_buf_p(*out_edge);
+        if (out_buf == NULL)
+            fprintf(stderr, "detect node out buffer is NULL\n");
+
+        std::thread** t = (std::thread** )calloc(NUM_PARALLEL_JOB, sizeof (std::thread *));
+
+        pthread_mutex_t out_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+        pthread_barrier_wait(init_barrier);
+
+        int i = 0;
+        unsigned int indx = 0;
+        struct params_fine_normalize* tp;
+
+        if(!hog_errors)
+        {
+            do {
+                ret = pgm_wait(node);
+
+                if(ret != PGM_TERMINATE)
+                {
+                    CheckError(ret);
+#ifdef DEBUG
+                    fprintf(stdout, "%s%d fires (top)\n", tabbuf, node.node);
+#endif
+                    tp = (struct params_fine_normalize*)malloc(sizeof(struct params_fine_normalize));
+                    tp->gpu_img = in_buf->gpu_img;
+                    tp->found = in_buf->found;
+                    tp->img_to_show = in_buf->img_to_show;
+                    tp->smaller_img = in_buf->smaller_img;
+                    tp->block_hists = in_buf->block_hists;
+                    tp->level_scale = in_buf->level_scale;
+                    tp->confidences = in_buf->confidences;
+                    tp->labels = in_buf->labels;
+                    tp->index = in_buf->index;
+
+                    i = indx++ % NUM_PARALLEL_JOB;
+                    if (t[i] == NULL) {
+                        t[i] = new std::thread(&HOG_Impl::thread_fine_normalize_histograms, this, _node, &out_mutex, out_buf, tp);
+                    } else {
+                        t[i]->join();
+                        delete t[i];
+                        t[i] = new std::thread(&HOG_Impl::thread_fine_normalize_histograms, this, _node, &out_mutex, out_buf, tp);
+                    }
+                }
+                else
+                {
+                    for (i=0; i<NUM_PARALLEL_JOB; i++) {
+                        if (t[i] != NULL && t[i]->joinable()) {
+                            t[i]->join();
+                        }
+                    }
+#ifdef DEBUG
+                    fprintf(stdout, "%s- %d terminates\n", tabbuf, node.node);
+#endif
+                    pgm_terminate(node);
+                }
+
+            } while(ret != PGM_TERMINATE);
+        }
+
+        pthread_barrier_wait(init_barrier);
+
+        CheckError(pgm_release_node(node));
+
+        free(in_edge);
+        free(out_edge);
+        free(t);
+        pthread_exit(0);
+    }
+
     void* HOG_Impl::thread_fine_normalize_histograms(node_t* _node, pthread_mutex_t* out_mutex,
-            struct params_classify* out_buf, struct params_normalize* params)
+            struct params_fine_classify* out_buf, struct params_fine_normalize* params)
     {
         node_t node = *_node;
 #ifdef DEBUG
@@ -1224,17 +1107,14 @@ namespace
 #endif
 
 
-        GpuMat * smaller_img_array = params->smaller_img_array;
-        GpuMat * block_hists_array = params->block_hists_array;
+        GpuMat * smaller_img = params->smaller_img;
+        GpuMat * block_hists = params->block_hists;
         std::vector<double> * level_scale = params->level_scale;
+        int i = params->index;
         // block_hists
         /* ===========================
          * normalize histograms
          */
-        for (size_t i = 0; i < level_scale->size(); i++)
-        {
-            GpuMat * smaller_img = smaller_img_array + i;
-            GpuMat * block_hists = block_hists_array + i;
 
             hog::normalize_hists(nbins_,
                     block_stride_.width, block_stride_.height,
@@ -1244,26 +1124,117 @@ namespace
                     cell_size_.width, cell_size_.height,
                     cells_per_block_.width, cells_per_block_.height,
                     StreamAccessor::getStream(Stream::Null()));
-        }
         /*
          * end of nomalize histograms
          * =========================== */
 
         pthread_mutex_lock(out_mutex);
+        out_buf->gpu_img = params->gpu_img;
         out_buf->found = params->found;
         out_buf->img_to_show = params->img_to_show;
-        out_buf->smaller_img_array = params->smaller_img_array;
-        out_buf->block_hists_array = params->block_hists_array;
+        out_buf->smaller_img = params->smaller_img;
+        out_buf->block_hists = params->block_hists;
         out_buf->level_scale = params->level_scale;
         out_buf->confidences = params->confidences;
+        out_buf->labels = params->labels;
+        out_buf->index = params->index;
         CheckError(pgm_complete(node));
         pthread_mutex_unlock(out_mutex);
         free(params);
         pthread_exit(0);
     }
 
+    void* HOG_Impl::fine_classify_node_top(node_t* _node, pthread_barrier_t* init_barrier)
+    {
+        node_t node = *_node;
+#ifdef DEBUG
+        char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
+        tabbuf[node.node] = '\0';
+#endif
+        CheckError(pgm_claim_node(node));
+        int ret = 0;
+
+        edge_t *in_edge = (edge_t *)calloc(1, sizeof(edge_t));
+        CheckError(pgm_get_edges_in(node, in_edge, 1));
+        struct params_fine_classify *in_buf = (struct params_fine_classify *)pgm_get_edge_buf_c(*in_edge);
+        if (in_buf == NULL)
+            fprintf(stderr, "detect node in buffer is NULL\n");
+
+        edge_t *out_edge = (edge_t *)calloc(1, sizeof(edge_t));
+        CheckError(pgm_get_edges_out(node, out_edge, 1));
+        struct params_fine_collect_locations *out_buf = (struct params_fine_collect_locations *)pgm_get_edge_buf_p(*out_edge);
+        if (out_buf == NULL)
+            fprintf(stderr, "detect node out buffer is NULL\n");
+
+        std::thread** t = (std::thread** )calloc(NUM_PARALLEL_JOB, sizeof (std::thread *));
+
+        pthread_mutex_t out_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+        pthread_barrier_wait(init_barrier);
+
+        int i = 0;
+        unsigned int indx = 0;
+        struct params_fine_classify* tp;
+
+        if(!hog_errors)
+        {
+            do {
+                ret = pgm_wait(node);
+
+                if(ret != PGM_TERMINATE)
+                {
+                    CheckError(ret);
+#ifdef DEBUG
+                    fprintf(stdout, "%s%d fires (top)\n", tabbuf, node.node);
+#endif
+                    tp = (struct params_fine_classify*)malloc(sizeof(struct params_fine_classify));
+                    tp->gpu_img = in_buf->gpu_img;
+                    tp->found = in_buf->found;
+                    tp->img_to_show = in_buf->img_to_show;
+                    tp->smaller_img = in_buf->smaller_img;
+                    tp->block_hists = in_buf->block_hists;
+                    tp->level_scale = in_buf->level_scale;
+                    tp->confidences = in_buf->confidences;
+                    tp->labels = in_buf->labels;
+                    tp->index = in_buf->index;
+
+                    i = indx++ % NUM_PARALLEL_JOB;
+                    if (t[i] == NULL) {
+                        t[i] = new std::thread(&HOG_Impl::thread_fine_classify, this, _node, &out_mutex, out_buf, tp);
+                    } else {
+                        t[i]->join();
+                        delete t[i];
+                        t[i] = new std::thread(&HOG_Impl::thread_fine_classify, this, _node, &out_mutex, out_buf, tp);
+                    }
+                }
+                else
+                {
+                    for (i=0; i<NUM_PARALLEL_JOB; i++) {
+                        if (t[i] != NULL && t[i]->joinable()) {
+                            t[i]->join();
+                        }
+                    }
+#ifdef DEBUG
+                    fprintf(stdout, "%s- %d terminates\n", tabbuf, node.node);
+#endif
+                    pgm_terminate(node);
+                }
+
+            } while(ret != PGM_TERMINATE);
+        }
+
+        pthread_barrier_wait(init_barrier);
+
+        CheckError(pgm_release_node(node));
+
+        free(in_edge);
+        free(out_edge);
+        free(t);
+        pthread_exit(0);
+    }
+
     void* HOG_Impl::thread_fine_classify(node_t* _node, pthread_mutex_t* out_mutex,
-            struct params_collect_locations* out_buf, struct params_classify* params)
+            struct params_fine_collect_locations* out_buf, struct params_fine_classify* params)
     {
         node_t node = *_node;
 #ifdef DEBUG
@@ -1272,22 +1243,18 @@ namespace
         fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
 #endif
 
-        GpuMat * smaller_img_array = params->smaller_img_array;
-        GpuMat * block_hists_array = params->block_hists_array;
+        GpuMat * smaller_img = params->smaller_img;
+        GpuMat * block_hists = params->block_hists;
         std::vector<double> * level_scale = params->level_scale;
         std::vector<double> * confidences = params->confidences;
+        int i = params->index;
 
         BufferPool pool(Stream::Null());
         // block_hists
         /* ===========================
          * classify
          */
-        GpuMat * labels_array = new GpuMat[level_scale->size()];
-        for (size_t i = 0; i < level_scale->size(); i++)
-        {
-            GpuMat * smaller_img = smaller_img_array + i;
-            GpuMat * block_hists = block_hists_array + i;
-            GpuMat * labels = labels_array + i;
+        GpuMat * labels = params->labels;
             Size wins_per_img = numPartsWithin(smaller_img->size(), win_size_, win_stride_);
 
             if (confidences == NULL)
@@ -1320,28 +1287,165 @@ namespace
                         cell_size_.width, cells_per_block_.width,
                         labels->ptr<float>());
             }
-        }
         /*
          * end of classify
          * =========================== */
 
+        block_hists->release();
 
         pthread_mutex_lock(out_mutex);
+        out_buf->gpu_img = params->gpu_img;
         out_buf->found = params->found;
         out_buf->img_to_show = params->img_to_show;
-        out_buf->smaller_img_array = params->smaller_img_array;
-        out_buf->block_hists_array = params->block_hists_array;
+        out_buf->smaller_img = params->smaller_img;
         out_buf->level_scale = params->level_scale;
         out_buf->confidences = params->confidences;
-        out_buf->labels_array = labels_array;
+        out_buf->index = params->index;
+
+        out_buf->labels = params->labels;
         CheckError(pgm_complete(node));
         pthread_mutex_unlock(out_mutex);
         free(params);
         pthread_exit(0);
     }
 
+    struct ready_link
+    {
+        struct params_fine_collect_locations * params = NULL;
+        int count = 0;
+    };
+
+    void* HOG_Impl::fine_collect_locations_node_top(node_t* _node, pthread_barrier_t* init_barrier)
+    {
+        node_t node = *_node;
+#ifdef DEBUG
+        char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
+        tabbuf[node.node] = '\0';
+#endif
+        CheckError(pgm_claim_node(node));
+        int ret = 0;
+
+        edge_t *in_edge = (edge_t *)calloc(1, sizeof(edge_t));
+        CheckError(pgm_get_edges_in(node, in_edge, 1));
+        struct params_fine_collect_locations * in_buf =
+            (struct params_fine_collect_locations *)pgm_get_edge_buf_c(*in_edge);
+        if (in_buf == NULL)
+            fprintf(stderr, "detect node in buffer is NULL\n");
+
+        edge_t *out_edge = (edge_t *)calloc(1, sizeof(edge_t));
+        CheckError(pgm_get_edges_out(node, out_edge, 1));
+        struct params_display *out_buf = (struct params_display *)pgm_get_edge_buf_p(*out_edge);
+        if (out_buf == NULL)
+            fprintf(stderr, "detect node out buffer is NULL\n");
+
+        std::thread** t = (std::thread** )calloc(NUM_PARALLEL_JOB, sizeof (std::thread *));
+
+        pthread_mutex_t out_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+        pthread_barrier_wait(init_barrier);
+
+        int i = 0;
+        unsigned int indx = 0;
+        struct params_fine_collect_locations* tp;
+
+#define NUM_READY_LINK 64
+        struct ready_link rl[NUM_READY_LINK];
+        bool ready;
+        bool added;
+
+        if(!hog_errors)
+        {
+            do {
+                ret = pgm_wait(node);
+
+                if(ret != PGM_TERMINATE)
+                {
+                    CheckError(ret);
+#ifdef DEBUG
+                    fprintf(stdout, "%s%d fires (top)\n", tabbuf, node.node);
+#endif
+                    tp = (struct params_fine_collect_locations*)
+                        malloc(sizeof(struct params_fine_collect_locations));
+                    tp->gpu_img = in_buf->gpu_img;
+                    tp->found = in_buf->found;
+                    tp->img_to_show = in_buf->img_to_show;
+                    tp->level_scale = in_buf->level_scale;
+                    tp->confidences = in_buf->confidences;
+                    tp->smaller_img = in_buf->smaller_img;
+                    tp->labels = in_buf->labels;
+                    tp->index = in_buf->index;
+
+                    ready = false;
+                    added = false;
+                    int pos = 0;
+                    for (pos = 0; pos<NUM_READY_LINK; pos++)
+                    {
+                        if (rl[pos].params != NULL && tp->gpu_img == rl[pos].params->gpu_img) {
+                            rl[pos].count++;
+                            added = true;
+                            if (rl[pos].count == tp->level_scale->size())
+                                ready = true;
+                            break;
+                        }
+                    }
+
+                    if (!added) {
+                        for (pos = 0; pos<NUM_READY_LINK; pos++)
+                        {
+                            if (NULL == rl[pos].params) {
+                                rl[pos].count++;
+                                rl[pos].params = tp;
+                                if (rl[pos].count == tp->level_scale->size())
+                                    ready = true;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (!ready) {
+                        continue;
+                    } else {
+                        rl[pos].params = NULL;
+                        rl[pos].count = 0;
+                    }
+
+                    i = indx++ % NUM_PARALLEL_JOB;
+                    if (t[i] == NULL) {
+                        t[i] = new std::thread(&HOG_Impl::thread_fine_collect_locations, this, _node, &out_mutex, out_buf, tp);
+                    } else {
+                        t[i]->join();
+                        delete t[i];
+                        t[i] = new std::thread(&HOG_Impl::thread_fine_collect_locations, this, _node, &out_mutex, out_buf, tp);
+                    }
+                }
+                else
+                {
+                    for (i=0; i<NUM_PARALLEL_JOB; i++) {
+                        if (t[i] != NULL && t[i]->joinable()) {
+                            t[i]->join();
+                        }
+                    }
+#ifdef DEBUG
+                    fprintf(stdout, "%s- %d terminates\n", tabbuf, node.node);
+#endif
+                    pgm_terminate(node);
+                }
+
+            } while(ret != PGM_TERMINATE);
+        }
+
+        pthread_barrier_wait(init_barrier);
+
+        CheckError(pgm_release_node(node));
+
+        free(in_edge);
+        free(out_edge);
+        free(t);
+        pthread_exit(0);
+    }
+
     void* HOG_Impl::thread_fine_collect_locations(node_t* _node, pthread_mutex_t* out_mutex,
-            struct params_display* out_buf, struct params_collect_locations* params)
+            struct params_display* out_buf, struct params_fine_collect_locations* params)
     {
         node_t node = *_node;
 #ifdef DEBUG
@@ -1351,11 +1455,10 @@ namespace
 #endif
 
         std::vector<Rect>* found = params->found;
-        GpuMat * smaller_img_array = params->smaller_img_array;
-        GpuMat * block_hists_array = params->block_hists_array;
+        GpuMat * smaller_img_array = params->smaller_img - params->index;
         std::vector<double> * level_scale = params->level_scale;
         std::vector<double> * confidences = params->confidences;
-        GpuMat * labels_array = params->labels_array;
+        GpuMat * labels_array = params->labels - params->index;
 
         double scale;
         // labels
@@ -1366,7 +1469,6 @@ namespace
         for (size_t i = 0; i < level_scale->size(); i++)
         {
             GpuMat * smaller_img = smaller_img_array + i;
-            GpuMat * block_hists = block_hists_array + i;
             GpuMat * labels = labels_array + i;
             scale = (*level_scale)[i];
 
@@ -1420,7 +1522,6 @@ namespace
                     confidences->push_back(level_confidences[j]);
             }
             smaller_img->release();
-            block_hists->release();
             labels->release();
         }
 
@@ -1431,6 +1532,7 @@ namespace
 
         if (params->level_scale != NULL) delete params->level_scale;
         if (params->confidences != NULL) delete params->confidences;
+        params->gpu_img->release();
         /*
          * end of collect locations
          * =========================== */
