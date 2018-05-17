@@ -94,6 +94,9 @@ struct params_compute  // a.k.a. compute scales node
     cv::cuda::GpuMat * gpu_img;
     std::vector<Rect> * found;
     Mat * img_to_show;
+    size_t frame_index;
+    int64 start_time;
+    int64 end_time;
 };
 
 
@@ -105,6 +108,9 @@ struct params_normalize
     cv::cuda::GpuMat * block_hists_array;
     std::vector<double> * level_scale;
     std::vector<double> * confidences;
+    size_t frame_index;
+    int64 start_time;
+    int64 end_time;
 };
 
 struct params_classify
@@ -115,6 +121,9 @@ struct params_classify
     cv::cuda::GpuMat * block_hists_array;
     std::vector<double> * level_scale;
     std::vector<double> * confidences;
+    size_t frame_index;
+    int64 start_time;
+    int64 end_time;
 };
 
 struct params_collect_locations
@@ -126,6 +135,9 @@ struct params_collect_locations
     std::vector<double> * level_scale;
     std::vector<double> * confidences;
     cv::cuda::GpuMat * labels_array;
+    size_t frame_index;
+    int64 start_time;
+    int64 end_time;
 };
 
 /* fine-grained */
@@ -139,6 +151,9 @@ struct params_resize
     std::vector<double> * level_scale;
     std::vector<double> * confidences;
     int index;
+    size_t frame_index;
+    int64 start_time;
+    int64 end_time;
 };
 
 struct params_compute_gradients
@@ -151,6 +166,9 @@ struct params_compute_gradients
     std::vector<double> * level_scale;
     std::vector<double> * confidences;
     int index;
+    size_t frame_index;
+    int64 start_time;
+    int64 end_time;
 };
 
 struct params_compute_histograms
@@ -165,6 +183,9 @@ struct params_compute_histograms
     std::vector<double> * level_scale;
     std::vector<double> * confidences;
     int index;
+    size_t frame_index;
+    int64 start_time;
+    int64 end_time;
 };
 
 struct params_fine_normalize
@@ -178,6 +199,9 @@ struct params_fine_normalize
     std::vector<double> * level_scale;
     std::vector<double> * confidences;
     int index;
+    size_t frame_index;
+    int64 start_time;
+    int64 end_time;
 };
 
 struct params_fine_classify
@@ -191,6 +215,9 @@ struct params_fine_classify
     std::vector<double> * level_scale;
     std::vector<double> * confidences;
     int index;
+    size_t frame_index;
+    int64 start_time;
+    int64 end_time;
 };
 
 struct params_fine_collect_locations
@@ -203,12 +230,18 @@ struct params_fine_collect_locations
     std::vector<double> * level_scale;
     std::vector<double> * confidences;
     int index;
+    size_t frame_index;
+    int64 start_time;
+    int64 end_time;
 };
 
 struct params_display
 {
     std::vector<Rect> * found;
     Mat * img_to_show;
+    size_t frame_index;
+    int64 start_time;
+    int64 end_time;
 };
 
 
@@ -449,6 +482,12 @@ App::App(const Args& s)
     cout << endl;
 }
 
+struct linked_frames
+{
+    struct params_display * ptr;
+    struct linked_frames * next;
+};
+
 void* App::display_node_top(node_t* _node)
 {
     node_t node = *_node;
@@ -473,10 +512,17 @@ void* App::display_node_top(node_t* _node)
     unsigned int indx = 0;
     struct params_display* tp;
 
+    struct linked_frames * head = NULL;
+    size_t next_frame_index = 0;
+    struct linked_frames * temp;
+    struct linked_frames * prev;
+    struct linked_frames * curr;
+
     if(!hog_sample_errors)
     {
         do {
             ret = pgm_wait(node);
+            hogWorkEnd();
 
             if(ret != PGM_TERMINATE)
             {
@@ -491,14 +537,54 @@ void* App::display_node_top(node_t* _node)
 #endif
                 tp->found = in_buf->found;
                 tp->img_to_show = in_buf->img_to_show;
+                tp->frame_index = in_buf->frame_index;
+                tp->start_time = in_buf->start_time;
+                tp->end_time = hog_work_end;
 
-                i = indx++ % 4;
-                if (t[i] == NULL) {
-                    t[i] = new std::thread(&App::thread_display, this, _node, tp);
+                curr = (struct linked_frames *) calloc(1, sizeof(struct linked_frames));
+                curr->ptr = tp;
+                curr->next = NULL;
+                temp = head;
+                prev = NULL;
+                if (head == NULL) {
+                    head = curr;
                 } else {
-                    t[i]->join();
-                    delete t[i];
-                    t[i] = new std::thread(&App::thread_display, this, _node, tp);
+                    while (temp != NULL) {
+                        if (temp->ptr->frame_index < curr->ptr->frame_index) {
+                            if (temp->next == NULL) { /* it's the end of the list */
+                                temp->next = curr;
+                                break;
+                            }
+                            prev = temp; /* move forward */
+                            temp = temp->next;
+                        } else {
+                            if (prev == NULL) { /* temp is at head */
+                                curr->next = head;
+                                head = curr;
+                                break;
+                            }
+                            prev->next = curr; /* insert before temp */
+                            curr->next = temp;
+                            break;
+                        }
+                    }
+                }
+
+                //fprintf(stdout, "head index: %lu, %lu, %lu", head->ptr->frame_index, tp->frame_index, next_frame_index);
+                while (head != NULL && head->ptr->frame_index == next_frame_index) {
+                    tp = head->ptr;
+                    next_frame_index++;
+                    temp = head;
+                    head = head->next;
+                    free(temp);
+                    i = indx++ % 1;
+                    if (t[i] == NULL) {
+                        t[i] = new std::thread(&App::thread_display, this, _node, tp);
+                    } else {
+                        t[i]->join();
+                        delete t[i];
+                        t[i] = new std::thread(&App::thread_display, this, _node, tp);
+                    }
                 }
             }
             else
@@ -535,8 +621,7 @@ void* App::thread_display(node_t* _node, struct params_display* params) /* displ
     fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
 #endif
 
-    hogWorkEnd();
-    printf("response time: %f\n", 1/hog_work_fps);
+    printf("%d response time: %f\n", params->frame_index, (params->end_time - params->start_time) / getTickFrequency());
 
     // Draw positive classified windows
     for (size_t i = 0; i < params->found->size(); i++)
@@ -665,7 +750,7 @@ void App::sched_coarse_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescri
 
 
     int count_frame = 0;
-    while (count_frame++ < 1000 && running)
+    while (count_frame < 1000 && running)
     {
         unsigned int count = 1;
 
@@ -704,9 +789,9 @@ void App::sched_coarse_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescri
 
 
         // Iterate over all frames
-        while (count_frame++ < 1000 && running && !frame.empty())
+        while (count_frame < 1000 && running && !frame.empty())
         {
-            usleep(51000);
+            usleep(60000);
             workBegin();
 
             // Change format of the image
@@ -721,9 +806,11 @@ void App::sched_coarse_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescri
 
             // Perform HOG classification
             hogWorkBegin();
+            cv::cuda::Stream stream;
             if (use_gpu)
             {
-                gpu_img->upload(*img);
+                gpu_img->upload(*img, stream);
+                cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
                 gpu_hog->setNumLevels(nlevels);
                 gpu_hog->setHitThreshold(hit_threshold);
                 gpu_hog->setScaleFactor(scale);
@@ -731,6 +818,8 @@ void App::sched_coarse_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescri
                 out_buf->gpu_img = gpu_img;
                 out_buf->found = found;
                 out_buf->img_to_show = img;
+                out_buf->frame_index = count_frame++;
+                out_buf->start_time = hog_work_begin;
                 CheckError(pgm_complete(color_convert_node));
             }
             else
@@ -918,7 +1007,7 @@ void App::sched_fine_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
 
 
     int count_frame = 0;
-    while (count_frame++ < 1000 && running)
+    while (count_frame < 1000 && running)
     {
         unsigned int count = 1;
 
@@ -957,9 +1046,9 @@ void App::sched_fine_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
 
 
         // Iterate over all frames
-        while (count_frame++ < 1000 && running && !frame.empty())
+        while (count_frame < 1000 && running && !frame.empty())
         {
-            usleep(51000);
+            usleep(60000);
             //fprintf(stdout, "0 fires: image_to_show: %p, found: %p\n", img, found);
             workBegin();
 
@@ -975,9 +1064,11 @@ void App::sched_fine_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
 
             // Perform HOG classification
             hogWorkBegin();
+            cv::cuda::Stream stream;
             if (use_gpu)
             {
-                gpu_img->upload(*img);
+                gpu_img->upload(*img, stream);
+                cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
                 gpu_hog->setNumLevels(nlevels);
                 gpu_hog->setHitThreshold(hit_threshold);
                 gpu_hog->setScaleFactor(scale);
@@ -985,6 +1076,8 @@ void App::sched_fine_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
                 out_buf->gpu_img = gpu_img;
                 out_buf->found = found;
                 out_buf->img_to_show = img;
+                out_buf->frame_index = count_frame++;
+                out_buf->start_time = hog_work_begin;
                 CheckError(pgm_complete(color_convert_node));
             }
             else
@@ -1084,7 +1177,7 @@ void App::sched_etoe_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_h
     vector<String> filenames;
 
     int count_frame = 0;
-    while (count_frame++ < 1000 && running)
+    while (count_frame < 1000 && running)
     {
 
         unsigned int count = 1;
@@ -1123,8 +1216,10 @@ void App::sched_etoe_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_h
         }
 
         // Iterate over all frames
-        while (count_frame++ < 1000 && running && !frame.empty())
+        while (count_frame < 1000 && running && !frame.empty())
         {
+            count_frame++;
+            //usleep(33000);
             workBegin();
 
             // Change format of the image

@@ -279,6 +279,9 @@ namespace
         cv::cuda::GpuMat * gpu_img;
         std::vector<Rect> * found;
         Mat * img_to_show;
+        size_t frame_index;
+        int64 start_time;
+        int64 end_time;
     };
 
 
@@ -286,31 +289,40 @@ namespace
     {
         std::vector<Rect> * found;
         Mat * img_to_show;
-        GpuMat * smaller_img_array;
-        GpuMat * block_hists_array;
+        cv::cuda::GpuMat * smaller_img_array;
+        cv::cuda::GpuMat * block_hists_array;
         std::vector<double> * level_scale;
         std::vector<double> * confidences;
+        size_t frame_index;
+        int64 start_time;
+        int64 end_time;
     };
 
     struct params_classify
     {
         std::vector<Rect> * found;
         Mat * img_to_show;
-        GpuMat * smaller_img_array;
-        GpuMat * block_hists_array;
+        cv::cuda::GpuMat * smaller_img_array;
+        cv::cuda::GpuMat * block_hists_array;
         std::vector<double> * level_scale;
         std::vector<double> * confidences;
+        size_t frame_index;
+        int64 start_time;
+        int64 end_time;
     };
 
     struct params_collect_locations
     {
         std::vector<Rect> * found;
         Mat * img_to_show;
-        GpuMat * smaller_img_array;
-        GpuMat * block_hists_array;
+        cv::cuda::GpuMat * smaller_img_array;
+        cv::cuda::GpuMat * block_hists_array;
         std::vector<double> * level_scale;
         std::vector<double> * confidences;
-        GpuMat * labels_array;
+        cv::cuda::GpuMat * labels_array;
+        size_t frame_index;
+        int64 start_time;
+        int64 end_time;
     };
 
     /* fine-grained */
@@ -319,11 +331,14 @@ namespace
         cv::cuda::GpuMat * gpu_img;
         std::vector<Rect> * found;
         Mat * img_to_show;
-        GpuMat * smaller_img;
-        GpuMat * labels;
+        cv::cuda::GpuMat * smaller_img;
+        cv::cuda::GpuMat * labels;
         std::vector<double> * level_scale;
         std::vector<double> * confidences;
         int index;
+        size_t frame_index;
+        int64 start_time;
+        int64 end_time;
     };
 
     struct params_compute_gradients
@@ -331,11 +346,14 @@ namespace
         cv::cuda::GpuMat * gpu_img;
         std::vector<Rect> * found;
         Mat * img_to_show;
-        GpuMat * smaller_img;
-        GpuMat * labels;
+        cv::cuda::GpuMat * smaller_img;
+        cv::cuda::GpuMat * labels;
         std::vector<double> * level_scale;
         std::vector<double> * confidences;
         int index;
+        size_t frame_index;
+        int64 start_time;
+        int64 end_time;
     };
 
     struct params_compute_histograms
@@ -343,13 +361,16 @@ namespace
         cv::cuda::GpuMat * gpu_img;
         std::vector<Rect> * found;
         Mat * img_to_show;
-        GpuMat * smaller_img;
-        GpuMat * labels;
-        GpuMat * grad;
-        GpuMat * qangle;
+        cv::cuda::GpuMat * smaller_img;
+        cv::cuda::GpuMat * labels;
+        cv::cuda::GpuMat * grad;
+        cv::cuda::GpuMat * qangle;
         std::vector<double> * level_scale;
         std::vector<double> * confidences;
         int index;
+        size_t frame_index;
+        int64 start_time;
+        int64 end_time;
     };
 
     struct params_fine_normalize
@@ -357,12 +378,15 @@ namespace
         cv::cuda::GpuMat * gpu_img;
         std::vector<Rect> * found;
         Mat * img_to_show;
-        GpuMat * smaller_img;
-        GpuMat * labels;
-        GpuMat * block_hists;
+        cv::cuda::GpuMat * smaller_img;
+        cv::cuda::GpuMat * labels;
+        cv::cuda::GpuMat * block_hists;
         std::vector<double> * level_scale;
         std::vector<double> * confidences;
         int index;
+        size_t frame_index;
+        int64 start_time;
+        int64 end_time;
     };
 
     struct params_fine_classify
@@ -370,12 +394,15 @@ namespace
         cv::cuda::GpuMat * gpu_img;
         std::vector<Rect> * found;
         Mat * img_to_show;
-        GpuMat * smaller_img;
-        GpuMat * labels;
-        GpuMat * block_hists;
+        cv::cuda::GpuMat * smaller_img;
+        cv::cuda::GpuMat * labels;
+        cv::cuda::GpuMat * block_hists;
         std::vector<double> * level_scale;
         std::vector<double> * confidences;
         int index;
+        size_t frame_index;
+        int64 start_time;
+        int64 end_time;
     };
 
     struct params_fine_collect_locations
@@ -383,17 +410,23 @@ namespace
         cv::cuda::GpuMat * gpu_img;
         std::vector<Rect> * found;
         Mat * img_to_show;
-        GpuMat * smaller_img;
-        GpuMat * labels;
+        cv::cuda::GpuMat * smaller_img;
+        cv::cuda::GpuMat * labels;
         std::vector<double> * level_scale;
         std::vector<double> * confidences;
         int index;
+        size_t frame_index;
+        int64 start_time;
+        int64 end_time;
     };
 
     struct params_display
     {
         std::vector<Rect> * found;
         Mat * img_to_show;
+        size_t frame_index;
+        int64 start_time;
+        int64 end_time;
     };
 
 #define NUM_PARALLEL_JOB 4
@@ -444,6 +477,8 @@ namespace
                     tp->gpu_img = in_buf->gpu_img;
                     tp->found = in_buf->found;
                     tp->img_to_show = in_buf->img_to_show;
+                    tp->frame_index = in_buf->frame_index;
+                    tp->start_time = in_buf->start_time;
 
                     i = indx++ % NUM_PARALLEL_JOB;
                     if (t[i] == NULL) {
@@ -490,13 +525,14 @@ namespace
         fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
 #endif
 
-        Stream& stream = Stream::Null();
+        Stream stream;
         cv::Size blocks_per_win = numPartsWithin(win_size_, block_size_, block_stride_);
         hog::set_up_constants(nbins_,
                 block_stride_.width, block_stride_.height,
                 blocks_per_win.width, blocks_per_win.height,
                 cells_per_block_.width, cells_per_block_.height,
                 StreamAccessor::getStream(stream));
+        cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
         /* ===========================
          * compute scale levels
          */
@@ -559,6 +595,8 @@ namespace
             out_buf->level_scale = level_scale;
             out_buf->confidences = confidences;
             out_buf->index = i;
+            out_buf->frame_index = params->frame_index;
+            out_buf->start_time = params->start_time;
             CheckError(pgm_complete(node));
             pthread_mutex_unlock(out_mutex);
         }
@@ -622,6 +660,8 @@ namespace
                     tp->confidences = in_buf->confidences;
                     tp->index = in_buf->index;
                     tp->labels = in_buf->labels;
+                    tp->frame_index = in_buf->frame_index;
+                    tp->start_time = in_buf->start_time;
 
                     i = indx++ % NUM_PARALLEL_JOB;
                     if (t[i] == NULL) {
@@ -699,6 +739,8 @@ namespace
         out_buf->confidences = params->confidences;
         out_buf->index = params->index;
         out_buf->labels = params->labels;
+        out_buf->frame_index = params->frame_index;
+        out_buf->start_time = params->start_time;
         CheckError(pgm_complete(node));
         pthread_mutex_unlock(out_mutex);
         free(params);
@@ -757,6 +799,8 @@ namespace
                     tp->confidences = in_buf->confidences;
                     tp->index = in_buf->index;
                     tp->labels = in_buf->labels;
+                    tp->frame_index = in_buf->frame_index;
+                    tp->start_time = in_buf->start_time;
 
                     i = indx++ % NUM_PARALLEL_JOB;
                     if (t[i] == NULL) {
@@ -812,8 +856,8 @@ namespace
             GpuMat * grad = new GpuMat();
             GpuMat * qangle = new GpuMat();
 
-            BufferPool pool(Stream::Null());
-            Stream& stream = Stream::Null();
+            Stream stream;
+            BufferPool pool(stream);
             float  angleScale = static_cast<float>(nbins_ / CV_PI);
             *grad       = pool.getBuffer(smaller_img->size(), CV_32FC2);
             *qangle     = pool.getBuffer(smaller_img->size(), CV_8UC2);
@@ -838,6 +882,7 @@ namespace
                             StreamAccessor::getStream(stream));
                     break;
             }
+        cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
         /*
          * end of compute gradients
          * =========================== */
@@ -853,6 +898,8 @@ namespace
         out_buf->grad= grad;
         out_buf->qangle= qangle;
         out_buf->index = params->index;
+        out_buf->frame_index = params->frame_index;
+        out_buf->start_time = params->start_time;
         CheckError(pgm_complete(node));
         pthread_mutex_unlock(out_mutex);
         free(params);
@@ -913,6 +960,8 @@ namespace
                     tp->qangle = in_buf->qangle;
                     tp->index = in_buf->index;
                     tp->labels = in_buf->labels;
+                    tp->frame_index = in_buf->frame_index;
+                    tp->start_time = in_buf->start_time;
 
                     i = indx++ % NUM_PARALLEL_JOB;
                     if (t[i] == NULL) {
@@ -965,8 +1014,8 @@ namespace
         std::vector<double> * level_scale = params->level_scale;
         int i = params->index;
 
-        BufferPool pool(Stream::Null());
-        Stream& stream = Stream::Null();
+        Stream stream;
+        BufferPool pool(stream);
 
         GpuMat * block_hists = new GpuMat();
         /* ===========================
@@ -983,6 +1032,7 @@ namespace
                     cell_size_.width, cell_size_.height,
                     cells_per_block_.width, cells_per_block_.height,
                     StreamAccessor::getStream(stream));
+            cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
             grad->release();
             qangle->release();
         /*
@@ -999,6 +1049,8 @@ namespace
         out_buf->confidences = params->confidences;
         out_buf->index = params->index;
         out_buf->labels = params->labels;
+        out_buf->frame_index = params->frame_index;
+        out_buf->start_time = params->start_time;
 
         out_buf->block_hists= block_hists;
         CheckError(pgm_complete(node));
@@ -1060,6 +1112,8 @@ namespace
                     tp->confidences = in_buf->confidences;
                     tp->labels = in_buf->labels;
                     tp->index = in_buf->index;
+                    tp->frame_index = in_buf->frame_index;
+                    tp->start_time = in_buf->start_time;
 
                     i = indx++ % NUM_PARALLEL_JOB;
                     if (t[i] == NULL) {
@@ -1111,6 +1165,7 @@ namespace
         GpuMat * block_hists = params->block_hists;
         std::vector<double> * level_scale = params->level_scale;
         int i = params->index;
+        Stream stream;
         // block_hists
         /* ===========================
          * normalize histograms
@@ -1123,7 +1178,9 @@ namespace
                     (float)threshold_L2hys_,
                     cell_size_.width, cell_size_.height,
                     cells_per_block_.width, cells_per_block_.height,
-                    StreamAccessor::getStream(Stream::Null()));
+                    StreamAccessor::getStream(stream));
+
+            cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
         /*
          * end of nomalize histograms
          * =========================== */
@@ -1138,6 +1195,8 @@ namespace
         out_buf->confidences = params->confidences;
         out_buf->labels = params->labels;
         out_buf->index = params->index;
+        out_buf->frame_index = params->frame_index;
+        out_buf->start_time = params->start_time;
         CheckError(pgm_complete(node));
         pthread_mutex_unlock(out_mutex);
         free(params);
@@ -1197,6 +1256,8 @@ namespace
                     tp->confidences = in_buf->confidences;
                     tp->labels = in_buf->labels;
                     tp->index = in_buf->index;
+                    tp->frame_index = in_buf->frame_index;
+                    tp->start_time = in_buf->start_time;
 
                     i = indx++ % NUM_PARALLEL_JOB;
                     if (t[i] == NULL) {
@@ -1301,6 +1362,8 @@ namespace
         out_buf->level_scale = params->level_scale;
         out_buf->confidences = params->confidences;
         out_buf->index = params->index;
+        out_buf->frame_index = params->frame_index;
+        out_buf->start_time = params->start_time;
 
         out_buf->labels = params->labels;
         CheckError(pgm_complete(node));
@@ -1374,6 +1437,8 @@ namespace
                     tp->smaller_img = in_buf->smaller_img;
                     tp->labels = in_buf->labels;
                     tp->index = in_buf->index;
+                    tp->frame_index = in_buf->frame_index;
+                    tp->start_time = in_buf->start_time;
 
                     ready = false;
                     added = false;
@@ -1459,6 +1524,7 @@ namespace
         std::vector<double> * level_scale = params->level_scale;
         std::vector<double> * confidences = params->confidences;
         GpuMat * labels_array = params->labels - params->index;
+        Stream stream;
 
         double scale;
         // labels
@@ -1481,7 +1547,8 @@ namespace
             if (level_confidences_ptr == NULL)
             {
                 Mat labels_host;
-                labels->download(labels_host);
+                labels->download(labels_host, stream);
+                cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
                 unsigned char* vec = labels_host.ptr();
 
                 for (int i = 0; i < wins_per_img.area(); i++)
@@ -1495,7 +1562,8 @@ namespace
             else
             {
                 Mat labels_host;
-                labels->download(labels_host);
+                labels->download(labels_host, stream);
+                cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
                 float* vec = labels_host.ptr<float>();
 
                 level_confidences_ptr->clear();
@@ -1540,6 +1608,8 @@ namespace
         pthread_mutex_lock(out_mutex);
         out_buf->found = params->found;
         out_buf->img_to_show = params->img_to_show;
+        out_buf->frame_index = params->frame_index;
+        out_buf->start_time = params->start_time;
         CheckError(pgm_complete(node));
         pthread_mutex_unlock(out_mutex);
         free(params);
@@ -1593,8 +1663,10 @@ namespace
                     tp->gpu_img = in_buf->gpu_img;
                     tp->found = in_buf->found;
                     tp->img_to_show = in_buf->img_to_show;
+                    tp->frame_index = in_buf->frame_index;
+                    tp->start_time = in_buf->start_time;
 
-                    i = indx++ % 4;
+                    i = indx++ % 1;
                     if (t[i] == NULL) {
                         t[i] = new std::thread(&HOG_Impl::thread_vxHOGCells, this, _node, &out_mutex, out_buf, tp);
                     } else {
@@ -1679,8 +1751,10 @@ namespace
                     tp->block_hists_array = in_buf->block_hists_array;
                     tp->level_scale = in_buf->level_scale;
                     tp->confidences = in_buf->confidences;
+                    tp->frame_index = in_buf->frame_index;
+                    tp->start_time = in_buf->start_time;
 
-                    i = indx++ % 4;
+                    i = indx++ % 1;
                     if (t[i] == NULL) {
                         t[i] = new std::thread(&HOG_Impl::thread_vxHOGFeatures, this, _node, &out_mutex, out_buf, tp);
                     } else {
@@ -1764,8 +1838,10 @@ namespace
                     tp->block_hists_array = in_buf->block_hists_array;
                     tp->level_scale = in_buf->level_scale;
                     tp->confidences = in_buf->confidences;
+                    tp->frame_index = in_buf->frame_index;
+                    tp->start_time = in_buf->start_time;
 
-                    i = indx++ % 4;
+                    i = indx++ % 1;
                     if (t[i] == NULL) {
                         t[i] = new std::thread(&HOG_Impl::thread_classify, this, _node, &out_mutex, out_buf, tp);
                     } else {
@@ -1850,8 +1926,10 @@ namespace
                     tp->level_scale = in_buf->level_scale;
                     tp->confidences = in_buf->confidences;
                     tp->labels_array = in_buf->labels_array;
+                    tp->frame_index = in_buf->frame_index;
+                    tp->start_time = in_buf->start_time;
 
-                    i = indx++ % 4;
+                    i = indx++ % 1;
                     if (t[i] == NULL) {
                         t[i] = new std::thread(&HOG_Impl::thread_collect_location, this, _node, &out_mutex, out_buf, tp);
                     } else {
@@ -1896,13 +1974,14 @@ namespace
         fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
 #endif
 
-        Stream& stream = Stream::Null();
+        Stream stream;
         cv::Size blocks_per_win = numPartsWithin(win_size_, block_size_, block_stride_);
         hog::set_up_constants(nbins_,
                 block_stride_.width, block_stride_.height,
                 blocks_per_win.width, blocks_per_win.height,
                 cells_per_block_.width, cells_per_block_.height,
                 StreamAccessor::getStream(stream));
+        cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
         /* ===========================
          * compute scale levels
          */
@@ -1932,7 +2011,7 @@ namespace
         levels = std::max(levels, 1);
         level_scale->resize(levels);
 
-        BufferPool pool(Stream::Null());
+        BufferPool pool(stream);
 
         found->clear();
 
@@ -1983,11 +2062,7 @@ namespace
             /* ===========================
              * compute gradients
              */
-            //computeBlockHistograms(*smaller_img, block_hists, Stream::Null());
-            //void HOG_Impl::computeBlockHistograms(const GpuMat& img, GpuMat& block_hists, Stream& stream)
 
-            //BufferPool pool(Stream::Null());
-            //Stream& stream = Stream::Null();
             float  angleScale = static_cast<float>(nbins_ / CV_PI);
             *block_hists      = pool.getBuffer(1, getTotalHistSize(smaller_img->size()), CV_32FC1);
             GpuMat grad       = pool.getBuffer(smaller_img->size(), CV_32FC2);
@@ -2029,6 +2104,7 @@ namespace
                     cell_size_.width, cell_size_.height,
                     cells_per_block_.width, cells_per_block_.height,
                     StreamAccessor::getStream(stream));
+            cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
             /*
              * end of compute histograms
              * =========================== */
@@ -2042,6 +2118,8 @@ namespace
         out_buf->smaller_img_array = smaller_img_array;
         out_buf->block_hists_array = block_hists_array;
         out_buf->confidences = NULL;
+        out_buf->frame_index = params->frame_index;
+        out_buf->start_time = params->start_time;
         CheckError(pgm_complete(node));
         pthread_mutex_unlock(out_mutex);
         free(params);
@@ -2062,7 +2140,7 @@ namespace
         GpuMat * smaller_img_array = params->smaller_img_array;
         GpuMat * block_hists_array = params->block_hists_array;
 
-        //Stream& stream = Stream::Null();
+        Stream stream;
 
         for (size_t i = 0; i < level_scale->size(); i++)
         {
@@ -2080,7 +2158,8 @@ namespace
                     (float)threshold_L2hys_,
                     cell_size_.width, cell_size_.height,
                     cells_per_block_.width, cells_per_block_.height,
-                    StreamAccessor::getStream(Stream::Null()));
+                    StreamAccessor::getStream(stream));
+            cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
             /*
              * end of nomalize histograms
              * =========================== */
@@ -2094,6 +2173,8 @@ namespace
         out_buf->smaller_img_array = smaller_img_array;
         out_buf->block_hists_array = block_hists_array;
         out_buf->confidences = params->confidences;
+        out_buf->frame_index = params->frame_index;
+        out_buf->start_time = params->start_time;
         CheckError(pgm_complete(node));
         pthread_mutex_unlock(out_mutex);
         free(params);
@@ -2113,8 +2194,8 @@ namespace
         GpuMat * smaller_img_array = params->smaller_img_array;
         GpuMat * block_hists_array = params->block_hists_array;
 
-        //Stream& stream = Stream::Null();
-        BufferPool pool(Stream::Null());
+        Stream stream;
+        BufferPool pool(stream);
 
         GpuMat * labels_array = new GpuMat[level_scale->size()];
         for (size_t i = 0; i < level_scale->size(); i++)
@@ -2171,6 +2252,8 @@ namespace
         out_buf->block_hists_array = params->block_hists_array;
         out_buf->confidences = params->confidences;
         out_buf->labels_array = labels_array;
+        out_buf->frame_index = params->frame_index;
+        out_buf->start_time = params->start_time;
         CheckError(pgm_complete(node));
         pthread_mutex_unlock(out_mutex);
         free(params);
@@ -2192,8 +2275,7 @@ namespace
         GpuMat * block_hists_array = params->block_hists_array;
         GpuMat * labels_array = params->labels_array;
 
-        //Stream& stream = Stream::Null();
-        //BufferPool pool(Stream::Null());
+        Stream stream;
 
         double scale;
 
@@ -2217,7 +2299,8 @@ namespace
             if (level_confidences_ptr == NULL)
             {
                 Mat labels_host;
-                labels->download(labels_host);
+                labels->download(labels_host, stream);
+                cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
                 unsigned char* vec = labels_host.ptr();
 
                 for (int i = 0; i < wins_per_img.area(); i++)
@@ -2231,7 +2314,8 @@ namespace
             else
             {
                 Mat labels_host;
-                labels->download(labels_host);
+                labels->download(labels_host, stream);
+                cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
                 float* vec = labels_host.ptr<float>();
 
                 level_confidences_ptr->clear();
@@ -2275,6 +2359,8 @@ namespace
         pthread_mutex_lock(out_mutex);
         out_buf->found = params->found;
         out_buf->img_to_show = params->img_to_show;
+        out_buf->frame_index = params->frame_index;
+        out_buf->start_time = params->start_time;
         CheckError(pgm_complete(node));
         pthread_mutex_unlock(out_mutex);
         free(params);

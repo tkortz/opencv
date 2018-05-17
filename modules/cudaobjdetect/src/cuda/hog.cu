@@ -445,10 +445,15 @@ namespace cv { namespace cuda { namespace device
 
            int img_block_width = (width - ncells_block_x * cell_size_x + block_stride_x) /
                                                        block_stride_x;
-           compute_confidence_hists_kernel_many_blocks<nthreads, nblocks><<<grid, threads>>>(
+           cudaStream_t stream;
+           cudaSafeCall(cudaStreamCreate(&stream));
+           compute_confidence_hists_kernel_many_blocks<nthreads,
+               nblocks><<<grid, threads, 0, stream>>>(
                    img_win_width, img_block_width, win_block_stride_x, win_block_stride_y,
                    block_hists, coefs, free_coef, threshold, confidences);
-           cudaSafeCall(cudaThreadSynchronize());
+           cudaSafeCall(cudaStreamSynchronize(stream));
+           cudaSafeCall(cudaStreamDestroy(stream));
+           //cudaSafeCall(cudaThreadSynchronize());
        }
 
 
@@ -504,13 +509,19 @@ namespace cv { namespace cuda { namespace device
 
             cudaSafeCall(cudaFuncSetCacheConfig(classify_hists_kernel_many_blocks<nthreads, nblocks>, cudaFuncCachePreferL1));
 
+            cudaStream_t stream;
+            cudaSafeCall(cudaStreamCreate(&stream));
             int img_block_width = (width - ncells_block_x * cell_size_x + block_stride_x) / block_stride_x;
-            classify_hists_kernel_many_blocks<nthreads, nblocks><<<grid, threads>>>(
+            classify_hists_kernel_many_blocks<nthreads, nblocks><<<grid,
+                threads, 0, stream>>>(
                 img_win_width, img_block_width, win_block_stride_x, win_block_stride_y,
                 block_hists, coefs, free_coef, threshold, labels);
             cudaSafeCall( cudaGetLastError() );
 
-            cudaSafeCall( cudaDeviceSynchronize() );
+            cudaSafeCall(cudaStreamSynchronize(stream));
+            cudaSafeCall(cudaStreamDestroy(stream));
+
+            //cudaSafeCall( cudaDeviceSynchronize() );
         }
 
         //----------------------------------------------------------------------------
@@ -873,10 +884,15 @@ namespace cv { namespace cuda { namespace device
             float sx = static_cast<float>(src.cols) / dst.cols;
             float sy = static_cast<float>(src.rows) / dst.rows;
 
-            resize_for_hog_kernel<<<grid, threads>>>(sx, sy, (PtrStepSz<T>)dst, colOfs);
+            cudaStream_t stream;
+            cudaSafeCall(cudaStreamCreate(&stream));
+            resize_for_hog_kernel<<<grid, threads, 0, stream>>>(sx, sy, (PtrStepSz<T>)dst, colOfs);
             cudaSafeCall( cudaGetLastError() );
 
-            cudaSafeCall( cudaDeviceSynchronize() );
+
+            cudaSafeCall(cudaStreamSynchronize(stream));
+            cudaSafeCall(cudaStreamDestroy(stream));
+            //cudaSafeCall( cudaDeviceSynchronize() );
 
             cudaSafeCall( cudaUnbindTexture(tex) );
         }
