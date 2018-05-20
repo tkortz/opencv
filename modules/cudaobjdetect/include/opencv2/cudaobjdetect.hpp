@@ -188,21 +188,26 @@ public:
                          OutputArray descriptors,
                          Stream& stream = Stream::Null()) = 0;
 
-    /* coarse-grained nodes */
-    virtual void* vxHOGCells_node_top(node_t* _node, pthread_barrier_t*) = 0;
-    virtual void* coarse_vxHOGCells_node_top(node_t* _node, pthread_barrier_t*) = 0;
-    virtual void* vxHOGFeatures_node_top(node_t* _node, pthread_barrier_t*) = 0;
-    virtual void* classify_node_top(node_t* _node, pthread_barrier_t*) = 0;
-    virtual void* collect_locations_node_top(node_t* _node, pthread_barrier_t*) = 0;
 
-    /* fine-grained nodes */
-    virtual void* fine_compute_scales_node_top(node_t* _node, pthread_barrier_t* init_barrier) = 0;
-    virtual void* fine_resize_node_top(node_t* _node, pthread_barrier_t* init_barrier) = 0;
-    virtual void* fine_compute_gradients_node_top(node_t* _node, pthread_barrier_t* init_barrier) = 0;
-    virtual void* fine_compute_histograms_node_top(node_t* _node, pthread_barrier_t* init_barrier) = 0;
-    virtual void* fine_normalize_histograms_node_top(node_t* _node, pthread_barrier_t* init_barrier) = 0;
-    virtual void* fine_classify_node_top(node_t* _node, pthread_barrier_t* init_barrier) = 0;
-    virtual void* fine_collect_locations_node_top(node_t* _node, pthread_barrier_t* init_barrier) = 0;
+    /* coarse-grained */
+    /* vxHOGCellsNode node function */
+    virtual void* thread_vxHOGCells(node_t* _node, pthread_barrier_t* init_barrier) = 0;
+    virtual void* thread_unrolled_vxHOGCells(node_t* _node, pthread_barrier_t* init_barrier) = 0;
+    /* vxHOGFeatureNode node function */
+    virtual void* thread_vxHOGFeatures(node_t* _node, pthread_barrier_t* init_barrier) = 0;
+    /* classify node function */
+    virtual void* thread_classify(node_t* _node, pthread_barrier_t* init_barrier) = 0;
+    /* collect location node function */
+    virtual void* thread_collect_locations(node_t* _node, pthread_barrier_t* init_barrier) = 0;
+
+    /* fine-grained */
+    virtual void* thread_fine_compute_scales(node_t* _node, pthread_barrier_t* init_barrier) = 0;
+    virtual void* thread_fine_resize(node_t* _node, pthread_barrier_t* init_barrier) = 0;
+    virtual void* thread_fine_compute_gradients(node_t* _node, pthread_barrier_t* init_barrier) = 0;
+    virtual void* thread_fine_compute_histograms(node_t* _node, pthread_barrier_t* init_barrier) = 0;
+    virtual void* thread_fine_normalize_histograms(node_t* _node, pthread_barrier_t* init_barrier) = 0;
+    virtual void* thread_fine_classify(node_t* _node, pthread_barrier_t* init_barrier) = 0;
+    virtual void* thread_fine_collect_locations(node_t* _node, pthread_barrier_t* init_barrier) = 0;
 
 };
 

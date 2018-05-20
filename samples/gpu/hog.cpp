@@ -28,6 +28,7 @@ int hog_sample_errors;
 __thread char hog_sample_errstr[80];
 
 //#define LOG_DEBUG 1
+#define NUM_SCALE_LEVELS 13
 #define CheckError(e) \
 do { int __ret = (e); \
 if(__ret < 0) { \
@@ -258,8 +259,7 @@ public:
     void sched_coarse_grained_unrolled_for_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog);
     void sched_fine_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog);
 
-    void* thread_display(node_t* node, struct params_display* params); /* display node function */
-    void* display_node_top(node_t* node);
+    void* thread_display(node_t* node);
 
     void handleKey(char key);
 
@@ -491,7 +491,7 @@ struct linked_frames
     struct linked_frames * next;
 };
 
-void* App::display_node_top(node_t* _node)
+void* App::thread_display(node_t* _node)
 {
     node_t node = *_node;
 #ifdef LOG_DEBUG
@@ -507,19 +507,7 @@ void* App::display_node_top(node_t* _node)
     if (in_buf == NULL)
         fprintf(stderr, "compute gradients in buffer is NULL\n");
 
-    std::thread** t = (std::thread** )calloc(4, sizeof (std::thread *));
-
     pthread_barrier_wait(&init_barrier);
-
-    int i = 0;
-    unsigned int indx = 0;
-    struct params_display* tp;
-
-    struct linked_frames * head = NULL;
-    size_t next_frame_index = 0;
-    struct linked_frames * temp;
-    struct linked_frames * prev;
-    struct linked_frames * curr;
 
     if(!hog_sample_errors)
     {
@@ -534,73 +522,59 @@ void* App::display_node_top(node_t* _node)
                 fprintf(stdout, "%s%d fires (top)\n", tabbuf, node.node);
 #endif
 
-                tp = (struct params_display*)malloc(sizeof(struct params_display));
+
+                printf("%d response time: %f\n", in_buf->frame_index, (hog_work_end - in_buf->start_time) / getTickFrequency());
+
+                // Draw positive classified windows
+                for (size_t i = 0; i < in_buf->found->size(); i++)
+                {
+                    Rect r = (*in_buf->found)[i];
+                    rectangle(*in_buf->img_to_show, r.tl(), r.br(), Scalar(0, 255, 0), 3);
 #ifdef LOG_DEBUG
-                fprintf(stdout, "found addr: %p, img_to_show: %p\n", in_buf->found, in_buf->img_to_show);
+                    fprintf(stdout, "point: %d, %d, %d, %d\n", r.tl().x, r.tl().y, r.br().x, r.br().y);
 #endif
-                tp->found = in_buf->found;
-                tp->img_to_show = in_buf->img_to_show;
-                tp->frame_index = in_buf->frame_index;
-                tp->start_time = in_buf->start_time;
-                tp->end_time = hog_work_end;
-
-                curr = (struct linked_frames *) calloc(1, sizeof(struct linked_frames));
-                curr->ptr = tp;
-                curr->next = NULL;
-                temp = head;
-                prev = NULL;
-                if (head == NULL) {
-                    head = curr;
-                } else {
-                    while (temp != NULL) {
-                        if (temp->ptr->frame_index < curr->ptr->frame_index) {
-                            if (temp->next == NULL) { /* it's the end of the list */
-                                temp->next = curr;
-                                break;
-                            }
-                            prev = temp; /* move forward */
-                            temp = temp->next;
-                        } else {
-                            if (prev == NULL) { /* temp is at head */
-                                curr->next = head;
-                                head = curr;
-                                break;
-                            }
-                            prev->next = curr; /* insert before temp */
-                            curr->next = temp;
-                            break;
-                        }
-                    }
                 }
 
-                //fprintf(stdout, "head index: %lu, %lu, %lu", head->ptr->frame_index, tp->frame_index, next_frame_index);
-                while (head != NULL && head->ptr->frame_index == next_frame_index) {
-                    tp = head->ptr;
-                    next_frame_index++;
-                    temp = head;
-                    head = head->next;
-                    free(temp);
-                    i = indx++ % 1;
-                    if (t[i] == NULL) {
-                        t[i] = new std::thread(&App::thread_display, this, _node, tp);
-                    } else {
-                        t[i]->join();
-                        delete t[i];
-                        t[i] = new std::thread(&App::thread_display, this, _node, tp);
+                if (use_gpu)
+                    putText(*in_buf->img_to_show, "Mode: GPU", Point(5, 25), FONT_HERSHEY_SIMPLEX, 1., Scalar(255, 100, 0), 2);
+                else
+                    putText(*in_buf->img_to_show, "Mode: CPU", Point(5, 25), FONT_HERSHEY_SIMPLEX, 1., Scalar(255, 100, 0), 2);
+                putText(*in_buf->img_to_show, "FPS HOG: " + hogWorkFps(), Point(5, 65), FONT_HERSHEY_SIMPLEX, 1., Scalar(255, 100, 0), 2);
+                putText(*in_buf->img_to_show, "FPS total: " + workFps(), Point(5, 105), FONT_HERSHEY_SIMPLEX, 1., Scalar(255, 100, 0), 2);
+                imshow("opencv_gpu_hog", *in_buf->img_to_show);
+
+                workEnd();
+
+                Mat * img = new Mat();
+                if (args.write_video)
+                {
+                    if (!video_writer.isOpened())
+                    {
+                        video_writer.open(args.dst_video, VideoWriter::fourcc('x','v','i','d'), args.dst_video_fps,
+                                in_buf->img_to_show->size(), true);
+                        if (!video_writer.isOpened())
+                            throw std::runtime_error("can't create video writer");
                     }
+
+                    if (make_gray) cvtColor(*in_buf->img_to_show, *img, COLOR_GRAY2BGR);
+                    else cvtColor(*in_buf->img_to_show, *img, COLOR_BGRA2BGR);
+
+                    video_writer << *img;
                 }
+
+                handleKey((char)waitKey(3));
+                delete in_buf->found;
+                delete img;
+                delete in_buf->img_to_show;
+
+                //CheckError(pgm_complete(node));
             }
             else
             {
-                for (i=0; i<4; i++) {
-                    if (t[i] != NULL && t[i]->joinable()) {
-                        t[i]->join();
-                    }
-                }
 #ifdef LOG_DEBUG
                 fprintf(stdout, "%s- %d terminates\n", tabbuf, node.node);
 #endif
-                pgm_terminate(node);
+                //pgm_terminate(node);
             }
 
         } while(ret != PGM_TERMINATE);
@@ -611,65 +585,6 @@ void* App::display_node_top(node_t* _node)
     CheckError(pgm_release_node(node));
 
     free(in_edge);
-    free(t);
-    pthread_exit(0);
-}
-
-void* App::thread_display(node_t* _node, struct params_display* params) /* display node function */
-{
-    node_t node = *_node;
-#ifdef LOG_DEBUG
-    char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
-    tabbuf[node.node] = '\0';
-    fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
-#endif
-
-    printf("%d response time: %f\n", params->frame_index, (params->end_time - params->start_time) / getTickFrequency());
-
-    // Draw positive classified windows
-    for (size_t i = 0; i < params->found->size(); i++)
-    {
-        Rect r = (*params->found)[i];
-        rectangle(*params->img_to_show, r.tl(), r.br(), Scalar(0, 255, 0), 3);
-#ifdef LOG_DEBUG
-        fprintf(stdout, "point: %d, %d, %d, %d\n", r.tl().x, r.tl().y, r.br().x, r.br().y);
-#endif
-    }
-
-    if (use_gpu)
-        putText(*params->img_to_show, "Mode: GPU", Point(5, 25), FONT_HERSHEY_SIMPLEX, 1., Scalar(255, 100, 0), 2);
-    else
-        putText(*params->img_to_show, "Mode: CPU", Point(5, 25), FONT_HERSHEY_SIMPLEX, 1., Scalar(255, 100, 0), 2);
-    putText(*params->img_to_show, "FPS HOG: " + hogWorkFps(), Point(5, 65), FONT_HERSHEY_SIMPLEX, 1., Scalar(255, 100, 0), 2);
-    putText(*params->img_to_show, "FPS total: " + workFps(), Point(5, 105), FONT_HERSHEY_SIMPLEX, 1., Scalar(255, 100, 0), 2);
-    imshow("opencv_gpu_hog", *params->img_to_show);
-
-    workEnd();
-
-    Mat * img = new Mat();
-    if (args.write_video)
-    {
-        if (!video_writer.isOpened())
-        {
-            video_writer.open(args.dst_video, VideoWriter::fourcc('x','v','i','d'), args.dst_video_fps,
-                    params->img_to_show->size(), true);
-            if (!video_writer.isOpened())
-                throw std::runtime_error("can't create video writer");
-        }
-
-        if (make_gray) cvtColor(*params->img_to_show, *img, COLOR_GRAY2BGR);
-        else cvtColor(*params->img_to_show, *img, COLOR_BGRA2BGR);
-
-        video_writer << *img;
-    }
-
-    handleKey((char)waitKey(3));
-    delete params->found;
-    delete img;
-    delete params->img_to_show;
-    free(params);
-
-    //CheckError(pgm_complete(node));
     pthread_exit(0);
 }
 
@@ -690,7 +605,12 @@ void App::sched_coarse_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescri
 
     /* graph construction */
     graph_t g;
-    node_t color_convert_node, vxHOGCells_node, vxHOGFeatures_node, classify_node, collect_locations_node, display_node;
+    node_t color_convert_node;
+    node_t vxHOGCells_node;
+    node_t vxHOGFeatures_node;
+    node_t classify_node;
+    node_t collect_locations_node;
+    node_t display_node;
     edge_t e0_1, e1_2, e2_3, e3_4, e4_5;
 
     CheckError(pgm_init("/tmp/graphs", 1));
@@ -735,11 +655,11 @@ void App::sched_coarse_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescri
 
     pthread_barrier_init(&init_barrier, 0, 6);
 
-    thread t1(&cv::cuda::HOG::vxHOGCells_node_top, gpu_hog, &vxHOGCells_node, &init_barrier);
-    thread t2(&cv::cuda::HOG::vxHOGFeatures_node_top, gpu_hog, &vxHOGFeatures_node, &init_barrier);
-    thread t3(&cv::cuda::HOG::classify_node_top, gpu_hog, &classify_node, &init_barrier);
-    thread t4(&cv::cuda::HOG::collect_locations_node_top, gpu_hog, &collect_locations_node, &init_barrier);
-    thread t5(&App::display_node_top, this, &display_node);
+    thread t1(&cv::cuda::HOG::thread_vxHOGCells, gpu_hog, &vxHOGCells_node, &init_barrier);
+    thread t2(&cv::cuda::HOG::thread_vxHOGFeatures, gpu_hog, &vxHOGFeatures_node, &init_barrier);
+    thread t3(&cv::cuda::HOG::thread_classify, gpu_hog, &classify_node, &init_barrier);
+    thread t4(&cv::cuda::HOG::thread_collect_locations, gpu_hog, &collect_locations_node, &init_barrier);
+    thread t5(&App::thread_display, this, &display_node);
 
     pgm_claim_node(color_convert_node);
 
@@ -923,24 +843,36 @@ void App::sched_coarse_grained_unrolled_for_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, 
 
     /* graph construction */
     graph_t g;
-    node_t color_convert_node, compute_scales_node, coarse_vxHOGCells_node,
-           normalize_node, classify_node, collect_locations_node, display_node;
-    edge_t e0_1, e1_2, e2_3, e3_4, e4_5, e5_6, e6_7, e7_8;
+    node_t color_convert_node;
+    node_t compute_scales_node;
+    node_t unrolled_vxHOGCells_node[NUM_SCALE_LEVELS];
+    node_t normalize_node[NUM_SCALE_LEVELS];
+    node_t classify_node[NUM_SCALE_LEVELS];
+    node_t collect_locations_node;
+    node_t display_node;
+    edge_t e0_1;
+    edge_t e1_2[NUM_SCALE_LEVELS];
+    edge_t e2_3[NUM_SCALE_LEVELS];
+    edge_t e3_4[NUM_SCALE_LEVELS];
+    edge_t e4_5[NUM_SCALE_LEVELS];
+    edge_t e5_6;
 
     CheckError(pgm_init("/tmp/graphs", 1));
     CheckError(pgm_init_graph(&g, "hog"));
 
     CheckError(pgm_init_node(&color_convert_node, g, "color_convert"));
-    CheckError(pgm_init_node(&compute_scales_node, g, "detect"));
-    CheckError(pgm_init_node(&coarse_vxHOGCells_node, g, "detect"));
-    CheckError(pgm_init_node(&normalize_node, g, "detect"));
-    CheckError(pgm_init_node(&classify_node, g, "classify"));
-    CheckError(pgm_init_node(&collect_locations_node, g, "classify"));
+    CheckError(pgm_init_node(&compute_scales_node, g, "compute_scales"));
+    for (int i=0; i<NUM_SCALE_LEVELS; i++) {
+        CheckError(pgm_init_node(&unrolled_vxHOGCells_node[i], g, "unrolled_vxHOGCells"));
+        CheckError(pgm_init_node(&normalize_node[i], g, "normalize"));
+        CheckError(pgm_init_node(&classify_node[i], g, "classify"));
+    }
+    CheckError(pgm_init_node(&collect_locations_node, g, "collect_locations"));
     CheckError(pgm_init_node(&display_node, g, "display"));
 
     edge_attr_t fast_mq_attr;
     memset(&fast_mq_attr, 0, sizeof(fast_mq_attr));
-    fast_mq_attr.mq_maxmsg = 100; /* root required for higher values */
+    fast_mq_attr.mq_maxmsg = 13; /* root required for higher values */
     fast_mq_attr.type = pgm_fast_mq_edge;
 
     fast_mq_attr.nr_produce = sizeof(struct params_compute);
@@ -948,40 +880,52 @@ void App::sched_coarse_grained_unrolled_for_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, 
     fast_mq_attr.nr_threshold = sizeof(struct params_compute);
     CheckError(pgm_init_edge(&e0_1, color_convert_node, compute_scales_node, "e0_1", &fast_mq_attr));
 
-    fast_mq_attr.nr_produce = sizeof(struct params_resize);
-    fast_mq_attr.nr_consume = sizeof(struct params_resize);
-    fast_mq_attr.nr_threshold = sizeof(struct params_resize);
-    CheckError(pgm_init_edge(&e1_2, compute_scales_node, coarse_vxHOGCells_node, "e1_2", &fast_mq_attr));
+    char buf[30];
+    for (int i=0; i<NUM_SCALE_LEVELS; i++) {
+        sprintf(buf, "e1_2_%d", i);
+        fast_mq_attr.nr_produce = sizeof(struct params_resize);
+        fast_mq_attr.nr_consume = sizeof(struct params_resize);
+        fast_mq_attr.nr_threshold = sizeof(struct params_resize);
+        CheckError(pgm_init_edge(&e1_2[i], compute_scales_node, unrolled_vxHOGCells_node[i], buf, &fast_mq_attr));
 
-    fast_mq_attr.nr_produce = sizeof(struct params_fine_normalize);
-    fast_mq_attr.nr_consume = sizeof(struct params_fine_normalize);
-    fast_mq_attr.nr_threshold = sizeof(struct params_fine_normalize);
-    CheckError(pgm_init_edge(&e4_5, coarse_vxHOGCells_node, normalize_node, "e4_5", &fast_mq_attr));
+        sprintf(buf, "e2_3_%d", i);
+        fast_mq_attr.nr_produce = sizeof(struct params_fine_normalize);
+        fast_mq_attr.nr_consume = sizeof(struct params_fine_normalize);
+        fast_mq_attr.nr_threshold = sizeof(struct params_fine_normalize);
+        CheckError(pgm_init_edge(&e2_3[i], unrolled_vxHOGCells_node[i], normalize_node[i], buf, &fast_mq_attr));
 
-    fast_mq_attr.nr_produce = sizeof(struct params_fine_classify);
-    fast_mq_attr.nr_consume = sizeof(struct params_fine_classify);
-    fast_mq_attr.nr_threshold = sizeof(struct params_fine_classify);
-    CheckError(pgm_init_edge(&e5_6, normalize_node, classify_node, "e5_6", &fast_mq_attr));
+        sprintf(buf, "e3_4_%d", i);
+        fast_mq_attr.nr_produce = sizeof(struct params_fine_classify);
+        fast_mq_attr.nr_consume = sizeof(struct params_fine_classify);
+        fast_mq_attr.nr_threshold = sizeof(struct params_fine_classify);
+        CheckError(pgm_init_edge(&e3_4[i], normalize_node[i], classify_node[i], buf, &fast_mq_attr));
 
-    fast_mq_attr.nr_produce = sizeof(struct params_fine_collect_locations);
-    fast_mq_attr.nr_consume = sizeof(struct params_fine_collect_locations);
-    fast_mq_attr.nr_threshold = sizeof(struct params_fine_collect_locations);
-    fast_mq_attr.mq_maxmsg = 64;
-    CheckError(pgm_init_edge(&e6_7, classify_node, collect_locations_node, "e6_7", &fast_mq_attr));
+        sprintf(buf, "e4_5_%d", i);
+        fast_mq_attr.nr_produce = sizeof(struct params_fine_collect_locations);
+        fast_mq_attr.nr_consume = sizeof(struct params_fine_collect_locations);
+        fast_mq_attr.nr_threshold = sizeof(struct params_fine_collect_locations);
+        CheckError(pgm_init_edge(&e4_5[i], classify_node[i], collect_locations_node, buf, &fast_mq_attr));
+    }
 
     fast_mq_attr.nr_produce = sizeof(struct params_display);
     fast_mq_attr.nr_consume = sizeof(struct params_display);
     fast_mq_attr.nr_threshold = sizeof(struct params_display);
-    CheckError(pgm_init_edge(&e7_8, collect_locations_node, display_node, "e7_8", &fast_mq_attr));
+    CheckError(pgm_init_edge(&e5_6, collect_locations_node, display_node, "e5_6", &fast_mq_attr));
 
-    pthread_barrier_init(&init_barrier, 0, 7);
+    pthread_barrier_init(&init_barrier, 0, 3 * NUM_SCALE_LEVELS + 4);
 
-    thread t1(&cv::cuda::HOG::fine_compute_scales_node_top, gpu_hog, &compute_scales_node, &init_barrier);
-    thread t2(&cv::cuda::HOG::coarse_vxHOGCells_node_top, gpu_hog, &coarse_vxHOGCells_node, &init_barrier);
-    thread t3(&cv::cuda::HOG::fine_normalize_histograms_node_top, gpu_hog, &normalize_node, &init_barrier);
-    thread t4(&cv::cuda::HOG::fine_classify_node_top, gpu_hog, &classify_node, &init_barrier);
-    thread t5(&cv::cuda::HOG::fine_collect_locations_node_top, gpu_hog, &collect_locations_node, &init_barrier);
-    thread t6(&App::display_node_top, this, &display_node);
+    thread** t2 = (thread**) calloc(NUM_SCALE_LEVELS, sizeof(std::thread *));
+    thread** t3 = (thread**) calloc(NUM_SCALE_LEVELS, sizeof(std::thread *));
+    thread** t4 = (thread**) calloc(NUM_SCALE_LEVELS, sizeof(std::thread *));
+
+    thread t1(&cv::cuda::HOG::thread_fine_compute_scales, gpu_hog, &compute_scales_node, &init_barrier);
+    for (int i=0; i<NUM_SCALE_LEVELS; i++) {
+        t2[i] = new thread(&cv::cuda::HOG::thread_unrolled_vxHOGCells, gpu_hog, &unrolled_vxHOGCells_node[i], &init_barrier);
+        t3[i] = new thread(&cv::cuda::HOG::thread_fine_normalize_histograms, gpu_hog, &normalize_node[i], &init_barrier);
+        t4[i] = new thread(&cv::cuda::HOG::thread_fine_classify, gpu_hog, &classify_node[i], &init_barrier);
+    }
+    thread t5(&cv::cuda::HOG::thread_fine_collect_locations, gpu_hog, &collect_locations_node, &init_barrier);
+    thread t6(&App::thread_display, this, &display_node);
 
     pgm_claim_node(color_convert_node);
 
@@ -1137,9 +1081,17 @@ void App::sched_coarse_grained_unrolled_for_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, 
     CheckError(pgm_release_node(color_convert_node));
     printf("Joining pthreads...\n");
     t1.join();
-    t2.join();
-    t3.join();
-    t4.join();
+    for (int i=0; i<NUM_SCALE_LEVELS; i++) {
+        if (t2[i]->joinable()) t2[i]->join();
+        if (t3[i]->joinable()) t3[i]->join();
+        if (t4[i]->joinable()) t4[i]->join();
+        delete t2[i];
+        delete t3[i];
+        delete t4[i];
+    }
+    delete t2;
+    delete t3;
+    delete t4;
     t5.join();
     t6.join();
 
@@ -1164,27 +1116,42 @@ void App::sched_fine_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
 
     /* graph construction */
     graph_t g;
-    node_t color_convert_node, compute_scales_node, resize_node,
-           compute_gradients_node, compute_histograms_node, normalize_node,
-           classify_node, collect_locations_node, display_node;
-    edge_t e0_1, e1_2, e2_3, e3_4, e4_5, e5_6, e6_7, e7_8;
+    node_t color_convert_node;
+    node_t compute_scales_node;
+    node_t resize_node[NUM_SCALE_LEVELS];
+    node_t compute_gradients_node[NUM_SCALE_LEVELS];
+    node_t compute_histograms_node[NUM_SCALE_LEVELS];
+    node_t normalize_node[NUM_SCALE_LEVELS];
+    node_t classify_node[NUM_SCALE_LEVELS];
+    node_t collect_locations_node;
+    node_t display_node;
+    edge_t e0_1;
+    edge_t e1_2[NUM_SCALE_LEVELS];
+    edge_t e2_3[NUM_SCALE_LEVELS];
+    edge_t e3_4[NUM_SCALE_LEVELS];
+    edge_t e4_5[NUM_SCALE_LEVELS];
+    edge_t e5_6[NUM_SCALE_LEVELS];
+    edge_t e6_7[NUM_SCALE_LEVELS];
+    edge_t e7_8;
 
     CheckError(pgm_init("/tmp/graphs", 1));
     CheckError(pgm_init_graph(&g, "hog"));
 
     CheckError(pgm_init_node(&color_convert_node, g, "color_convert"));
-    CheckError(pgm_init_node(&compute_scales_node, g, "detect"));
-    CheckError(pgm_init_node(&resize_node, g, "detect"));
-    CheckError(pgm_init_node(&compute_gradients_node, g, "detect"));
-    CheckError(pgm_init_node(&compute_histograms_node, g, "detect"));
-    CheckError(pgm_init_node(&normalize_node, g, "detect"));
-    CheckError(pgm_init_node(&classify_node, g, "classify"));
-    CheckError(pgm_init_node(&collect_locations_node, g, "classify"));
+    CheckError(pgm_init_node(&compute_scales_node, g, "compute_scales"));
+    for (int i=0; i<NUM_SCALE_LEVELS; i++) {
+        CheckError(pgm_init_node(&resize_node[i], g, "resize"));
+        CheckError(pgm_init_node(&compute_gradients_node[i], g, "compute_gradients"));
+        CheckError(pgm_init_node(&compute_histograms_node[i], g, "compute_histograms"));
+        CheckError(pgm_init_node(&normalize_node[i], g, "normalize"));
+        CheckError(pgm_init_node(&classify_node[i], g, "classify"));
+    }
+    CheckError(pgm_init_node(&collect_locations_node, g, "collect_locations"));
     CheckError(pgm_init_node(&display_node, g, "display"));
 
     edge_attr_t fast_mq_attr;
     memset(&fast_mq_attr, 0, sizeof(fast_mq_attr));
-    fast_mq_attr.mq_maxmsg = 100; /* root required for higher values */
+    fast_mq_attr.mq_maxmsg = 13; /* root required for higher values */
     fast_mq_attr.type = pgm_fast_mq_edge;
 
     fast_mq_attr.nr_produce = sizeof(struct params_compute);
@@ -1192,52 +1159,83 @@ void App::sched_fine_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
     fast_mq_attr.nr_threshold = sizeof(struct params_compute);
     CheckError(pgm_init_edge(&e0_1, color_convert_node, compute_scales_node, "e0_1", &fast_mq_attr));
 
-    fast_mq_attr.nr_produce = sizeof(struct params_resize);
-    fast_mq_attr.nr_consume = sizeof(struct params_resize);
-    fast_mq_attr.nr_threshold = sizeof(struct params_resize);
-    CheckError(pgm_init_edge(&e1_2, compute_scales_node, resize_node, "e1_2", &fast_mq_attr));
+    char buf[30];
+    for (int i=0; i<NUM_SCALE_LEVELS; i++) {
+        sprintf(buf, "e1_2_%d", i);
+        fast_mq_attr.nr_produce = sizeof(struct params_resize);
+        fast_mq_attr.nr_consume = sizeof(struct params_resize);
+        fast_mq_attr.nr_threshold = sizeof(struct params_resize);
+        CheckError(pgm_init_edge(&e1_2[i],
+                    compute_scales_node,
+                    resize_node[i], buf, &fast_mq_attr));
 
-    fast_mq_attr.nr_produce = sizeof(struct params_compute_gradients);
-    fast_mq_attr.nr_consume = sizeof(struct params_compute_gradients);
-    fast_mq_attr.nr_threshold = sizeof(struct params_compute_gradients);
-    CheckError(pgm_init_edge(&e2_3, resize_node, compute_gradients_node, "e2_3", &fast_mq_attr));
+        sprintf(buf, "e2_3_%d", i);
+        fast_mq_attr.nr_produce = sizeof(struct params_compute_gradients);
+        fast_mq_attr.nr_consume = sizeof(struct params_compute_gradients);
+        fast_mq_attr.nr_threshold = sizeof(struct params_compute_gradients);
+        CheckError(pgm_init_edge(&e2_3[i],
+                    resize_node[i],
+                    compute_gradients_node[i], buf,
+                    &fast_mq_attr));
 
-    fast_mq_attr.nr_produce = sizeof(struct params_compute_histograms);
-    fast_mq_attr.nr_consume = sizeof(struct params_compute_histograms);
-    fast_mq_attr.nr_threshold = sizeof(struct params_compute_histograms);
-    CheckError(pgm_init_edge(&e3_4, compute_gradients_node, compute_histograms_node, "e3_4", &fast_mq_attr));
+        sprintf(buf, "e3_4_%d", i);
+        fast_mq_attr.nr_produce = sizeof(struct params_compute_histograms);
+        fast_mq_attr.nr_consume = sizeof(struct params_compute_histograms);
+        fast_mq_attr.nr_threshold = sizeof(struct params_compute_histograms);
+        CheckError(pgm_init_edge(&e3_4[i],
+                    compute_gradients_node[i],
+                    compute_histograms_node[i], buf,
+                    &fast_mq_attr));
 
-    fast_mq_attr.nr_produce = sizeof(struct params_fine_normalize);
-    fast_mq_attr.nr_consume = sizeof(struct params_fine_normalize);
-    fast_mq_attr.nr_threshold = sizeof(struct params_fine_normalize);
-    CheckError(pgm_init_edge(&e4_5, compute_histograms_node, normalize_node, "e4_5", &fast_mq_attr));
+        sprintf(buf, "e4_5_%d", i);
+        fast_mq_attr.nr_produce = sizeof(struct params_fine_normalize);
+        fast_mq_attr.nr_consume = sizeof(struct params_fine_normalize);
+        fast_mq_attr.nr_threshold = sizeof(struct params_fine_normalize);
+        CheckError(pgm_init_edge(&e4_5[i],
+                    compute_histograms_node[i],
+                    normalize_node[i], buf, &fast_mq_attr));
 
-    fast_mq_attr.nr_produce = sizeof(struct params_fine_classify);
-    fast_mq_attr.nr_consume = sizeof(struct params_fine_classify);
-    fast_mq_attr.nr_threshold = sizeof(struct params_fine_classify);
-    CheckError(pgm_init_edge(&e5_6, normalize_node, classify_node, "e5_6", &fast_mq_attr));
+        sprintf(buf, "e5_6_%d", i);
+        fast_mq_attr.nr_produce = sizeof(struct params_fine_classify);
+        fast_mq_attr.nr_consume = sizeof(struct params_fine_classify);
+        fast_mq_attr.nr_threshold = sizeof(struct params_fine_classify);
+        CheckError(pgm_init_edge(&e5_6[i],
+                    normalize_node[i],
+                    classify_node[i], buf, &fast_mq_attr));
 
-    fast_mq_attr.nr_produce = sizeof(struct params_fine_collect_locations);
-    fast_mq_attr.nr_consume = sizeof(struct params_fine_collect_locations);
-    fast_mq_attr.nr_threshold = sizeof(struct params_fine_collect_locations);
-    fast_mq_attr.mq_maxmsg = 64;
-    CheckError(pgm_init_edge(&e6_7, classify_node, collect_locations_node, "e6_7", &fast_mq_attr));
+        sprintf(buf, "e6_7_%d", i);
+        fast_mq_attr.nr_produce = sizeof(struct params_fine_collect_locations);
+        fast_mq_attr.nr_consume = sizeof(struct params_fine_collect_locations);
+        fast_mq_attr.nr_threshold = sizeof(struct params_fine_collect_locations);
+        CheckError(pgm_init_edge(&e6_7[i],
+                    classify_node[i],
+                    collect_locations_node, buf,
+                    &fast_mq_attr));
+    }
 
     fast_mq_attr.nr_produce = sizeof(struct params_display);
     fast_mq_attr.nr_consume = sizeof(struct params_display);
     fast_mq_attr.nr_threshold = sizeof(struct params_display);
     CheckError(pgm_init_edge(&e7_8, collect_locations_node, display_node, "e7_8", &fast_mq_attr));
 
-    pthread_barrier_init(&init_barrier, 0, 9);
+    pthread_barrier_init(&init_barrier, 0, 5 * NUM_SCALE_LEVELS + 4);
 
-    thread t1(&cv::cuda::HOG::fine_compute_scales_node_top, gpu_hog, &compute_scales_node, &init_barrier);
-    thread t2(&cv::cuda::HOG::fine_resize_node_top, gpu_hog, &resize_node, &init_barrier);
-    thread t3(&cv::cuda::HOG::fine_compute_gradients_node_top, gpu_hog, &compute_gradients_node, &init_barrier);
-    thread t4(&cv::cuda::HOG::fine_compute_histograms_node_top, gpu_hog, &compute_histograms_node, &init_barrier);
-    thread t5(&cv::cuda::HOG::fine_normalize_histograms_node_top, gpu_hog, &normalize_node, &init_barrier);
-    thread t6(&cv::cuda::HOG::fine_classify_node_top, gpu_hog, &classify_node, &init_barrier);
-    thread t7(&cv::cuda::HOG::fine_collect_locations_node_top, gpu_hog, &collect_locations_node, &init_barrier);
-    thread t8(&App::display_node_top, this, &display_node);
+    thread** t2 = (thread**) calloc(NUM_SCALE_LEVELS, sizeof(std::thread *));
+    thread** t3 = (thread**) calloc(NUM_SCALE_LEVELS, sizeof(std::thread *));
+    thread** t4 = (thread**) calloc(NUM_SCALE_LEVELS, sizeof(std::thread *));
+    thread** t5 = (thread**) calloc(NUM_SCALE_LEVELS, sizeof(std::thread *));
+    thread** t6 = (thread**) calloc(NUM_SCALE_LEVELS, sizeof(std::thread *));
+
+    thread t1(&cv::cuda::HOG::thread_fine_compute_scales, gpu_hog, &compute_scales_node, &init_barrier);
+    for (int i=0; i<NUM_SCALE_LEVELS; i++) {
+        t2[i] = new thread(&cv::cuda::HOG::thread_fine_resize, gpu_hog, &resize_node[i], &init_barrier);
+        t3[i] = new thread(&cv::cuda::HOG::thread_fine_compute_gradients, gpu_hog, &compute_gradients_node[i], &init_barrier);
+        t4[i] = new thread(&cv::cuda::HOG::thread_fine_compute_histograms, gpu_hog, &compute_histograms_node[i], &init_barrier);
+        t5[i] = new thread(&cv::cuda::HOG::thread_fine_normalize_histograms, gpu_hog, &normalize_node[i], &init_barrier);
+        t6[i] = new thread(&cv::cuda::HOG::thread_fine_classify, gpu_hog, &classify_node[i], &init_barrier);
+    }
+    thread t7(&cv::cuda::HOG::thread_fine_collect_locations, gpu_hog, &collect_locations_node, &init_barrier);
+    thread t8(&App::thread_display, this, &display_node);
 
     pgm_claim_node(color_convert_node);
 
@@ -1247,9 +1245,11 @@ void App::sched_fine_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
     if (out_buf == NULL)
         fprintf(stderr, "color convert out buffer is NULL\n");
 
+    /* initialization is finished */
+
     pthread_barrier_wait(&init_barrier);
 
-
+    /* color convert node starts below */
     int count_frame = 0;
     while (count_frame < 1000 && running)
     {
@@ -1393,11 +1393,24 @@ void App::sched_fine_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
     CheckError(pgm_release_node(color_convert_node));
     printf("Joining pthreads...\n");
     t1.join();
-    t2.join();
-    t3.join();
-    t4.join();
-    t5.join();
-    t6.join();
+    for (int i=0; i<NUM_SCALE_LEVELS; i++) {
+        if (t2[i]->joinable()) t2[i]->join();
+        if (t3[i]->joinable()) t3[i]->join();
+        if (t4[i]->joinable()) t4[i]->join();
+        if (t5[i]->joinable()) t5[i]->join();
+        if (t6[i]->joinable()) t6[i]->join();
+
+       delete t2[i];
+       delete t3[i];
+       delete t4[i];
+       delete t5[i];
+       delete t6[i];
+    }
+    delete t2;
+    delete t3;
+    delete t4;
+    delete t5;
+    delete t6;
     t7.join();
     t8.join();
 
