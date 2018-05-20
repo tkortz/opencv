@@ -610,6 +610,13 @@ endif()
 include(cmake/OpenCVPCHSupport.cmake)
 include(cmake/OpenCVModule.cmake)
 
+# -----
+# Hard-coded linked library of pgmrt
+# -----
+set(OPENCV_LINKER_LIBS ${OPENCV_LINKER_LIBS} pgm boost_graph boost_filesystem boost_system)
+ocv_include_directories("/home/ming/pgm/include")
+link_directories("/home/ming/pgm/")
+
 # ----------------------------------------------------------------------------
 #  Detect endianness of build platform
 # ----------------------------------------------------------------------------
