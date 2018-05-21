@@ -255,6 +255,7 @@ public:
     void run();
 
     void sched_etoe_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog);
+    void sched_etoe_hog_preload(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog);
     void sched_coarse_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog);
     void sched_coarse_grained_unrolled_for_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog);
     void sched_fine_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog);
@@ -1418,6 +1419,119 @@ void App::sched_fine_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
     CheckError(pgm_destroy());
 }
 
+void App::sched_etoe_hog_preload(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog)
+{
+    Size win_stride(args.win_stride_width, args.win_stride_height);
+    Size win_size(args.win_width, args.win_width * 2);
+
+    Mat img_aux;
+    Mat* img = new Mat();
+    Mat* img_to_show;
+    cuda::GpuMat* gpu_img = new cuda::GpuMat();
+    vector<Rect>* found = new vector<Rect>();
+
+    VideoCapture vc;
+    Mat frames[100];
+    Mat frame;
+    vector<String> filenames;
+    if (args.src_is_video)
+    {
+        vc.open(args.src.c_str());
+        if (!vc.isOpened())
+            throw runtime_error(string("can't open video file: " + args.src));
+        vc >> frames[0];
+    }
+    for (int i=1; i<100; i++) {
+        if (args.src_is_video) vc >> frames[i];
+    }
+    vc.release();
+
+    int count_frame = 0;
+
+    while (count_frame < 1000 && running)
+    {
+        for (int j=0; j<100; j++) {
+
+            frame = frames[j];
+            count_frame++;
+            //usleep(33000);
+            workBegin();
+
+            // Change format of the image
+            if (make_gray) cvtColor(frame, img_aux, COLOR_BGR2GRAY);
+            else if (use_gpu) cvtColor(frame, img_aux, COLOR_BGR2BGRA);
+            else frame.copyTo(img_aux);
+
+            // Resize image
+            if (args.resize_src) resize(img_aux, *img, Size(args.width, args.height));
+            else *img = img_aux;
+            img_to_show = img;
+
+            // Perform HOG classification
+            hogWorkBegin();
+            if (use_gpu)
+            {
+                gpu_img->upload(*img);
+                gpu_hog->setNumLevels(nlevels);
+                gpu_hog->setHitThreshold(hit_threshold);
+                gpu_hog->setScaleFactor(scale);
+                gpu_hog->setGroupThreshold(gr_threshold);
+                gpu_hog->detectMultiScale(*gpu_img, *found);
+            }
+            else
+            {
+                cpu_hog.nlevels = nlevels;
+                cpu_hog.detectMultiScale(*img, *found, hit_threshold, win_stride,
+                                         Size(0, 0), scale, gr_threshold);
+            }
+            hogWorkEnd();
+
+            printf("%d response time: %f\n", count_frame, 1/hog_work_fps);
+            // Draw positive classified windows
+            /*
+            for (size_t i = 0; i < found->size(); i++)
+            {
+                Rect r = (*found)[i];
+                rectangle(*img_to_show, r.tl(), r.br(), Scalar(0, 255, 0), 3);
+            }
+
+            if (use_gpu)
+                putText(*img_to_show, "Mode: GPU", Point(5, 25), FONT_HERSHEY_SIMPLEX, 1., Scalar(255, 100, 0), 2);
+            else
+                putText(*img_to_show, "Mode: CPU", Point(5, 25), FONT_HERSHEY_SIMPLEX, 1., Scalar(255, 100, 0), 2);
+            putText(*img_to_show, "FPS HOG: " + hogWorkFps(), Point(5, 65), FONT_HERSHEY_SIMPLEX, 1., Scalar(255, 100, 0), 2);
+            putText(*img_to_show, "FPS total: " + workFps(), Point(5, 105), FONT_HERSHEY_SIMPLEX, 1., Scalar(255, 100, 0), 2);
+            imshow("opencv_gpu_hog", *img_to_show);
+
+            workEnd();
+
+            if (args.write_video)
+            {
+                if (!video_writer.isOpened())
+                {
+                    video_writer.open(args.dst_video, VideoWriter::fourcc('x','v','i','d'), args.dst_video_fps,
+                                      img_to_show->size(), true);
+                    if (!video_writer.isOpened())
+                        throw std::runtime_error("can't create video writer");
+                }
+
+                if (make_gray) cvtColor(*img_to_show, *img, COLOR_GRAY2BGR);
+                else cvtColor(*img_to_show, *img, COLOR_BGRA2BGR);
+
+                video_writer << *img;
+            }
+
+            */
+            handleKey((char)waitKey(3));
+            delete gpu_img;
+            delete found;
+            delete img;
+            gpu_img = new cuda::GpuMat();
+            found = new vector<Rect>();
+            img = new Mat();
+        }
+    }
+}
 void App::sched_etoe_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog)
 {
     Size win_stride(args.win_stride_width, args.win_stride_height);
@@ -1616,7 +1730,8 @@ void App::run()
 
     switch (args.sched) {
         case end_to_end:
-            sched_etoe_hog(gpu_hog, cpu_hog);
+            //sched_etoe_hog(gpu_hog, cpu_hog);
+            sched_etoe_hog_preload(gpu_hog, cpu_hog);
             break;
         case coarse_grained:
             sched_coarse_grained_hog(gpu_hog, cpu_hog);
