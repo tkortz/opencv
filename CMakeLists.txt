@@ -613,9 +613,14 @@ include(cmake/OpenCVModule.cmake)
 # -----
 # Hard-coded linked library of pgmrt
 # -----
-set(OPENCV_LINKER_LIBS ${OPENCV_LINKER_LIBS} pgm boost_graph boost_filesystem boost_system)
+set(OPENCV_LINKER_LIBS ${OPENCV_LINKER_LIBS} pgm boost_graph boost_filesystem boost_system litmus)
 ocv_include_directories("/home/ming/pgm/include")
+ocv_include_directories("/home/ming/litmus/liblitmus/include")
+ocv_include_directories("/home/ming/litmus/liblitmus/arch/x86/include")
+ocv_include_directories("/home/ming/litmus/liblitmus/arch/x86/include/uapi")
+ocv_include_directories("/home/ming/litmus/liblitmus/arch/x86/include/generated/uapi")
 link_directories("/home/ming/pgm/")
+link_directories("/home/ming/litmus/liblitmus/")
 
 # ----------------------------------------------------------------------------
 #  Detect endianness of build platform

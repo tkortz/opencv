@@ -385,6 +385,71 @@ namespace cv { namespace cuda { namespace device
             cudaSafeCall( cudaGetLastError() );
         }
 
+        template <int nthreads, // Number of threads per one histogram block
+                  int nblocks>  // Number of histogram block processed by single GPU thread block
+        __global__ void classify_hists_kernel_many_blocks(const int img_win_width, const int img_block_width,
+                                                          const int win_block_stride_x, const int win_block_stride_y,
+                                                          const float* block_hists, const float* coefs,
+                                                          float free_coef, float threshold, unsigned char* labels)
+        {
+            const int win_x = threadIdx.z;
+            if (blockIdx.x * blockDim.z + win_x >= img_win_width)
+                return;
+
+            const float* hist = block_hists + (blockIdx.y * win_block_stride_y * img_block_width +
+                                               blockIdx.x * win_block_stride_x * blockDim.z + win_x) *
+                                              cblock_hist_size;
+
+            float product = 0.f;
+            for (int i = threadIdx.x; i < cdescr_size; i += nthreads)
+            {
+                int offset_y = i / cdescr_width;
+                int offset_x = i - offset_y * cdescr_width;
+                product += coefs[i] * hist[offset_y * img_block_width * cblock_hist_size + offset_x];
+            }
+
+            __shared__ float products[nthreads * nblocks];
+
+            const int tid = threadIdx.z * nthreads + threadIdx.x;
+
+            reduce<nthreads>(products, product, tid, plus<float>());
+
+            if (threadIdx.x == 0)
+                labels[blockIdx.y * img_win_width + blockIdx.x * blockDim.z + win_x] = (product + free_coef >= threshold);
+        }
+
+
+        void classify_hists(int win_height, int win_width, int block_stride_y, int block_stride_x,
+                            int win_stride_y, int win_stride_x, int height, int width, float* block_hists,
+                            float* coefs, float free_coef, float threshold, int cell_size_x, int ncells_block_x, unsigned char* labels)
+        {
+            const int nthreads = 256;
+            const int nblocks = 1;
+
+            int win_block_stride_x = win_stride_x / block_stride_x;
+            int win_block_stride_y = win_stride_y / block_stride_y;
+            int img_win_width = (width - win_width + win_stride_x) / win_stride_x;
+            int img_win_height = (height - win_height + win_stride_y) / win_stride_y;
+
+            dim3 threads(nthreads, 1, nblocks);
+            dim3 grid(divUp(img_win_width, nblocks), img_win_height);
+
+            cudaSafeCall(cudaFuncSetCacheConfig(classify_hists_kernel_many_blocks<nthreads, nblocks>, cudaFuncCachePreferL1));
+
+            cudaStream_t stream;
+            cudaSafeCall(cudaStreamCreate(&stream));
+            int img_block_width = (width - ncells_block_x * cell_size_x + block_stride_x) / block_stride_x;
+            classify_hists_kernel_many_blocks<nthreads, nblocks><<<grid,
+                threads, 0, stream>>>(
+                img_win_width, img_block_width, win_block_stride_x, win_block_stride_y,
+                block_hists, coefs, free_coef, threshold, labels);
+            cudaSafeCall( cudaGetLastError() );
+
+            cudaSafeCall(cudaStreamSynchronize(stream));
+            cudaSafeCall(cudaStreamDestroy(stream));
+
+            //cudaSafeCall( cudaDeviceSynchronize() );
+        }
 
         //---------------------------------------------------------------------
         //  Linear SVM based classification
@@ -456,73 +521,6 @@ namespace cv { namespace cuda { namespace device
            //cudaSafeCall(cudaThreadSynchronize());
        }
 
-
-
-        template <int nthreads, // Number of threads per one histogram block
-                  int nblocks>  // Number of histogram block processed by single GPU thread block
-        __global__ void classify_hists_kernel_many_blocks(const int img_win_width, const int img_block_width,
-                                                          const int win_block_stride_x, const int win_block_stride_y,
-                                                          const float* block_hists, const float* coefs,
-                                                          float free_coef, float threshold, unsigned char* labels)
-        {
-            const int win_x = threadIdx.z;
-            if (blockIdx.x * blockDim.z + win_x >= img_win_width)
-                return;
-
-            const float* hist = block_hists + (blockIdx.y * win_block_stride_y * img_block_width +
-                                               blockIdx.x * win_block_stride_x * blockDim.z + win_x) *
-                                              cblock_hist_size;
-
-            float product = 0.f;
-            for (int i = threadIdx.x; i < cdescr_size; i += nthreads)
-            {
-                int offset_y = i / cdescr_width;
-                int offset_x = i - offset_y * cdescr_width;
-                product += coefs[i] * hist[offset_y * img_block_width * cblock_hist_size + offset_x];
-            }
-
-            __shared__ float products[nthreads * nblocks];
-
-            const int tid = threadIdx.z * nthreads + threadIdx.x;
-
-            reduce<nthreads>(products, product, tid, plus<float>());
-
-            if (threadIdx.x == 0)
-                labels[blockIdx.y * img_win_width + blockIdx.x * blockDim.z + win_x] = (product + free_coef >= threshold);
-        }
-
-
-        void classify_hists(int win_height, int win_width, int block_stride_y, int block_stride_x,
-                            int win_stride_y, int win_stride_x, int height, int width, float* block_hists,
-                            float* coefs, float free_coef, float threshold, int cell_size_x, int ncells_block_x, unsigned char* labels)
-        {
-            const int nthreads = 256;
-            const int nblocks = 1;
-
-            int win_block_stride_x = win_stride_x / block_stride_x;
-            int win_block_stride_y = win_stride_y / block_stride_y;
-            int img_win_width = (width - win_width + win_stride_x) / win_stride_x;
-            int img_win_height = (height - win_height + win_stride_y) / win_stride_y;
-
-            dim3 threads(nthreads, 1, nblocks);
-            dim3 grid(divUp(img_win_width, nblocks), img_win_height);
-
-            cudaSafeCall(cudaFuncSetCacheConfig(classify_hists_kernel_many_blocks<nthreads, nblocks>, cudaFuncCachePreferL1));
-
-            cudaStream_t stream;
-            cudaSafeCall(cudaStreamCreate(&stream));
-            int img_block_width = (width - ncells_block_x * cell_size_x + block_stride_x) / block_stride_x;
-            classify_hists_kernel_many_blocks<nthreads, nblocks><<<grid,
-                threads, 0, stream>>>(
-                img_win_width, img_block_width, win_block_stride_x, win_block_stride_y,
-                block_hists, coefs, free_coef, threshold, labels);
-            cudaSafeCall( cudaGetLastError() );
-
-            cudaSafeCall(cudaStreamSynchronize(stream));
-            cudaSafeCall(cudaStreamDestroy(stream));
-
-            //cudaSafeCall( cudaDeviceSynchronize() );
-        }
 
         //----------------------------------------------------------------------------
         // Extract descriptors

@@ -1119,7 +1119,7 @@ namespace
         struct params_fine_collect_locations **in_bufs = (struct params_fine_collect_locations
                 **)calloc(NUM_SCALE_LEVELS, sizeof(struct params_fine_collect_locations *));
         for (int i=0; i < NUM_SCALE_LEVELS; i++) {
-            in_bufs[i] = (struct params_fine_collect_locations *)pgm_get_edge_buf_p(in_edges[i]);
+            in_bufs[i] = (struct params_fine_collect_locations *)pgm_get_edge_buf_c(in_edges[i]);
             if (in_bufs[i] == NULL)
                 fprintf(stderr, "compute scales node out buffer is NULL\n");
         }
@@ -2190,10 +2190,13 @@ namespace
         if (detector_.empty())
             return;
 
-        BufferPool pool(Stream::Null());
+        Stream stream;
+        //BufferPool pool(Stream::Null());
+        BufferPool pool(stream);
 
         GpuMat block_hists = pool.getBuffer(1, getTotalHistSize(img.size()), CV_32FC1);
-        computeBlockHistograms(img, block_hists, Stream::Null());
+        computeBlockHistograms(img, block_hists, stream);
+        cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
 
         Size wins_per_img = numPartsWithin(img.size(), win_size_, win_stride_);
 

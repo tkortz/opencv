@@ -19,6 +19,24 @@
 #include <cuda_runtime.h>
 #include <pgm.h>
 
+/* First, we include standard headers.
+ * Generally speaking, a LITMUS^RT real-time task can perform any
+ * system call, etc., but no real-time guarantees can be made if a
+ * system call blocks. To be on the safe side, only use I/O for debugging
+ * purposes and from non-real-time sections.
+ */
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+/* Second, we include the LITMUS^RT user space library header.
+ * This header, part of liblitmus, provides the user space API of
+ * LITMUS^RT.
+ */
+#include <litmus.h>
+
+/* Include mlockall() to lock all pages */
+#include <sys/mman.h>
+
 using namespace std;
 using namespace cv;
 
@@ -37,6 +55,27 @@ if(__ret < 0) { \
     fprintf(stderr, "%lu: Error %d (%s (%d)) @ %s:%s:%d\n",  \
             pthread_self(), __ret, errstr, errno, __FILE__, __FUNCTION__, __LINE__); \
 }}while(0)
+
+/* Next, we define period and execution cost to be constant. 
+ * These are only constants for convenience in this example, they can be
+ * determined at run time, e.g., from command line parameters.
+ *
+ * These are in milliseconds.
+ */
+#define PERIOD            50
+#define RELATIVE_DEADLINE 50
+#define EXEC_COST         25
+
+/* Catch errors.
+ */
+#define CALL( exp ) do { \
+    int ret; \
+    ret = exp; \
+    if (ret != 0) \
+    fprintf(stderr, "%s failed: %m\n", #exp);\
+    else \
+    fprintf(stderr, "%s ok.\n", #exp); \
+} while (0)
 
 enum scheduling_option
 {
@@ -90,6 +129,8 @@ public:
     bool gamma_corr;
 
     scheduling_option sched;
+    int count;
+    bool display;
 };
 
 struct params_compute  // a.k.a. compute scales node
@@ -255,10 +296,10 @@ public:
     void run();
 
     void sched_etoe_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog);
-    void sched_etoe_hog_preload(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog);
-    void sched_coarse_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog);
-    void sched_coarse_grained_unrolled_for_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog);
-    void sched_fine_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog);
+    void sched_etoe_hog_preload(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog, Mat* frames);
+    void sched_coarse_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog, Mat* frames);
+    void sched_coarse_grained_unrolled_for_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog, Mat* frames);
+    void sched_fine_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog, Mat* frames);
 
     void* thread_display(node_t* node);
 
@@ -326,7 +367,9 @@ static void printHelp()
          << "  [--write_video <bool>] # write video or not\n"
          << "  [--dst_video <path>] # output video path\n"
          << "  [--dst_video_fps <double>] # output video fps\n"
-         << "  [--sched <int>] # scheduling option (0:end_to_end, 1:coarse_grained, 2:fine_grained\n";
+         << "  [--sched <int>] # scheduling option (0:end_to_end, 1:coarse_grained, 2:fine_grained, 3:unrolled_coarse_grained)\n"
+         << "  [--count <int>] # num of frames to process\n"
+         << "  [--display <true/false>] # to display result frame or not\n";
     help_showed = true;
 }
 
@@ -392,6 +435,8 @@ Args::Args()
     gamma_corr = true;
 
     sched = fine_grained;
+    count = 1000;
+    display = false;
 }
 
 
@@ -429,13 +474,19 @@ Args Args::read(int argc, char** argv)
         else if (string(argv[i]) == "--camera") { args.camera_id = atoi(argv[++i]); args.src_is_camera = true; }
         else if (string(argv[i]) == "--folder") { args.src = argv[++i]; args.src_is_folder = true;}
         else if (string(argv[i]) == "--svm") { args.svm = argv[++i]; args.svm_load = true;}
-        else if (string(argv[i]) == "--sched")
-        {
+        else if (string(argv[i]) == "--sched") {
             int sched = atoi(argv[++i]);
             if (sched < 0 || sched >= scheduling_option_end)
                 throw runtime_error((string("unknown scheduling option: ") + argv[i]));
             args.sched = (enum scheduling_option)sched;
         }
+        else if (string(argv[i]) == "--count") {
+            int count = atoi(argv[++i]);
+            if (count < 0)
+                throw runtime_error((string("negative number of frames: ") + argv[i]));
+            args.count = count;
+        }
+        else if (string(argv[i]) == "--display") args.display = (string(argv[++i]) == "true");
         else if (args.src.empty()) args.src = argv[i];
         else throw runtime_error((string("unknown key: ") + argv[i]));
     }
@@ -527,22 +578,23 @@ void* App::thread_display(node_t* _node)
                 printf("%d response time: %f\n", in_buf->frame_index, (hog_work_end - in_buf->start_time) / getTickFrequency());
 
                 // Draw positive classified windows
-                for (size_t i = 0; i < in_buf->found->size(); i++)
-                {
-                    Rect r = (*in_buf->found)[i];
-                    rectangle(*in_buf->img_to_show, r.tl(), r.br(), Scalar(0, 255, 0), 3);
+                if (args.display) {
+                    for (size_t i = 0; i < in_buf->found->size(); i++) {
+                        Rect r = (*in_buf->found)[i];
+                        rectangle(*in_buf->img_to_show, r.tl(), r.br(), Scalar(0, 255, 0), 3);
 #ifdef LOG_DEBUG
-                    fprintf(stdout, "point: %d, %d, %d, %d\n", r.tl().x, r.tl().y, r.br().x, r.br().y);
+                        fprintf(stdout, "point: %d, %d, %d, %d\n", r.tl().x, r.tl().y, r.br().x, r.br().y);
 #endif
-                }
+                    }
 
-                if (use_gpu)
-                    putText(*in_buf->img_to_show, "Mode: GPU", Point(5, 25), FONT_HERSHEY_SIMPLEX, 1., Scalar(255, 100, 0), 2);
-                else
-                    putText(*in_buf->img_to_show, "Mode: CPU", Point(5, 25), FONT_HERSHEY_SIMPLEX, 1., Scalar(255, 100, 0), 2);
-                putText(*in_buf->img_to_show, "FPS HOG: " + hogWorkFps(), Point(5, 65), FONT_HERSHEY_SIMPLEX, 1., Scalar(255, 100, 0), 2);
-                putText(*in_buf->img_to_show, "FPS total: " + workFps(), Point(5, 105), FONT_HERSHEY_SIMPLEX, 1., Scalar(255, 100, 0), 2);
-                imshow("opencv_gpu_hog", *in_buf->img_to_show);
+                    if (use_gpu)
+                        putText(*in_buf->img_to_show, "Mode: GPU", Point(5, 25), FONT_HERSHEY_SIMPLEX, 1., Scalar(255, 100, 0), 2);
+                    else
+                        putText(*in_buf->img_to_show, "Mode: CPU", Point(5, 25), FONT_HERSHEY_SIMPLEX, 1., Scalar(255, 100, 0), 2);
+                    putText(*in_buf->img_to_show, "FPS HOG: " + hogWorkFps(), Point(5, 65), FONT_HERSHEY_SIMPLEX, 1., Scalar(255, 100, 0), 2);
+                    putText(*in_buf->img_to_show, "FPS total: " + workFps(), Point(5, 105), FONT_HERSHEY_SIMPLEX, 1., Scalar(255, 100, 0), 2);
+                    imshow("opencv_gpu_hog", *in_buf->img_to_show);
+                }
 
                 workEnd();
 
@@ -589,21 +641,8 @@ void* App::thread_display(node_t* _node)
     pthread_exit(0);
 }
 
-void App::sched_coarse_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog)
+void App::sched_coarse_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog, Mat* frames)
 {
-    Size win_stride(args.win_stride_width, args.win_stride_height);
-    Size win_size(args.win_width, args.win_width * 2);
-
-    Mat img_aux;
-    Mat* img = new Mat();
-    Mat* img_to_show;
-    cuda::GpuMat* gpu_img = new cuda::GpuMat();
-    vector<Rect>* found = new vector<Rect>();
-
-    VideoCapture vc;
-    Mat frame;
-    vector<String> filenames;
-
     /* graph construction */
     graph_t g;
     node_t color_convert_node;
@@ -626,7 +665,7 @@ void App::sched_coarse_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescri
 
     edge_attr_t fast_mq_attr;
     memset(&fast_mq_attr, 0, sizeof(fast_mq_attr));
-    fast_mq_attr.mq_maxmsg = 100; /* root required for higher values */
+    fast_mq_attr.mq_maxmsg = 1; /* root required for higher values */
     fast_mq_attr.type = pgm_fast_mq_edge;
 
     fast_mq_attr.nr_produce = sizeof(struct params_compute);
@@ -670,52 +709,26 @@ void App::sched_coarse_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescri
     if (out_buf == NULL)
         fprintf(stderr, "color convert out buffer is NULL\n");
 
+    Size win_stride(args.win_stride_width, args.win_stride_height);
+    Size win_size(args.win_width, args.win_width * 2);
+
+    Mat img_aux;
+    Mat* img = new Mat();
+    Mat* img_to_show;
+    cuda::GpuMat* gpu_img = new cuda::GpuMat();
+    vector<Rect>* found = new vector<Rect>();
+    Mat frame;
+
     pthread_barrier_wait(&init_barrier);
 
-
     int count_frame = 0;
-    while (count_frame < 1000 && running)
-    {
-        unsigned int count = 1;
+    while (count_frame < args.count && running) {
 
-        if (args.src_is_video)
-        {
-            vc.open(args.src.c_str());
-            if (!vc.isOpened())
-                throw runtime_error(string("can't open video file: " + args.src));
-            vc >> frame;
-        }
-        else if (args.src_is_folder) {
-            String folder = args.src;
-            cout << folder << endl;
-            glob(folder, filenames);
-            frame = imread(filenames[count]);	// 0 --> .gitignore
-            if (!frame.data)
-                cerr << "Problem loading image from folder!!!" << endl;
-        }
-        else if (args.src_is_camera)
-        {
-            vc.open(args.camera_id);
-            if (!vc.isOpened())
-            {
-                stringstream msg;
-                msg << "can't open camera: " << args.camera_id;
-                throw runtime_error(msg.str());
-            }
-            vc >> frame;
-        }
-        else
-        {
-            frame = imread(args.src);
-            if (frame.empty())
-                throw runtime_error(string("can't open image file: " + args.src));
-        }
-
-
-        // Iterate over all frames
-        while (count_frame < 1000 && running && !frame.empty())
-        {
-            usleep(60000);
+        for (int j=0; j<100; j++) {
+            if (count_frame >= args.count)
+                break;
+            frame = frames[j];
+            usleep(10000);
             workBegin();
 
             // Change format of the image
@@ -731,8 +744,7 @@ void App::sched_coarse_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescri
             // Perform HOG classification
             hogWorkBegin();
             cv::cuda::Stream stream;
-            if (use_gpu)
-            {
+            if (use_gpu) {
                 gpu_img->upload(*img, stream);
                 cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
                 gpu_hog->setNumLevels(nlevels);
@@ -742,20 +754,17 @@ void App::sched_coarse_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescri
                 out_buf->gpu_img = gpu_img;
                 out_buf->found = found;
                 out_buf->img_to_show = img;
-                out_buf->frame_index = count_frame++;
+                out_buf->frame_index = count_frame;
                 out_buf->start_time = hog_work_begin;
                 CheckError(pgm_complete(color_convert_node));
-            }
-            else
-            {
+            } else {
                 cpu_hog.nlevels = nlevels;
                 cpu_hog.detectMultiScale(*img, *found, hit_threshold, win_stride,
                         Size(0, 0), scale, gr_threshold);
                 hogWorkEnd();
 
                 // Draw positive classified windows
-                for (size_t i = 0; i < found->size(); i++)
-                {
+                for (size_t i = 0; i < found->size(); i++) {
                     Rect r = (*found)[i];
                     rectangle(*img_to_show, r.tl(), r.br(), Scalar(0, 255, 0), 3);
                 }
@@ -770,10 +779,8 @@ void App::sched_coarse_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescri
 
                 workEnd();
 
-                if (args.write_video)
-                {
-                    if (!video_writer.isOpened())
-                    {
+                if (args.write_video) {
+                    if (!video_writer.isOpened()) {
                         video_writer.open(args.dst_video, VideoWriter::fourcc('x','v','i','d'), args.dst_video_fps,
                                 img_to_show->size(), true);
                         if (!video_writer.isOpened())
@@ -792,20 +799,10 @@ void App::sched_coarse_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescri
                 delete img;
             }
 
-            if (args.src_is_video || args.src_is_camera) vc >> frame;
-            if (args.src_is_folder) {
-                count++;
-                if (count < filenames.size()) {
-                    frame = imread(filenames[count]);
-                } else {
-                    Mat empty;
-                    frame = empty;
-                }
-            }
-
             gpu_img = new cuda::GpuMat();
             found = new vector<Rect>();
             img = new Mat();
+            count_frame++;
         }
     }
 
@@ -827,20 +824,8 @@ void App::sched_coarse_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescri
     CheckError(pgm_destroy());
 }
 
-void App::sched_coarse_grained_unrolled_for_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog)
+void App::sched_coarse_grained_unrolled_for_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog, Mat* frames)
 {
-    Size win_stride(args.win_stride_width, args.win_stride_height);
-    Size win_size(args.win_width, args.win_width * 2);
-
-    Mat img_aux;
-    Mat* img = new Mat();
-    Mat* img_to_show;
-    cuda::GpuMat* gpu_img = new cuda::GpuMat();
-    vector<Rect>* found = new vector<Rect>();
-
-    VideoCapture vc;
-    Mat frame;
-    vector<String> filenames;
 
     /* graph construction */
     graph_t g;
@@ -873,7 +858,7 @@ void App::sched_coarse_grained_unrolled_for_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, 
 
     edge_attr_t fast_mq_attr;
     memset(&fast_mq_attr, 0, sizeof(fast_mq_attr));
-    fast_mq_attr.mq_maxmsg = 13; /* root required for higher values */
+    fast_mq_attr.mq_maxmsg = 1; /* root required for higher values */
     fast_mq_attr.type = pgm_fast_mq_edge;
 
     fast_mq_attr.nr_produce = sizeof(struct params_compute);
@@ -936,52 +921,28 @@ void App::sched_coarse_grained_unrolled_for_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, 
     if (out_buf == NULL)
         fprintf(stderr, "color convert out buffer is NULL\n");
 
+    Size win_stride(args.win_stride_width, args.win_stride_height);
+    Size win_size(args.win_width, args.win_width * 2);
+
+    Mat img_aux;
+    Mat* img = new Mat();
+    Mat* img_to_show;
+    cuda::GpuMat* gpu_img = new cuda::GpuMat();
+    vector<Rect>* found = new vector<Rect>();
+    Mat frame;
+    cv::cuda::Stream stream;
+
     pthread_barrier_wait(&init_barrier);
 
 
     int count_frame = 0;
-    while (count_frame < 1000 && running)
-    {
-        unsigned int count = 1;
+    while (count_frame < args.count && running) {
 
-        if (args.src_is_video)
-        {
-            vc.open(args.src.c_str());
-            if (!vc.isOpened())
-                throw runtime_error(string("can't open video file: " + args.src));
-            vc >> frame;
-        }
-        else if (args.src_is_folder) {
-            String folder = args.src;
-            cout << folder << endl;
-            glob(folder, filenames);
-            frame = imread(filenames[count]);	// 0 --> .gitignore
-            if (!frame.data)
-                cerr << "Problem loading image from folder!!!" << endl;
-        }
-        else if (args.src_is_camera)
-        {
-            vc.open(args.camera_id);
-            if (!vc.isOpened())
-            {
-                stringstream msg;
-                msg << "can't open camera: " << args.camera_id;
-                throw runtime_error(msg.str());
-            }
-            vc >> frame;
-        }
-        else
-        {
-            frame = imread(args.src);
-            if (frame.empty())
-                throw runtime_error(string("can't open image file: " + args.src));
-        }
-
-
-        // Iterate over all frames
-        while (count_frame < 1000 && running && !frame.empty())
-        {
-            usleep(60000);
+        for (int j=0; j<100; j++) {
+            if (count_frame >= args.count)
+                break;
+            frame = frames[j];
+            usleep(10000);
             //fprintf(stdout, "0 fires: image_to_show: %p, found: %p\n", img, found);
             workBegin();
 
@@ -997,32 +958,29 @@ void App::sched_coarse_grained_unrolled_for_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, 
 
             // Perform HOG classification
             hogWorkBegin();
-            cv::cuda::Stream stream;
-            if (use_gpu)
-            {
+            if (use_gpu) {
                 gpu_img->upload(*img, stream);
                 cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
                 gpu_hog->setNumLevels(nlevels);
                 gpu_hog->setHitThreshold(hit_threshold);
                 gpu_hog->setScaleFactor(scale);
                 gpu_hog->setGroupThreshold(gr_threshold);
+
                 out_buf->gpu_img = gpu_img;
                 out_buf->found = found;
                 out_buf->img_to_show = img;
-                out_buf->frame_index = count_frame++;
+                out_buf->frame_index = count_frame;
                 out_buf->start_time = hog_work_begin;
+
                 CheckError(pgm_complete(color_convert_node));
-            }
-            else
-            {
+            } else {
                 cpu_hog.nlevels = nlevels;
                 cpu_hog.detectMultiScale(*img, *found, hit_threshold, win_stride,
                         Size(0, 0), scale, gr_threshold);
                 hogWorkEnd();
 
                 // Draw positive classified windows
-                for (size_t i = 0; i < found->size(); i++)
-                {
+                for (size_t i = 0; i < found->size(); i++) {
                     Rect r = (*found)[i];
                     rectangle(*img_to_show, r.tl(), r.br(), Scalar(0, 255, 0), 3);
                 }
@@ -1037,10 +995,8 @@ void App::sched_coarse_grained_unrolled_for_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, 
 
                 workEnd();
 
-                if (args.write_video)
-                {
-                    if (!video_writer.isOpened())
-                    {
+                if (args.write_video) {
+                    if (!video_writer.isOpened()) {
                         video_writer.open(args.dst_video, VideoWriter::fourcc('x','v','i','d'), args.dst_video_fps,
                                 img_to_show->size(), true);
                         if (!video_writer.isOpened())
@@ -1059,20 +1015,10 @@ void App::sched_coarse_grained_unrolled_for_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, 
                 delete img;
             }
 
-            if (args.src_is_video || args.src_is_camera) vc >> frame;
-            if (args.src_is_folder) {
-                count++;
-                if (count < filenames.size()) {
-                    frame = imread(filenames[count]);
-                } else {
-                    Mat empty;
-                    frame = empty;
-                }
-            }
-
             gpu_img = new cuda::GpuMat();
             found = new vector<Rect>();
             img = new Mat();
+            count_frame++;
         }
     }
 
@@ -1100,21 +1046,8 @@ void App::sched_coarse_grained_unrolled_for_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, 
     CheckError(pgm_destroy());
 }
 
-void App::sched_fine_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog)
+void App::sched_fine_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog, Mat* frames)
 {
-    Size win_stride(args.win_stride_width, args.win_stride_height);
-    Size win_size(args.win_width, args.win_width * 2);
-
-    Mat img_aux;
-    Mat* img = new Mat();
-    Mat* img_to_show;
-    cuda::GpuMat* gpu_img = new cuda::GpuMat();
-    vector<Rect>* found = new vector<Rect>();
-
-    VideoCapture vc;
-    Mat frame;
-    vector<String> filenames;
-
     /* graph construction */
     graph_t g;
     node_t color_convert_node;
@@ -1152,7 +1085,7 @@ void App::sched_fine_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
 
     edge_attr_t fast_mq_attr;
     memset(&fast_mq_attr, 0, sizeof(fast_mq_attr));
-    fast_mq_attr.mq_maxmsg = 13; /* root required for higher values */
+    fast_mq_attr.mq_maxmsg = 20; /* root required for higher values */
     fast_mq_attr.type = pgm_fast_mq_edge;
 
     fast_mq_attr.nr_produce = sizeof(struct params_compute);
@@ -1238,6 +1171,8 @@ void App::sched_fine_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
     thread t7(&cv::cuda::HOG::thread_fine_collect_locations, gpu_hog, &collect_locations_node, &init_barrier);
     thread t8(&App::thread_display, this, &display_node);
 
+    /* graph construction finishes */
+
     pgm_claim_node(color_convert_node);
 
     edge_t *out_edge = (edge_t *)calloc(1, sizeof(edge_t));
@@ -1246,57 +1181,30 @@ void App::sched_fine_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
     if (out_buf == NULL)
         fprintf(stderr, "color convert out buffer is NULL\n");
 
-    /* initialization is finished */
+    Size win_stride(args.win_stride_width, args.win_stride_height);
+    Size win_size(args.win_width, args.win_width * 2);
 
+    Mat img_aux;
+    Mat* img = new Mat();
+    Mat* img_to_show;
+    cuda::GpuMat* gpu_img = new cuda::GpuMat();
+    vector<Rect>* found = new vector<Rect>();
+    Mat frame;
+
+    /* initialization is finished */
     pthread_barrier_wait(&init_barrier);
 
-    /* color convert node starts below */
     int count_frame = 0;
-    while (count_frame < 1000 && running)
-    {
-        unsigned int count = 1;
-
-        if (args.src_is_video)
-        {
-            vc.open(args.src.c_str());
-            if (!vc.isOpened())
-                throw runtime_error(string("can't open video file: " + args.src));
-            vc >> frame;
-        }
-        else if (args.src_is_folder) {
-            String folder = args.src;
-            cout << folder << endl;
-            glob(folder, filenames);
-            frame = imread(filenames[count]);	// 0 --> .gitignore
-            if (!frame.data)
-                cerr << "Problem loading image from folder!!!" << endl;
-        }
-        else if (args.src_is_camera)
-        {
-            vc.open(args.camera_id);
-            if (!vc.isOpened())
-            {
-                stringstream msg;
-                msg << "can't open camera: " << args.camera_id;
-                throw runtime_error(msg.str());
-            }
-            vc >> frame;
-        }
-        else
-        {
-            frame = imread(args.src);
-            if (frame.empty())
-                throw runtime_error(string("can't open image file: " + args.src));
-        }
-
-
-        // Iterate over all frames
-        while (count_frame < 1000 && running && !frame.empty())
-        {
-            usleep(60000);
+    while (count_frame < args.count && running) {
+        for (int j=0; j<100; j++) {
+            if (count_frame >= args.count)
+                break;
+            frame = frames[j];
+            usleep(10000);
             //fprintf(stdout, "0 fires: image_to_show: %p, found: %p\n", img, found);
             workBegin();
 
+            /* color convert node starts below */
             // Change format of the image
             if (make_gray) cvtColor(frame, img_aux, COLOR_BGR2GRAY);
             else if (use_gpu) cvtColor(frame, img_aux, COLOR_BGR2BGRA);
@@ -1310,8 +1218,7 @@ void App::sched_fine_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
             // Perform HOG classification
             hogWorkBegin();
             cv::cuda::Stream stream;
-            if (use_gpu)
-            {
+            if (use_gpu) {
                 gpu_img->upload(*img, stream);
                 cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
                 gpu_hog->setNumLevels(nlevels);
@@ -1321,20 +1228,17 @@ void App::sched_fine_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
                 out_buf->gpu_img = gpu_img;
                 out_buf->found = found;
                 out_buf->img_to_show = img;
-                out_buf->frame_index = count_frame++;
+                out_buf->frame_index = count_frame;
                 out_buf->start_time = hog_work_begin;
                 CheckError(pgm_complete(color_convert_node));
-            }
-            else
-            {
+            } else {
                 cpu_hog.nlevels = nlevels;
                 cpu_hog.detectMultiScale(*img, *found, hit_threshold, win_stride,
                         Size(0, 0), scale, gr_threshold);
                 hogWorkEnd();
 
                 // Draw positive classified windows
-                for (size_t i = 0; i < found->size(); i++)
-                {
+                for (size_t i = 0; i < found->size(); i++) {
                     Rect r = (*found)[i];
                     rectangle(*img_to_show, r.tl(), r.br(), Scalar(0, 255, 0), 3);
                 }
@@ -1349,12 +1253,11 @@ void App::sched_fine_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
 
                 workEnd();
 
-                if (args.write_video)
-                {
-                    if (!video_writer.isOpened())
-                    {
-                        video_writer.open(args.dst_video, VideoWriter::fourcc('x','v','i','d'), args.dst_video_fps,
-                                img_to_show->size(), true);
+                if (args.write_video) {
+                    if (!video_writer.isOpened()) {
+                        video_writer.open(args.dst_video,
+                                VideoWriter::fourcc('x','v','i','d'),
+                                args.dst_video_fps, img_to_show->size(), true);
                         if (!video_writer.isOpened())
                             throw std::runtime_error("can't create video writer");
                     }
@@ -1371,27 +1274,20 @@ void App::sched_fine_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
                 delete img;
             }
 
-            if (args.src_is_video || args.src_is_camera) vc >> frame;
-            if (args.src_is_folder) {
-                count++;
-                if (count < filenames.size()) {
-                    frame = imread(filenames[count]);
-                } else {
-                    Mat empty;
-                    frame = empty;
-                }
-            }
-
             gpu_img = new cuda::GpuMat();
             found = new vector<Rect>();
             img = new Mat();
+            count_frame++;
         }
     }
 
     free(out_edge);
     CheckError(pgm_terminate(color_convert_node));
+
     pthread_barrier_wait(&init_barrier);
+
     CheckError(pgm_release_node(color_convert_node));
+
     printf("Joining pthreads...\n");
     t1.join();
     for (int i=0; i<NUM_SCALE_LEVELS; i++) {
@@ -1419,8 +1315,46 @@ void App::sched_fine_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
     CheckError(pgm_destroy());
 }
 
-void App::sched_etoe_hog_preload(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog)
+void App::sched_etoe_hog_preload(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog, Mat* frames)
 {
+	int do_exit;
+	struct rt_task param;
+
+	/* Setup task parameters */
+	init_rt_task_param(&param);
+	param.exec_cost = ms2ns(EXEC_COST);
+	param.period = ms2ns(PERIOD);
+	param.relative_deadline = ms2ns(RELATIVE_DEADLINE);
+
+	/* What to do in the case of budget overruns? */
+	param.budget_policy = NO_ENFORCEMENT;
+
+	/* The task class parameter is ignored by most plugins. */
+	param.cls = RT_CLASS_SOFT;
+
+	/* The priority parameter is only used by fixed-priority plugins. */
+	param.priority = LITMUS_LOWEST_PRIORITY;
+
+	/*****
+	 * 3) Setup real-time parameters. 
+	 *    In this example, we create a sporadic task that does not specify a 
+	 *    target partition (and thus is intended to run under global scheduling). 
+	 *    If this were to execute under a partitioned scheduler, it would be assigned
+	 *    to the first partition (since partitioning is performed offline).
+	 */
+	CALL( init_litmus() );
+
+	/* To specify a partition, do
+	 *
+	 * param.cpu = CPU;
+	 * be_migrate_to(CPU);
+	 *
+	 * where CPU ranges from 0 to "Number of CPUs" - 1 before calling
+	 * set_rt_task_param().
+	 */
+	CALL( set_rt_task_param(gettid(), &param) );
+    fprintf(stdout, "threa id %d is now real-time task\n", gettid());
+
     Size win_stride(args.win_stride_width, args.win_stride_height);
     Size win_size(args.win_width, args.win_width * 2);
 
@@ -1430,30 +1364,27 @@ void App::sched_etoe_hog_preload(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
     cuda::GpuMat* gpu_img = new cuda::GpuMat();
     vector<Rect>* found = new vector<Rect>();
 
-    VideoCapture vc;
-    Mat frames[100];
     Mat frame;
-    vector<String> filenames;
-    if (args.src_is_video)
-    {
-        vc.open(args.src.c_str());
-        if (!vc.isOpened())
-            throw runtime_error(string("can't open video file: " + args.src));
-        vc >> frames[0];
-    }
-    for (int i=1; i<100; i++) {
-        if (args.src_is_video) vc >> frames[i];
-    }
-    vc.release();
-
     int count_frame = 0;
+    cudaFree(0);
 
-    while (count_frame < 1000 && running)
-    {
+	/*****
+	 * 4) Transition to real-time mode.
+	 */
+	CALL( task_mode(LITMUS_RT_TASK) );
+    CALL( wait_for_ts_release() );
+
+	/* The task is now executing as a real-time task if the call didn't fail. 
+	 */
+    unsigned int job_no = 0;
+    while (count_frame < args.count && running) {
         for (int j=0; j<100; j++) {
-
+            get_job_no(&job_no);
+            fprintf(stdout, "job %d\n", job_no);
+            /* Wait until the next job is released. */
+            if (count_frame >= args.count)
+                break;
             frame = frames[j];
-            count_frame++;
             //usleep(33000);
             workBegin();
 
@@ -1469,48 +1400,44 @@ void App::sched_etoe_hog_preload(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
 
             // Perform HOG classification
             hogWorkBegin();
-            if (use_gpu)
-            {
+            if (use_gpu) {
                 gpu_img->upload(*img);
                 gpu_hog->setNumLevels(nlevels);
                 gpu_hog->setHitThreshold(hit_threshold);
                 gpu_hog->setScaleFactor(scale);
                 gpu_hog->setGroupThreshold(gr_threshold);
                 gpu_hog->detectMultiScale(*gpu_img, *found);
-            }
-            else
-            {
+            } else {
                 cpu_hog.nlevels = nlevels;
                 cpu_hog.detectMultiScale(*img, *found, hit_threshold, win_stride,
-                                         Size(0, 0), scale, gr_threshold);
+                        Size(0, 0), scale, gr_threshold);
             }
             hogWorkEnd();
 
             printf("%d response time: %f\n", count_frame, 1/hog_work_fps);
             // Draw positive classified windows
-            /*
-            for (size_t i = 0; i < found->size(); i++)
-            {
-                Rect r = (*found)[i];
-                rectangle(*img_to_show, r.tl(), r.br(), Scalar(0, 255, 0), 3);
-            }
+            if (args.display) {
+                for (size_t i = 0; i < found->size(); i++) {
+                    Rect r = (*found)[i];
+                    rectangle(*img_to_show, r.tl(), r.br(), Scalar(0, 255, 0), 3);
+                }
 
-            if (use_gpu)
-                putText(*img_to_show, "Mode: GPU", Point(5, 25), FONT_HERSHEY_SIMPLEX, 1., Scalar(255, 100, 0), 2);
-            else
-                putText(*img_to_show, "Mode: CPU", Point(5, 25), FONT_HERSHEY_SIMPLEX, 1., Scalar(255, 100, 0), 2);
-            putText(*img_to_show, "FPS HOG: " + hogWorkFps(), Point(5, 65), FONT_HERSHEY_SIMPLEX, 1., Scalar(255, 100, 0), 2);
-            putText(*img_to_show, "FPS total: " + workFps(), Point(5, 105), FONT_HERSHEY_SIMPLEX, 1., Scalar(255, 100, 0), 2);
-            imshow("opencv_gpu_hog", *img_to_show);
+                if (use_gpu)
+                    putText(*img_to_show, "Mode: GPU", Point(5, 25), FONT_HERSHEY_SIMPLEX, 1., Scalar(255, 100, 0), 2);
+                else
+                    putText(*img_to_show, "Mode: CPU", Point(5, 25), FONT_HERSHEY_SIMPLEX, 1., Scalar(255, 100, 0), 2);
+                putText(*img_to_show, "FPS HOG: " + hogWorkFps(), Point(5, 65), FONT_HERSHEY_SIMPLEX, 1., Scalar(255, 100, 0), 2);
+                putText(*img_to_show, "FPS total: " + workFps(), Point(5, 105), FONT_HERSHEY_SIMPLEX, 1., Scalar(255, 100, 0), 2);
+                imshow("opencv_gpu_hog", *img_to_show);
+                handleKey((char)waitKey(3));
+            }
 
             workEnd();
 
-            if (args.write_video)
-            {
-                if (!video_writer.isOpened())
-                {
+            if (args.write_video) {
+                if (!video_writer.isOpened()) {
                     video_writer.open(args.dst_video, VideoWriter::fourcc('x','v','i','d'), args.dst_video_fps,
-                                      img_to_show->size(), true);
+                            img_to_show->size(), true);
                     if (!video_writer.isOpened())
                         throw std::runtime_error("can't create video writer");
                 }
@@ -1521,17 +1448,22 @@ void App::sched_etoe_hog_preload(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
                 video_writer << *img;
             }
 
-            */
-            handleKey((char)waitKey(3));
             delete gpu_img;
             delete found;
             delete img;
             gpu_img = new cuda::GpuMat();
             found = new vector<Rect>();
             img = new Mat();
+            count_frame++;
+            sleep_next_period();
         }
     }
+	/*****
+	 * 6) Transition to background mode.
+	 */
+	CALL( task_mode(BACKGROUND_TASK) );
 }
+
 void App::sched_etoe_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog)
 {
     Size win_stride(args.win_stride_width, args.win_stride_height);
@@ -1548,7 +1480,7 @@ void App::sched_etoe_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_h
     vector<String> filenames;
 
     int count_frame = 0;
-    while (count_frame < 1000 && running)
+    while (count_frame < args.count && running)
     {
 
         unsigned int count = 1;
@@ -1587,9 +1519,8 @@ void App::sched_etoe_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_h
         }
 
         // Iterate over all frames
-        while (count_frame < 1000 && running && !frame.empty())
+        while (count_frame < args.count && running && !frame.empty())
         {
-            count_frame++;
             //usleep(33000);
             workBegin();
 
@@ -1675,12 +1606,15 @@ void App::sched_etoe_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_h
             gpu_img = new cuda::GpuMat();
             found = new vector<Rect>();
             img = new Mat();
+            count_frame++;
         }
     }
 }
 
 void App::run()
 {
+    mlockall(MCL_CURRENT | MCL_FUTURE);
+    setNumThreads(0);
     running = true;
 
     Size win_stride(args.win_stride_width, args.win_stride_height);
@@ -1728,19 +1662,34 @@ void App::run()
     cout << "cpusvmDescriptorSize : " << cpu_hog.getDescriptorSize()
          << endl;
 
+    VideoCapture vc;
+    Mat frames[100];
+    vector<String> filenames;
+    if (args.src_is_video)
+    {
+        vc.open(args.src.c_str());
+        if (!vc.isOpened())
+            throw runtime_error(string("can't open video file: " + args.src));
+        vc >> frames[0];
+    }
+    for (int i=1; i<100; i++) {
+        if (args.src_is_video) vc >> frames[i];
+    }
+    vc.release();
+
     switch (args.sched) {
         case end_to_end:
             //sched_etoe_hog(gpu_hog, cpu_hog);
-            sched_etoe_hog_preload(gpu_hog, cpu_hog);
+            sched_etoe_hog_preload(gpu_hog, cpu_hog, frames);
             break;
         case coarse_grained:
-            sched_coarse_grained_hog(gpu_hog, cpu_hog);
+            sched_coarse_grained_hog(gpu_hog, cpu_hog, frames);
             break;
         case fine_grained:
-            sched_fine_grained_hog(gpu_hog, cpu_hog);
+            sched_fine_grained_hog(gpu_hog, cpu_hog, frames);
             break;
         case coarse_unrolled:
-            sched_coarse_grained_unrolled_for_hog(gpu_hog, cpu_hog);
+            sched_coarse_grained_unrolled_for_hog(gpu_hog, cpu_hog, frames);
             break;
         default:
             break;
