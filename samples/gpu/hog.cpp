@@ -62,9 +62,9 @@ if(__ret < 0) { \
  *
  * These are in milliseconds.
  */
-#define PERIOD            50
-#define RELATIVE_DEADLINE 50
-#define EXEC_COST         25
+#define PERIOD            15
+#define RELATIVE_DEADLINE 15
+#define EXEC_COST         5
 
 /* Catch errors.
  */
@@ -695,10 +695,10 @@ void App::sched_coarse_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescri
 
     pthread_barrier_init(&init_barrier, 0, 6);
 
-    thread t1(&cv::cuda::HOG::thread_vxHOGCells, gpu_hog, &vxHOGCells_node, &init_barrier);
-    thread t2(&cv::cuda::HOG::thread_vxHOGFeatures, gpu_hog, &vxHOGFeatures_node, &init_barrier);
-    thread t3(&cv::cuda::HOG::thread_classify, gpu_hog, &classify_node, &init_barrier);
-    thread t4(&cv::cuda::HOG::thread_collect_locations, gpu_hog, &collect_locations_node, &init_barrier);
+    thread t1(&cv::cuda::HOG::thread_vxHOGCells, gpu_hog, &vxHOGCells_node, &init_barrier, 0);
+    thread t2(&cv::cuda::HOG::thread_vxHOGFeatures, gpu_hog, &vxHOGFeatures_node, &init_barrier, 0);
+    thread t3(&cv::cuda::HOG::thread_classify, gpu_hog, &classify_node, &init_barrier, 0);
+    thread t4(&cv::cuda::HOG::thread_collect_locations, gpu_hog, &collect_locations_node, &init_barrier, 0);
     thread t5(&App::thread_display, this, &display_node);
 
     pgm_claim_node(color_convert_node);
@@ -904,13 +904,13 @@ void App::sched_coarse_grained_unrolled_for_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, 
     thread** t3 = (thread**) calloc(NUM_SCALE_LEVELS, sizeof(std::thread *));
     thread** t4 = (thread**) calloc(NUM_SCALE_LEVELS, sizeof(std::thread *));
 
-    thread t1(&cv::cuda::HOG::thread_fine_compute_scales, gpu_hog, &compute_scales_node, &init_barrier);
+    thread t1(&cv::cuda::HOG::thread_fine_compute_scales, gpu_hog, &compute_scales_node, &init_barrier, 5);
     for (int i=0; i<NUM_SCALE_LEVELS; i++) {
-        t2[i] = new thread(&cv::cuda::HOG::thread_unrolled_vxHOGCells, gpu_hog, &unrolled_vxHOGCells_node[i], &init_barrier);
-        t3[i] = new thread(&cv::cuda::HOG::thread_fine_normalize_histograms, gpu_hog, &normalize_node[i], &init_barrier);
-        t4[i] = new thread(&cv::cuda::HOG::thread_fine_classify, gpu_hog, &classify_node[i], &init_barrier);
+        t2[i] = new thread(&cv::cuda::HOG::thread_unrolled_vxHOGCells, gpu_hog, &unrolled_vxHOGCells_node[i], &init_barrier, 9);
+        t3[i] = new thread(&cv::cuda::HOG::thread_fine_normalize_histograms, gpu_hog, &normalize_node[i], &init_barrier, 20);
+        t4[i] = new thread(&cv::cuda::HOG::thread_fine_classify, gpu_hog, &classify_node[i], &init_barrier, 22);
     }
-    thread t5(&cv::cuda::HOG::thread_fine_collect_locations, gpu_hog, &collect_locations_node, &init_barrier);
+    thread t5(&cv::cuda::HOG::thread_fine_collect_locations, gpu_hog, &collect_locations_node, &init_barrier, 24);
     thread t6(&App::thread_display, this, &display_node);
 
     pgm_claim_node(color_convert_node);
@@ -935,7 +935,6 @@ void App::sched_coarse_grained_unrolled_for_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, 
     pthread_barrier_wait(&init_barrier);
 
     struct rt_task param;
-
     init_rt_task_param(&param);
     param.exec_cost = ms2ns(EXEC_COST);
     param.period = ms2ns(PERIOD);
@@ -1177,15 +1176,15 @@ void App::sched_fine_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
     thread** t5 = (thread**) calloc(NUM_SCALE_LEVELS, sizeof(std::thread *));
     thread** t6 = (thread**) calloc(NUM_SCALE_LEVELS, sizeof(std::thread *));
 
-    thread t1(&cv::cuda::HOG::thread_fine_compute_scales, gpu_hog, &compute_scales_node, &init_barrier);
+    thread t1(&cv::cuda::HOG::thread_fine_compute_scales, gpu_hog, &compute_scales_node, &init_barrier, 5);
     for (int i=0; i<NUM_SCALE_LEVELS; i++) {
-        t2[i] = new thread(&cv::cuda::HOG::thread_fine_resize, gpu_hog, &resize_node[i], &init_barrier);
-        t3[i] = new thread(&cv::cuda::HOG::thread_fine_compute_gradients, gpu_hog, &compute_gradients_node[i], &init_barrier);
-        t4[i] = new thread(&cv::cuda::HOG::thread_fine_compute_histograms, gpu_hog, &compute_histograms_node[i], &init_barrier);
-        t5[i] = new thread(&cv::cuda::HOG::thread_fine_normalize_histograms, gpu_hog, &normalize_node[i], &init_barrier);
-        t6[i] = new thread(&cv::cuda::HOG::thread_fine_classify, gpu_hog, &classify_node[i], &init_barrier);
+        t2[i] = new thread(&cv::cuda::HOG::thread_fine_resize, gpu_hog, &resize_node[i], &init_barrier, 6);
+        t3[i] = new thread(&cv::cuda::HOG::thread_fine_compute_gradients, gpu_hog, &compute_gradients_node[i], &init_barrier, 8);
+        t4[i] = new thread(&cv::cuda::HOG::thread_fine_compute_histograms, gpu_hog, &compute_histograms_node[i], &init_barrier, 13);
+        t5[i] = new thread(&cv::cuda::HOG::thread_fine_normalize_histograms, gpu_hog, &normalize_node[i], &init_barrier, 20);
+        t6[i] = new thread(&cv::cuda::HOG::thread_fine_classify, gpu_hog, &classify_node[i], &init_barrier, 22);
     }
-    thread t7(&cv::cuda::HOG::thread_fine_collect_locations, gpu_hog, &collect_locations_node, &init_barrier);
+    thread t7(&cv::cuda::HOG::thread_fine_collect_locations, gpu_hog, &collect_locations_node, &init_barrier, 24);
     thread t8(&App::thread_display, this, &display_node);
 
     /* graph construction finishes */
@@ -1211,13 +1210,25 @@ void App::sched_fine_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
     /* initialization is finished */
     pthread_barrier_wait(&init_barrier);
 
+    struct rt_task param;
+    init_rt_task_param(&param);
+    param.exec_cost = ms2ns(EXEC_COST);
+    param.period = ms2ns(PERIOD);
+    param.relative_deadline = ms2ns(RELATIVE_DEADLINE);
+    param.budget_policy = NO_ENFORCEMENT;
+    param.cls = RT_CLASS_SOFT;
+    param.priority = LITMUS_LOWEST_PRIORITY;
+    CALL( init_litmus() );
+    CALL( set_rt_task_param(gettid(), &param) );
+    CALL( task_mode(LITMUS_RT_TASK) );
+    CALL( wait_for_ts_release() );
+
     int count_frame = 0;
     while (count_frame < args.count && running) {
         for (int j=0; j<100; j++) {
             if (count_frame >= args.count)
                 break;
             frame = frames[j];
-            usleep(10000);
             //fprintf(stdout, "0 fires: image_to_show: %p, found: %p\n", img, found);
             workBegin();
 
@@ -1295,8 +1306,10 @@ void App::sched_fine_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
             found = new vector<Rect>();
             img = new Mat();
             count_frame++;
+            sleep_next_period();
         }
     }
+    CALL( task_mode(BACKGROUND_TASK) );
 
     free(out_edge);
     CheckError(pgm_terminate(color_convert_node));

@@ -62,9 +62,9 @@
 #include <litmus.h>
 /* LITMUS^RT */
 
-#define PERIOD            50
-#define RELATIVE_DEADLINE 50
-#define EXEC_COST         25
+#define PERIOD            15
+#define RELATIVE_DEADLINE 15
+#define EXEC_COST         5
 
 #define CALL( exp ) do { \
     int ret; \
@@ -241,23 +241,23 @@ namespace
                              Stream& stream);
 
         /* vxHOGCellsNode node function */
-        void* thread_vxHOGCells(node_t* _node, pthread_barrier_t* init_barrier);
-        void* thread_unrolled_vxHOGCells(node_t* _node, pthread_barrier_t* init_barrier);
+        void* thread_vxHOGCells(node_t* _node, pthread_barrier_t* init_barrier, int phase);
+        void* thread_unrolled_vxHOGCells(node_t* _node, pthread_barrier_t* init_barrier, int phase);
         /* vxHOGFeatureNode node function */
-        void* thread_vxHOGFeatures(node_t* _node, pthread_barrier_t* init_barrier);
+        void* thread_vxHOGFeatures(node_t* _node, pthread_barrier_t* init_barrier, int phase);
         /* classify node function */
-        void* thread_classify(node_t* _node, pthread_barrier_t* init_barrier);
+        void* thread_classify(node_t* _node, pthread_barrier_t* init_barrier, int phase);
         /* collect location node function */
-        void* thread_collect_locations(node_t* _node, pthread_barrier_t* init_barrier);
+        void* thread_collect_locations(node_t* _node, pthread_barrier_t* init_barrier, int phase);
 
         /* fine-grained */
-        void* thread_fine_compute_scales(node_t* _node, pthread_barrier_t* init_barrier);
-        void* thread_fine_resize(node_t* _node, pthread_barrier_t* init_barrier);
-        void* thread_fine_compute_gradients(node_t* _node, pthread_barrier_t* init_barrier);
-        void* thread_fine_compute_histograms(node_t* _node, pthread_barrier_t* init_barrier);
-        void* thread_fine_normalize_histograms(node_t* _node, pthread_barrier_t* init_barrier);
-        void* thread_fine_classify(node_t* _node, pthread_barrier_t* init_barrier);
-        void* thread_fine_collect_locations(node_t* _node, pthread_barrier_t* init_barrier);
+        void* thread_fine_compute_scales(node_t* _node, pthread_barrier_t* init_barrier, int phase);
+        void* thread_fine_resize(node_t* _node, pthread_barrier_t* init_barrier, int phase);
+        void* thread_fine_compute_gradients(node_t* _node, pthread_barrier_t* init_barrier, int phase);
+        void* thread_fine_compute_histograms(node_t* _node, pthread_barrier_t* init_barrier, int phase);
+        void* thread_fine_normalize_histograms(node_t* _node, pthread_barrier_t* init_barrier, int phase);
+        void* thread_fine_classify(node_t* _node, pthread_barrier_t* init_barrier, int phase);
+        void* thread_fine_collect_locations(node_t* _node, pthread_barrier_t* init_barrier, int phase);
 
     private:
         Size win_size_;
@@ -444,7 +444,7 @@ namespace
         int64 end_time;
     };
 
-    void* HOG_Impl::thread_fine_compute_scales(node_t* _node, pthread_barrier_t* init_barrier)
+    void* HOG_Impl::thread_fine_compute_scales(node_t* _node, pthread_barrier_t* init_barrier, int phase)
     {
         node_t node = *_node;
 #ifdef LOG_DEBUG
@@ -495,7 +495,7 @@ namespace
         param.exec_cost = ms2ns(EXEC_COST);
         param.period = ms2ns(PERIOD);
         param.relative_deadline = ms2ns(RELATIVE_DEADLINE);
-        param.phase = ms2ns(5); /* color conver node takes about 5 ms in isolation */
+        param.phase = ms2ns(phase); /* color conver node takes about 5 ms in isolation */
         param.budget_policy = NO_ENFORCEMENT;
         param.release_policy = TASK_EARLY; /* early releasing */
         param.cls = RT_CLASS_SOFT;
@@ -611,7 +611,7 @@ namespace
     }
 
 
-    void* HOG_Impl::thread_fine_resize(node_t* _node, pthread_barrier_t* init_barrier)
+    void* HOG_Impl::thread_fine_resize(node_t* _node, pthread_barrier_t* init_barrier, int phase)
     {
         node_t node = *_node;
 #ifdef LOG_DEBUG
@@ -639,6 +639,21 @@ namespace
         GpuMat * gpu_img;
 
         pthread_barrier_wait(init_barrier);
+
+        struct rt_task param;
+        init_rt_task_param(&param);
+        param.exec_cost = ms2ns(EXEC_COST);
+        param.period = ms2ns(PERIOD);
+        param.relative_deadline = ms2ns(RELATIVE_DEADLINE);
+        param.phase = ms2ns(phase);
+        param.budget_policy = NO_ENFORCEMENT;
+        param.release_policy = TASK_EARLY; /* early releasing */
+        param.cls = RT_CLASS_SOFT;
+        param.priority = LITMUS_LOWEST_PRIORITY;
+        CALL( init_litmus() );
+        CALL( set_rt_task_param(gettid(), &param) );
+        CALL( task_mode(LITMUS_RT_TASK) );
+        CALL( wait_for_ts_release() );
 
         if(!hog_errors)
         {
@@ -683,6 +698,7 @@ namespace
                     out_buf->frame_index = in_buf->frame_index;
                     out_buf->start_time = in_buf->start_time;
                     CheckError(pgm_complete(node));
+                    sleep_next_period(); /* this calls the system call sys_complete_job. With early releasing, this shouldn't block.*/
                 }
                 else
                 {
@@ -695,6 +711,7 @@ namespace
             } while(ret != PGM_TERMINATE);
         }
 
+        CALL( task_mode(BACKGROUND_TASK) );
         pthread_barrier_wait(init_barrier);
 
         CheckError(pgm_release_node(node));
@@ -705,7 +722,7 @@ namespace
         pthread_exit(0);
     }
 
-    void* HOG_Impl::thread_fine_compute_gradients(node_t* _node, pthread_barrier_t* init_barrier)
+    void* HOG_Impl::thread_fine_compute_gradients(node_t* _node, pthread_barrier_t* init_barrier, int phase)
     {
         node_t node = *_node;
 #ifdef LOG_DEBUG
@@ -734,6 +751,20 @@ namespace
         GpuMat * qangle;
 
         pthread_barrier_wait(init_barrier);
+
+        struct rt_task param;
+        init_rt_task_param(&param);
+        param.exec_cost = ms2ns(EXEC_COST);
+        param.period = ms2ns(PERIOD);
+        param.relative_deadline = ms2ns(RELATIVE_DEADLINE);
+        param.phase = ms2ns(phase);
+        param.budget_policy = NO_ENFORCEMENT;
+        param.release_policy = TASK_EARLY; /* early releasing */
+        param.cls = RT_CLASS_SOFT;
+        param.priority = LITMUS_LOWEST_PRIORITY;
+        CALL( init_litmus() );
+        CALL( set_rt_task_param(gettid(), &param) );
+        CALL( task_mode(LITMUS_RT_TASK) );
 
         if(!hog_errors)
         {
@@ -796,6 +827,7 @@ namespace
                     out_buf->frame_index = in_buf->frame_index;
                     out_buf->start_time = in_buf->start_time;
                     CheckError(pgm_complete(node));
+                    sleep_next_period(); /* this calls the system call sys_complete_job. With early releasing, this shouldn't block.*/
                 }
                 else
                 {
@@ -808,6 +840,7 @@ namespace
             } while(ret != PGM_TERMINATE);
         }
 
+        CALL( task_mode(BACKGROUND_TASK) );
         pthread_barrier_wait(init_barrier);
 
         CheckError(pgm_release_node(node));
@@ -818,7 +851,7 @@ namespace
         pthread_exit(0);
     }
 
-    void* HOG_Impl::thread_fine_compute_histograms(node_t* _node, pthread_barrier_t* init_barrier)
+    void* HOG_Impl::thread_fine_compute_histograms(node_t* _node, pthread_barrier_t* init_barrier, int phase)
     {
         node_t node = *_node;
 #ifdef LOG_DEBUG
@@ -850,6 +883,21 @@ namespace
         GpuMat * block_hists;
 
         pthread_barrier_wait(init_barrier);
+
+        struct rt_task param;
+        init_rt_task_param(&param);
+        param.exec_cost = ms2ns(EXEC_COST);
+        param.period = ms2ns(PERIOD);
+        param.relative_deadline = ms2ns(RELATIVE_DEADLINE);
+        param.phase = ms2ns(phase);
+        param.budget_policy = NO_ENFORCEMENT;
+        param.release_policy = TASK_EARLY; /* early releasing */
+        param.cls = RT_CLASS_SOFT;
+        param.priority = LITMUS_LOWEST_PRIORITY;
+        CALL( init_litmus() );
+        CALL( set_rt_task_param(gettid(), &param) );
+        CALL( task_mode(LITMUS_RT_TASK) );
+        CALL( wait_for_ts_release() );
 
         if(!hog_errors)
         {
@@ -905,6 +953,7 @@ namespace
                     out_buf->block_hists= block_hists;
 
                     CheckError(pgm_complete(node));
+                    sleep_next_period(); /* this calls the system call sys_complete_job. With early releasing, this shouldn't block.*/
                 }
                 else
                 {
@@ -917,6 +966,7 @@ namespace
             } while(ret != PGM_TERMINATE);
         }
 
+        CALL( task_mode(BACKGROUND_TASK) );
         pthread_barrier_wait(init_barrier);
 
         CheckError(pgm_release_node(node));
@@ -927,7 +977,7 @@ namespace
         pthread_exit(0);
     }
 
-    void* HOG_Impl::thread_fine_normalize_histograms(node_t* _node, pthread_barrier_t* init_barrier)
+    void* HOG_Impl::thread_fine_normalize_histograms(node_t* _node, pthread_barrier_t* init_barrier, int phase)
     {
         node_t node = *_node;
 #ifdef LOG_DEBUG
@@ -960,7 +1010,7 @@ namespace
         param.exec_cost = ms2ns(EXEC_COST);
         param.period = ms2ns(PERIOD);
         param.relative_deadline = ms2ns(RELATIVE_DEADLINE);
-        param.phase = ms2ns(20); /* color conver node takes about 5 ms in isolation */
+        param.phase = ms2ns(phase);
         param.budget_policy = NO_ENFORCEMENT;
         param.release_policy = TASK_EARLY; /* early releasing */
         param.cls = RT_CLASS_SOFT;
@@ -1038,7 +1088,7 @@ namespace
         pthread_exit(0);
     }
 
-    void* HOG_Impl::thread_fine_classify(node_t* _node, pthread_barrier_t* init_barrier)
+    void* HOG_Impl::thread_fine_classify(node_t* _node, pthread_barrier_t* init_barrier, int phase)
     {
         node_t node = *_node;
 #ifdef LOG_DEBUG
@@ -1075,7 +1125,7 @@ namespace
         param.exec_cost = ms2ns(EXEC_COST);
         param.period = ms2ns(PERIOD);
         param.relative_deadline = ms2ns(RELATIVE_DEADLINE);
-        param.phase = ms2ns(22); /* color conver node takes about 5 ms in isolation */
+        param.phase = ms2ns(phase); /* color conver node takes about 5 ms in isolation */
         param.budget_policy = NO_ENFORCEMENT;
         param.release_policy = TASK_EARLY; /* early releasing */
         param.cls = RT_CLASS_SOFT;
@@ -1186,7 +1236,7 @@ namespace
         size_t count = 0;
     };
 
-    void* HOG_Impl::thread_fine_collect_locations(node_t* _node, pthread_barrier_t* init_barrier)
+    void* HOG_Impl::thread_fine_collect_locations(node_t* _node, pthread_barrier_t* init_barrier, int phase)
     {
         node_t node = *_node;
 #ifdef LOG_DEBUG
@@ -1237,7 +1287,7 @@ namespace
         param.exec_cost = ms2ns(EXEC_COST);
         param.period = ms2ns(PERIOD);
         param.relative_deadline = ms2ns(RELATIVE_DEADLINE);
-        param.phase = ms2ns(24); /* color conver node takes about 5 ms in isolation */
+        param.phase = ms2ns(phase); /* color conver node takes about 5 ms in isolation */
         param.budget_policy = NO_ENFORCEMENT;
         param.release_policy = TASK_EARLY; /* early releasing */
         param.cls = RT_CLASS_SOFT;
@@ -1426,7 +1476,7 @@ namespace
     }
 
 
-    void* HOG_Impl::thread_unrolled_vxHOGCells(node_t* _node, pthread_barrier_t* init_barrier)
+    void* HOG_Impl::thread_unrolled_vxHOGCells(node_t* _node, pthread_barrier_t* init_barrier, int phase)
     {
         node_t node = *_node;
 #ifdef LOG_DEBUG
@@ -1466,7 +1516,7 @@ namespace
         param.exec_cost = ms2ns(EXEC_COST);
         param.period = ms2ns(PERIOD);
         param.relative_deadline = ms2ns(RELATIVE_DEADLINE);
-        param.phase = ms2ns(6); /* color conver node takes about 5 ms in isolation */
+        param.phase = ms2ns(phase); /* color conver node takes about 5 ms in isolation */
         param.budget_policy = NO_ENFORCEMENT;
         param.release_policy = TASK_EARLY; /* early releasing */
         param.cls = RT_CLASS_SOFT;
@@ -1601,7 +1651,7 @@ namespace
         pthread_exit(0);
     }
 
-    void* HOG_Impl::thread_vxHOGCells(node_t* _node,  pthread_barrier_t* init_barrier)
+    void* HOG_Impl::thread_vxHOGCells(node_t* _node,  pthread_barrier_t* init_barrier, int phase)
     {
         node_t node = *_node;
 #ifdef LOG_DEBUG
@@ -1813,7 +1863,7 @@ namespace
         pthread_exit(0);
     }
 
-    void* HOG_Impl::thread_vxHOGFeatures(node_t* _node, pthread_barrier_t* init_barrier)
+    void* HOG_Impl::thread_vxHOGFeatures(node_t* _node, pthread_barrier_t* init_barrier, int phase)
     {
         node_t node = *_node;
 #ifdef LOG_DEBUG
@@ -1911,7 +1961,7 @@ namespace
         pthread_exit(0);
     }
 
-    void* HOG_Impl::thread_classify(node_t* _node, pthread_barrier_t* init_barrier)
+    void* HOG_Impl::thread_classify(node_t* _node, pthread_barrier_t* init_barrier, int phase)
     {
         node_t node = *_node;
 #ifdef LOG_DEBUG
@@ -2042,7 +2092,7 @@ namespace
         pthread_exit(0);
     }
 
-    void* HOG_Impl::thread_collect_locations(node_t* _node, pthread_barrier_t* init_barrier)
+    void* HOG_Impl::thread_collect_locations(node_t* _node, pthread_barrier_t* init_barrier, int phase)
     {
         node_t node = *_node;
 #ifdef LOG_DEBUG
@@ -2077,99 +2127,99 @@ namespace
 #ifdef LOG_DEBUG
                     fprintf(stdout, "%s%d fires (top)\n", tabbuf, node.node);
 #endif
-        std::vector<Rect>* found = in_buf->found;
-        std::vector<double> * level_scale = in_buf->level_scale;
-        std::vector<double> * confidences = in_buf->confidences;
-        GpuMat * smaller_img_array = in_buf->smaller_img_array;
-        GpuMat * block_hists_array = in_buf->block_hists_array;
-        GpuMat * labels_array = in_buf->labels_array;
+                    std::vector<Rect>* found = in_buf->found;
+                    std::vector<double> * level_scale = in_buf->level_scale;
+                    std::vector<double> * confidences = in_buf->confidences;
+                    GpuMat * smaller_img_array = in_buf->smaller_img_array;
+                    GpuMat * block_hists_array = in_buf->block_hists_array;
+                    GpuMat * labels_array = in_buf->labels_array;
 
-        Stream stream;
+                    Stream stream;
 
-        double scale;
+                    double scale;
 
-        for (size_t i = 0; i < level_scale->size(); i++)
-        {
-            GpuMat * smaller_img = smaller_img_array + i;
-            GpuMat * block_hists = block_hists_array + i;
-            GpuMat * labels = labels_array + i;
-            scale = (*level_scale)[i];
-
-            // labels
-            /* ===========================
-             * collect locations
-             */
-            std::vector<double> level_confidences;
-            std::vector<double>* level_confidences_ptr = confidences ? &level_confidences : NULL;
-            std::vector<Point> level_hits;
-            Size wins_per_img = numPartsWithin(smaller_img->size(), win_size_, win_stride_);
-            level_hits.clear();
-
-            if (level_confidences_ptr == NULL)
-            {
-                Mat labels_host;
-                labels->download(labels_host, stream);
-                cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
-                unsigned char* vec = labels_host.ptr();
-
-                for (int i = 0; i < wins_per_img.area(); i++)
-                {
-                    int y = i / wins_per_img.width;
-                    int x = i - wins_per_img.width * y;
-                    if (vec[i])
-                        level_hits.push_back(Point(x * win_stride_.width, y * win_stride_.height));
-                }
-            }
-            else
-            {
-                Mat labels_host;
-                labels->download(labels_host, stream);
-                cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
-                float* vec = labels_host.ptr<float>();
-
-                level_confidences_ptr->clear();
-                for (int i = 0; i < wins_per_img.area(); i++)
-                {
-                    int y = i / wins_per_img.width;
-                    int x = i - wins_per_img.width * y;
-
-                    if (vec[i] >= hit_threshold_)
+                    for (size_t i = 0; i < level_scale->size(); i++)
                     {
-                        level_hits.push_back(Point(x * win_stride_.width, y * win_stride_.height));
-                        level_confidences_ptr->push_back((double)vec[i]);
+                        GpuMat * smaller_img = smaller_img_array + i;
+                        GpuMat * block_hists = block_hists_array + i;
+                        GpuMat * labels = labels_array + i;
+                        scale = (*level_scale)[i];
+
+                        // labels
+                        /* ===========================
+                         * collect locations
+                         */
+                        std::vector<double> level_confidences;
+                        std::vector<double>* level_confidences_ptr = confidences ? &level_confidences : NULL;
+                        std::vector<Point> level_hits;
+                        Size wins_per_img = numPartsWithin(smaller_img->size(), win_size_, win_stride_);
+                        level_hits.clear();
+
+                        if (level_confidences_ptr == NULL)
+                        {
+                            Mat labels_host;
+                            labels->download(labels_host, stream);
+                            cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
+                            unsigned char* vec = labels_host.ptr();
+
+                            for (int i = 0; i < wins_per_img.area(); i++)
+                            {
+                                int y = i / wins_per_img.width;
+                                int x = i - wins_per_img.width * y;
+                                if (vec[i])
+                                    level_hits.push_back(Point(x * win_stride_.width, y * win_stride_.height));
+                            }
+                        }
+                        else
+                        {
+                            Mat labels_host;
+                            labels->download(labels_host, stream);
+                            cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
+                            float* vec = labels_host.ptr<float>();
+
+                            level_confidences_ptr->clear();
+                            for (int i = 0; i < wins_per_img.area(); i++)
+                            {
+                                int y = i / wins_per_img.width;
+                                int x = i - wins_per_img.width * y;
+
+                                if (vec[i] >= hit_threshold_)
+                                {
+                                    level_hits.push_back(Point(x * win_stride_.width, y * win_stride_.height));
+                                    level_confidences_ptr->push_back((double)vec[i]);
+                                }
+                            }
+                        }
+
+                        Size scaled_win_size(cvRound(win_size_.width * scale),
+                                cvRound(win_size_.height * scale));
+
+                        for (size_t j = 0; j < level_hits.size(); j++)
+                        {
+                            found->push_back(Rect(Point2d(level_hits[j]) * scale, scaled_win_size));
+                            if (confidences)
+                                confidences->push_back(level_confidences[j]);
+                        }
+                        /*
+                         * end of collect locations
+                         * =========================== */
+                        smaller_img->release();
+                        block_hists->release();
+                        labels->release();
                     }
-                }
-            }
 
-            Size scaled_win_size(cvRound(win_size_.width * scale),
-                    cvRound(win_size_.height * scale));
+                    if (group_threshold_ > 0)
+                    {
+                        groupRectangles(*found, group_threshold_, 0.2/*magic number copied from CPU version*/);
+                    }
+                    if (in_buf->level_scale != NULL) delete in_buf->level_scale;
+                    if (in_buf->confidences != NULL) delete in_buf->confidences;
 
-            for (size_t j = 0; j < level_hits.size(); j++)
-            {
-                found->push_back(Rect(Point2d(level_hits[j]) * scale, scaled_win_size));
-                if (confidences)
-                    confidences->push_back(level_confidences[j]);
-            }
-            /*
-             * end of collect locations
-             * =========================== */
-            smaller_img->release();
-            block_hists->release();
-            labels->release();
-        }
-
-        if (group_threshold_ > 0)
-        {
-            groupRectangles(*found, group_threshold_, 0.2/*magic number copied from CPU version*/);
-        }
-        if (in_buf->level_scale != NULL) delete in_buf->level_scale;
-        if (in_buf->confidences != NULL) delete in_buf->confidences;
-
-        out_buf->found = in_buf->found;
-        out_buf->img_to_show = in_buf->img_to_show;
-        out_buf->frame_index = in_buf->frame_index;
-        out_buf->start_time = in_buf->start_time;
-        CheckError(pgm_complete(node));
+                    out_buf->found = in_buf->found;
+                    out_buf->img_to_show = in_buf->img_to_show;
+                    out_buf->frame_index = in_buf->frame_index;
+                    out_buf->start_time = in_buf->start_time;
+                    CheckError(pgm_complete(node));
                 }
                 else
                 {
