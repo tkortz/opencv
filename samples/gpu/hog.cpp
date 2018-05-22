@@ -56,7 +56,7 @@ if(__ret < 0) { \
             pthread_self(), __ret, errstr, errno, __FILE__, __FUNCTION__, __LINE__); \
 }}while(0)
 
-/* Next, we define period and execution cost to be constant. 
+/* Next, we define period and execution cost to be constant.
  * These are only constants for convenience in this example, they can be
  * determined at run time, e.g., from command line parameters.
  *
@@ -934,6 +934,19 @@ void App::sched_coarse_grained_unrolled_for_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, 
 
     pthread_barrier_wait(&init_barrier);
 
+    struct rt_task param;
+
+    init_rt_task_param(&param);
+    param.exec_cost = ms2ns(EXEC_COST);
+    param.period = ms2ns(PERIOD);
+    param.relative_deadline = ms2ns(RELATIVE_DEADLINE);
+    param.budget_policy = NO_ENFORCEMENT;
+    param.cls = RT_CLASS_SOFT;
+    param.priority = LITMUS_LOWEST_PRIORITY;
+    CALL( init_litmus() );
+    CALL( set_rt_task_param(gettid(), &param) );
+    CALL( task_mode(LITMUS_RT_TASK) );
+    CALL( wait_for_ts_release() );
 
     int count_frame = 0;
     while (count_frame < args.count && running) {
@@ -942,8 +955,6 @@ void App::sched_coarse_grained_unrolled_for_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, 
             if (count_frame >= args.count)
                 break;
             frame = frames[j];
-            usleep(10000);
-            //fprintf(stdout, "0 fires: image_to_show: %p, found: %p\n", img, found);
             workBegin();
 
             // Change format of the image
@@ -1019,8 +1030,14 @@ void App::sched_coarse_grained_unrolled_for_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, 
             found = new vector<Rect>();
             img = new Mat();
             count_frame++;
+            /* Wait until the next job is released. */
+            sleep_next_period();
         }
     }
+    /*****
+     * 6) Transition to background mode.
+     */
+    CALL( task_mode(BACKGROUND_TASK) );
 
     free(out_edge);
     CheckError(pgm_terminate(color_convert_node));
@@ -1317,8 +1334,8 @@ void App::sched_fine_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
 
 void App::sched_etoe_hog_preload(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog, Mat* frames)
 {
-	int do_exit;
 	struct rt_task param;
+    unsigned int job_no = 0;
 
 	/* Setup task parameters */
 	init_rt_task_param(&param);
@@ -1335,14 +1352,14 @@ void App::sched_etoe_hog_preload(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
 	/* The priority parameter is only used by fixed-priority plugins. */
 	param.priority = LITMUS_LOWEST_PRIORITY;
 
-	/*****
-	 * 3) Setup real-time parameters. 
-	 *    In this example, we create a sporadic task that does not specify a 
-	 *    target partition (and thus is intended to run under global scheduling). 
-	 *    If this were to execute under a partitioned scheduler, it would be assigned
-	 *    to the first partition (since partitioning is performed offline).
-	 */
-	CALL( init_litmus() );
+    /*****
+     * 3) Setup real-time parameters.
+     *    In this example, we create a sporadic task that does not specify a
+     *    target partition (and thus is intended to run under global scheduling).
+     *    If this were to execute under a partitioned scheduler, it would be assigned
+     *    to the first partition (since partitioning is performed offline).
+     */
+    CALL( init_litmus() );
 
 	/* To specify a partition, do
 	 *
@@ -1368,20 +1385,18 @@ void App::sched_etoe_hog_preload(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
     int count_frame = 0;
     cudaFree(0);
 
-	/*****
-	 * 4) Transition to real-time mode.
-	 */
-	CALL( task_mode(LITMUS_RT_TASK) );
+    /*****
+     * 4) Transition to real-time mode.
+     */
+    CALL( task_mode(LITMUS_RT_TASK) );
     CALL( wait_for_ts_release() );
 
-	/* The task is now executing as a real-time task if the call didn't fail. 
-	 */
-    unsigned int job_no = 0;
+    /* The task is now executing as a real-time task if the call didn't fail.
+     */
     while (count_frame < args.count && running) {
         for (int j=0; j<100; j++) {
             get_job_no(&job_no);
             fprintf(stdout, "job %d\n", job_no);
-            /* Wait until the next job is released. */
             if (count_frame >= args.count)
                 break;
             frame = frames[j];
@@ -1455,13 +1470,14 @@ void App::sched_etoe_hog_preload(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
             found = new vector<Rect>();
             img = new Mat();
             count_frame++;
+            /* Wait until the next job is released. */
             sleep_next_period();
         }
     }
-	/*****
-	 * 6) Transition to background mode.
-	 */
-	CALL( task_mode(BACKGROUND_TASK) );
+    /*****
+     * 6) Transition to background mode.
+     */
+    CALL( task_mode(BACKGROUND_TASK) );
 }
 
 void App::sched_etoe_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog)

@@ -22,7 +22,8 @@ set(OPENCV_CUDA_SAMPLES_REQUIRED_DEPS
   opencv_cudabgsegm
   opencv_cudastereo
   opencv_cudalegacy
-  opencv_cudaobjdetect)
+  opencv_cudaobjdetect
+  litmus)
 ocv_check_dependencies(${OPENCV_CUDA_SAMPLES_REQUIRED_DEPS})
 
 if(NOT BUILD_EXAMPLES OR NOT OCV_DEPENDENCIES_FOUND)

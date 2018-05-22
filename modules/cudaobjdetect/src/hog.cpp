@@ -45,6 +45,36 @@
 #include <thread>
 #include <unistd.h>
 
+/* LITMUS^RT */
+/* First, we include standard headers.
+ * Generally speaking, a LITMUS^RT real-time task can perform any
+ * system call, etc., but no real-time guarantees can be made if a
+ * system call blocks. To be on the safe side, only use I/O for debugging
+ * purposes and from non-real-time sections.
+ */
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+/* Second, we include the LITMUS^RT user space library header.
+ * This header, part of liblitmus, provides the user space API of
+ * LITMUS^RT.
+ */
+#include <litmus.h>
+/* LITMUS^RT */
+
+#define PERIOD            50
+#define RELATIVE_DEADLINE 50
+#define EXEC_COST         25
+
+#define CALL( exp ) do { \
+    int ret; \
+    ret = exp; \
+    if (ret != 0) \
+    fprintf(stderr, "%s failed: %m\n", #exp);\
+    else \
+    fprintf(stderr, "%s ok.\n", #exp); \
+} while (0)
+
 using namespace cv;
 using namespace cv::cuda;
 
@@ -460,6 +490,21 @@ namespace
 
         pthread_barrier_wait(init_barrier);
 
+        struct rt_task param;
+        init_rt_task_param(&param);
+        param.exec_cost = ms2ns(EXEC_COST);
+        param.period = ms2ns(PERIOD);
+        param.relative_deadline = ms2ns(RELATIVE_DEADLINE);
+        param.phase = ms2ns(5); /* color conver node takes about 5 ms in isolation */
+        param.budget_policy = NO_ENFORCEMENT;
+        param.release_policy = TASK_EARLY; /* early releasing */
+        param.cls = RT_CLASS_SOFT;
+        param.priority = LITMUS_LOWEST_PRIORITY;
+        CALL( init_litmus() );
+        CALL( set_rt_task_param(gettid(), &param) );
+        CALL( task_mode(LITMUS_RT_TASK) );
+        CALL( wait_for_ts_release() );
+
         if(!hog_errors)
         {
             do {
@@ -538,6 +583,7 @@ namespace
                         out_buf->start_time = in_buf->start_time;
                     }
                     CheckError(pgm_complete(node));
+                    sleep_next_period(); /* this calls the system call sys_complete_job. With early releasing, this shouldn't block.*/
                     /*
                      * end of compute scale levels
                      * =========================== */
@@ -552,6 +598,7 @@ namespace
 
             } while(ret != PGM_TERMINATE);
         }
+        CALL( task_mode(BACKGROUND_TASK) );
 
         pthread_barrier_wait(init_barrier);
 
@@ -908,6 +955,21 @@ namespace
 
         pthread_barrier_wait(init_barrier);
 
+        struct rt_task param;
+        init_rt_task_param(&param);
+        param.exec_cost = ms2ns(EXEC_COST);
+        param.period = ms2ns(PERIOD);
+        param.relative_deadline = ms2ns(RELATIVE_DEADLINE);
+        param.phase = ms2ns(20); /* color conver node takes about 5 ms in isolation */
+        param.budget_policy = NO_ENFORCEMENT;
+        param.release_policy = TASK_EARLY; /* early releasing */
+        param.cls = RT_CLASS_SOFT;
+        param.priority = LITMUS_LOWEST_PRIORITY;
+        CALL( init_litmus() );
+        CALL( set_rt_task_param(gettid(), &param) );
+        CALL( task_mode(LITMUS_RT_TASK) );
+        CALL( wait_for_ts_release() );
+
         if(!hog_errors)
         {
             do {
@@ -953,6 +1015,7 @@ namespace
                     out_buf->start_time = in_buf->start_time;
 
                     CheckError(pgm_complete(node));
+                    sleep_next_period(); /* this calls the system call sys_complete_job. With early releasing, this shouldn't block.*/
                 }
                 else
                 {
@@ -964,6 +1027,7 @@ namespace
 
             } while(ret != PGM_TERMINATE);
         }
+        CALL( task_mode(BACKGROUND_TASK) );
 
         pthread_barrier_wait(init_barrier);
 
@@ -1005,6 +1069,21 @@ namespace
         Size wins_per_img;
 
         pthread_barrier_wait(init_barrier);
+
+        struct rt_task param;
+        init_rt_task_param(&param);
+        param.exec_cost = ms2ns(EXEC_COST);
+        param.period = ms2ns(PERIOD);
+        param.relative_deadline = ms2ns(RELATIVE_DEADLINE);
+        param.phase = ms2ns(22); /* color conver node takes about 5 ms in isolation */
+        param.budget_policy = NO_ENFORCEMENT;
+        param.release_policy = TASK_EARLY; /* early releasing */
+        param.cls = RT_CLASS_SOFT;
+        param.priority = LITMUS_LOWEST_PRIORITY;
+        CALL( init_litmus() );
+        CALL( set_rt_task_param(gettid(), &param) );
+        CALL( task_mode(LITMUS_RT_TASK) );
+        CALL( wait_for_ts_release() );
 
         if(!hog_errors)
         {
@@ -1076,6 +1155,7 @@ namespace
                     out_buf->labels = in_buf->labels;
 
                     CheckError(pgm_complete(node));
+                    sleep_next_period(); /* this calls the system call sys_complete_job. With early releasing, this shouldn't block.*/
                 }
                 else
                 {
@@ -1087,6 +1167,8 @@ namespace
 
             } while(ret != PGM_TERMINATE);
         }
+
+        CALL( task_mode(BACKGROUND_TASK) );
 
         pthread_barrier_wait(init_barrier);
 
@@ -1149,6 +1231,22 @@ namespace
         bool added;
         */
         pthread_barrier_wait(init_barrier);
+
+        struct rt_task param;
+        init_rt_task_param(&param);
+        param.exec_cost = ms2ns(EXEC_COST);
+        param.period = ms2ns(PERIOD);
+        param.relative_deadline = ms2ns(RELATIVE_DEADLINE);
+        param.phase = ms2ns(24); /* color conver node takes about 5 ms in isolation */
+        param.budget_policy = NO_ENFORCEMENT;
+        param.release_policy = TASK_EARLY; /* early releasing */
+        param.cls = RT_CLASS_SOFT;
+        param.priority = LITMUS_LOWEST_PRIORITY;
+        CALL( init_litmus() );
+        CALL( set_rt_task_param(gettid(), &param) );
+        CALL( task_mode(LITMUS_RT_TASK) );
+        CALL( wait_for_ts_release() );
+
 
         if(!hog_errors)
         {
@@ -1302,6 +1400,7 @@ namespace
                     out_buf->start_time = in_buf->start_time;
 
                     CheckError(pgm_complete(node));
+                    sleep_next_period(); /* this calls the system call sys_complete_job. With early releasing, this shouldn't block.*/
                 }
                 else
                 {
@@ -1313,6 +1412,8 @@ namespace
 
             } while(ret != PGM_TERMINATE);
         }
+
+        CALL( task_mode(BACKGROUND_TASK) );
 
         pthread_barrier_wait(init_barrier);
 
@@ -1359,6 +1460,21 @@ namespace
         GpuMat * block_hists;
 
         pthread_barrier_wait(init_barrier);
+
+        struct rt_task param;
+        init_rt_task_param(&param);
+        param.exec_cost = ms2ns(EXEC_COST);
+        param.period = ms2ns(PERIOD);
+        param.relative_deadline = ms2ns(RELATIVE_DEADLINE);
+        param.phase = ms2ns(6); /* color conver node takes about 5 ms in isolation */
+        param.budget_policy = NO_ENFORCEMENT;
+        param.release_policy = TASK_EARLY; /* early releasing */
+        param.cls = RT_CLASS_SOFT;
+        param.priority = LITMUS_LOWEST_PRIORITY;
+        CALL( init_litmus() );
+        CALL( set_rt_task_param(gettid(), &param) );
+        CALL( task_mode(LITMUS_RT_TASK) );
+        CALL( wait_for_ts_release() );
 
         if(!hog_errors)
         {
@@ -1461,6 +1577,7 @@ namespace
 
                     out_buf->block_hists= block_hists;
                     CheckError(pgm_complete(node));
+                    sleep_next_period(); /* this calls the system call sys_complete_job. With early releasing, this shouldn't block.*/
                 }
                 else
                 {
@@ -1472,6 +1589,7 @@ namespace
 
             } while(ret != PGM_TERMINATE);
         }
+        CALL( task_mode(BACKGROUND_TASK) );
 
         pthread_barrier_wait(init_barrier);
 
