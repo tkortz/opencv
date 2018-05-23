@@ -134,6 +134,15 @@ public:
     bool display;
 };
 
+
+struct task_info
+{
+    int id;
+    /* real-time parameters in milliseconds */
+    int period;
+    int phase;
+};
+
 struct params_compute  // a.k.a. compute scales node
 {
     cv::cuda::GpuMat * gpu_img;
@@ -1201,7 +1210,6 @@ void App::thread_color_convert(node_t *_node, pthread_barrier_t* init_barrier,
     pthread_barrier_wait(init_barrier);
 
     CheckError(pgm_release_node(node));
-
 }
 
 void App::sched_fine_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog, Mat* frames)
@@ -1227,6 +1235,7 @@ void App::sched_fine_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
     edge_t arr_e6_7[NUM_FINE_GRAPHS][NUM_SCALE_LEVELS];
     edge_t arr_e7_8[NUM_FINE_GRAPHS];
 
+    thread** arr_t0 = (thread**) calloc(NUM_FINE_GRAPHS, sizeof(std::thread *));
     thread** arr_t1 = (thread**) calloc(NUM_FINE_GRAPHS, sizeof(std::thread *));
     thread** arr_t2 = (thread**) calloc(NUM_FINE_GRAPHS * NUM_SCALE_LEVELS, sizeof(std::thread *));
     thread** arr_t3 = (thread**) calloc(NUM_FINE_GRAPHS * NUM_SCALE_LEVELS, sizeof(std::thread *));
@@ -1368,14 +1377,19 @@ void App::sched_fine_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
     }
 
     /* graph construction finishes */
-    node_t color_convert_node = arr_color_convert_node[0];
-    pthread_barrier_t* fine_init_barrier = arr_fine_init_barrier;
 
-    thread_color_convert(&color_convert_node, fine_init_barrier, gpu_hog, cpu_hog, frames);
+    for (int g_idx = 0; g_idx < NUM_FINE_GRAPHS; g_idx++) {
+        thread** t0 = arr_t0 + g_idx;
+        *t0 = new thread(&App::thread_color_convert, this,
+                arr_color_convert_node + g_idx, arr_fine_init_barrier + g_idx,
+                gpu_hog, cpu_hog, frames);
+    }
 
     printf("Joining pthreads...\n");
+
     for (int g_idx = 0; g_idx < NUM_FINE_GRAPHS; g_idx++) {
         graph_t g = arr_g[g_idx];
+        thread* t0 = arr_t0[g_idx];
         thread* t1 = arr_t1[g_idx];
         thread** t2 = arr_t2 + g_idx * NUM_SCALE_LEVELS;
         thread** t3 = arr_t3 + g_idx * NUM_SCALE_LEVELS;
@@ -1384,7 +1398,9 @@ void App::sched_fine_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
         thread** t6 = arr_t6 + g_idx * NUM_SCALE_LEVELS;
         thread* t7 = arr_t7[g_idx];
         thread* t8 = arr_t8[g_idx];
+        t0->join();
         t1->join();
+        delete t0;
         delete t1;
         for (int i=0; i<NUM_SCALE_LEVELS; i++) {
             if (t2[i]->joinable()) t2[i]->join();
@@ -1416,6 +1432,7 @@ void App::sched_fine_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
 
     //CheckError(pgm_destroy_graph(g));
     CheckError(pgm_destroy());
+    fprintf(stdout, "cleaned up ...");
 }
 
 void App::sched_etoe_hog_preload(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog, Mat* frames)
