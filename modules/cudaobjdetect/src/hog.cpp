@@ -765,6 +765,7 @@ namespace
         CALL( init_litmus() );
         CALL( set_rt_task_param(gettid(), &param) );
         CALL( task_mode(LITMUS_RT_TASK) );
+        CALL( wait_for_ts_release() );
 
         if(!hog_errors)
         {

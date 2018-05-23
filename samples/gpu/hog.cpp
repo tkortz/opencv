@@ -1101,7 +1101,7 @@ void App::sched_fine_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
 
     edge_attr_t fast_mq_attr;
     memset(&fast_mq_attr, 0, sizeof(fast_mq_attr));
-    fast_mq_attr.mq_maxmsg = 20; /* root required for higher values */
+    fast_mq_attr.mq_maxmsg = 1; /* root required for higher values */
     fast_mq_attr.type = pgm_fast_mq_edge;
 
     fast_mq_attr.nr_produce = sizeof(struct params_compute);
