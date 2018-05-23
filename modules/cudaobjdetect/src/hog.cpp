@@ -62,8 +62,8 @@
 #include <litmus.h>
 /* LITMUS^RT */
 
-#define PERIOD            15
-#define RELATIVE_DEADLINE 15
+#define PERIOD            50
+#define RELATIVE_DEADLINE 50
 #define EXEC_COST         5
 
 #define CALL( exp ) do { \
