@@ -241,23 +241,23 @@ namespace
                              Stream& stream);
 
         /* vxHOGCellsNode node function */
-        void* thread_vxHOGCells(node_t* _node, pthread_barrier_t* init_barrier, int phase);
-        void* thread_unrolled_vxHOGCells(node_t* _node, pthread_barrier_t* init_barrier, int phase);
+        void* thread_vxHOGCells(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info);
+        void* thread_unrolled_vxHOGCells(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info);
         /* vxHOGFeatureNode node function */
-        void* thread_vxHOGFeatures(node_t* _node, pthread_barrier_t* init_barrier, int phase);
+        void* thread_vxHOGFeatures(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info);
         /* classify node function */
-        void* thread_classify(node_t* _node, pthread_barrier_t* init_barrier, int phase);
+        void* thread_classify(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info);
         /* collect location node function */
-        void* thread_collect_locations(node_t* _node, pthread_barrier_t* init_barrier, int phase);
+        void* thread_collect_locations(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info);
 
         /* fine-grained */
-        void* thread_fine_compute_scales(node_t* _node, pthread_barrier_t* init_barrier, int phase);
-        void* thread_fine_resize(node_t* _node, pthread_barrier_t* init_barrier, int phase);
-        void* thread_fine_compute_gradients(node_t* _node, pthread_barrier_t* init_barrier, int phase);
-        void* thread_fine_compute_histograms(node_t* _node, pthread_barrier_t* init_barrier, int phase);
-        void* thread_fine_normalize_histograms(node_t* _node, pthread_barrier_t* init_barrier, int phase);
-        void* thread_fine_classify(node_t* _node, pthread_barrier_t* init_barrier, int phase);
-        void* thread_fine_collect_locations(node_t* _node, pthread_barrier_t* init_barrier, int phase);
+        void* thread_fine_compute_scales(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info);
+        void* thread_fine_resize(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info);
+        void* thread_fine_compute_gradients(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info);
+        void* thread_fine_compute_histograms(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info);
+        void* thread_fine_normalize_histograms(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info);
+        void* thread_fine_classify(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info);
+        void* thread_fine_collect_locations(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info);
 
     private:
         Size win_size_;
@@ -289,6 +289,7 @@ namespace
 
     static int numPartsWithin(int size, int part_size, int stride);
     static Size numPartsWithin(Size size, Size part_size, Size stride);
+
 
     struct params_compute  // a.k.a. compute scales node
     {
@@ -444,7 +445,7 @@ namespace
         int64 end_time;
     };
 
-    void* HOG_Impl::thread_fine_compute_scales(node_t* _node, pthread_barrier_t* init_barrier, int phase)
+    void* HOG_Impl::thread_fine_compute_scales(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info)
     {
         node_t node = *_node;
 #ifdef LOG_DEBUG
@@ -493,9 +494,9 @@ namespace
         struct rt_task param;
         init_rt_task_param(&param);
         param.exec_cost = ms2ns(EXEC_COST);
-        param.period = ms2ns(PERIOD);
-        param.relative_deadline = ms2ns(RELATIVE_DEADLINE);
-        param.phase = ms2ns(phase); /* color conver node takes about 5 ms in isolation */
+        param.period = ms2ns(t_info.period);
+        param.relative_deadline = ms2ns(t_info.relative_deadline);
+        param.phase = ms2ns(t_info.phase); /* color conver node takes about 5 ms in isolation */
         param.budget_policy = NO_ENFORCEMENT;
         param.release_policy = TASK_EARLY; /* early releasing */
         param.cls = RT_CLASS_SOFT;
@@ -611,7 +612,7 @@ namespace
     }
 
 
-    void* HOG_Impl::thread_fine_resize(node_t* _node, pthread_barrier_t* init_barrier, int phase)
+    void* HOG_Impl::thread_fine_resize(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info)
     {
         node_t node = *_node;
 #ifdef LOG_DEBUG
@@ -643,9 +644,9 @@ namespace
         struct rt_task param;
         init_rt_task_param(&param);
         param.exec_cost = ms2ns(EXEC_COST);
-        param.period = ms2ns(PERIOD);
-        param.relative_deadline = ms2ns(RELATIVE_DEADLINE);
-        param.phase = ms2ns(phase);
+        param.period = ms2ns(t_info.period);
+        param.relative_deadline = ms2ns(t_info.relative_deadline);
+        param.phase = ms2ns(t_info.phase);
         param.budget_policy = NO_ENFORCEMENT;
         param.release_policy = TASK_EARLY; /* early releasing */
         param.cls = RT_CLASS_SOFT;
@@ -722,7 +723,7 @@ namespace
         pthread_exit(0);
     }
 
-    void* HOG_Impl::thread_fine_compute_gradients(node_t* _node, pthread_barrier_t* init_barrier, int phase)
+    void* HOG_Impl::thread_fine_compute_gradients(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info)
     {
         node_t node = *_node;
 #ifdef LOG_DEBUG
@@ -755,9 +756,9 @@ namespace
         struct rt_task param;
         init_rt_task_param(&param);
         param.exec_cost = ms2ns(EXEC_COST);
-        param.period = ms2ns(PERIOD);
-        param.relative_deadline = ms2ns(RELATIVE_DEADLINE);
-        param.phase = ms2ns(phase);
+        param.period = ms2ns(t_info.period);
+        param.relative_deadline = ms2ns(t_info.relative_deadline);
+        param.phase = ms2ns(t_info.phase);
         param.budget_policy = NO_ENFORCEMENT;
         param.release_policy = TASK_EARLY; /* early releasing */
         param.cls = RT_CLASS_SOFT;
@@ -852,7 +853,7 @@ namespace
         pthread_exit(0);
     }
 
-    void* HOG_Impl::thread_fine_compute_histograms(node_t* _node, pthread_barrier_t* init_barrier, int phase)
+    void* HOG_Impl::thread_fine_compute_histograms(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info)
     {
         node_t node = *_node;
 #ifdef LOG_DEBUG
@@ -888,9 +889,9 @@ namespace
         struct rt_task param;
         init_rt_task_param(&param);
         param.exec_cost = ms2ns(EXEC_COST);
-        param.period = ms2ns(PERIOD);
-        param.relative_deadline = ms2ns(RELATIVE_DEADLINE);
-        param.phase = ms2ns(phase);
+        param.period = ms2ns(t_info.period);
+        param.relative_deadline = ms2ns(t_info.relative_deadline);
+        param.phase = ms2ns(t_info.phase);
         param.budget_policy = NO_ENFORCEMENT;
         param.release_policy = TASK_EARLY; /* early releasing */
         param.cls = RT_CLASS_SOFT;
@@ -978,7 +979,7 @@ namespace
         pthread_exit(0);
     }
 
-    void* HOG_Impl::thread_fine_normalize_histograms(node_t* _node, pthread_barrier_t* init_barrier, int phase)
+    void* HOG_Impl::thread_fine_normalize_histograms(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info)
     {
         node_t node = *_node;
 #ifdef LOG_DEBUG
@@ -1009,9 +1010,9 @@ namespace
         struct rt_task param;
         init_rt_task_param(&param);
         param.exec_cost = ms2ns(EXEC_COST);
-        param.period = ms2ns(PERIOD);
-        param.relative_deadline = ms2ns(RELATIVE_DEADLINE);
-        param.phase = ms2ns(phase);
+        param.period = ms2ns(t_info.period);
+        param.relative_deadline = ms2ns(t_info.relative_deadline);
+        param.phase = ms2ns(t_info.phase);
         param.budget_policy = NO_ENFORCEMENT;
         param.release_policy = TASK_EARLY; /* early releasing */
         param.cls = RT_CLASS_SOFT;
@@ -1089,7 +1090,7 @@ namespace
         pthread_exit(0);
     }
 
-    void* HOG_Impl::thread_fine_classify(node_t* _node, pthread_barrier_t* init_barrier, int phase)
+    void* HOG_Impl::thread_fine_classify(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info)
     {
         node_t node = *_node;
 #ifdef LOG_DEBUG
@@ -1124,9 +1125,9 @@ namespace
         struct rt_task param;
         init_rt_task_param(&param);
         param.exec_cost = ms2ns(EXEC_COST);
-        param.period = ms2ns(PERIOD);
-        param.relative_deadline = ms2ns(RELATIVE_DEADLINE);
-        param.phase = ms2ns(phase); /* color conver node takes about 5 ms in isolation */
+        param.period = ms2ns(t_info.period);
+        param.relative_deadline = ms2ns(t_info.relative_deadline);
+        param.phase = ms2ns(t_info.phase); /* color conver node takes about 5 ms in isolation */
         param.budget_policy = NO_ENFORCEMENT;
         param.release_policy = TASK_EARLY; /* early releasing */
         param.cls = RT_CLASS_SOFT;
@@ -1237,7 +1238,7 @@ namespace
         size_t count = 0;
     };
 
-    void* HOG_Impl::thread_fine_collect_locations(node_t* _node, pthread_barrier_t* init_barrier, int phase)
+    void* HOG_Impl::thread_fine_collect_locations(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info)
     {
         node_t node = *_node;
 #ifdef LOG_DEBUG
@@ -1286,9 +1287,9 @@ namespace
         struct rt_task param;
         init_rt_task_param(&param);
         param.exec_cost = ms2ns(EXEC_COST);
-        param.period = ms2ns(PERIOD);
-        param.relative_deadline = ms2ns(RELATIVE_DEADLINE);
-        param.phase = ms2ns(phase); /* color conver node takes about 5 ms in isolation */
+        param.period = ms2ns(t_info.period);
+        param.relative_deadline = ms2ns(t_info.relative_deadline);
+        param.phase = ms2ns(t_info.phase); /* color conver node takes about 5 ms in isolation */
         param.budget_policy = NO_ENFORCEMENT;
         param.release_policy = TASK_EARLY; /* early releasing */
         param.cls = RT_CLASS_SOFT;
@@ -1477,7 +1478,7 @@ namespace
     }
 
 
-    void* HOG_Impl::thread_unrolled_vxHOGCells(node_t* _node, pthread_barrier_t* init_barrier, int phase)
+    void* HOG_Impl::thread_unrolled_vxHOGCells(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info)
     {
         node_t node = *_node;
 #ifdef LOG_DEBUG
@@ -1515,9 +1516,9 @@ namespace
         struct rt_task param;
         init_rt_task_param(&param);
         param.exec_cost = ms2ns(EXEC_COST);
-        param.period = ms2ns(PERIOD);
-        param.relative_deadline = ms2ns(RELATIVE_DEADLINE);
-        param.phase = ms2ns(phase); /* color conver node takes about 5 ms in isolation */
+        param.period = ms2ns(t_info.period);
+        param.relative_deadline = ms2ns(t_info.relative_deadline);
+        param.phase = ms2ns(t_info.phase); /* color conver node takes about 5 ms in isolation */
         param.budget_policy = NO_ENFORCEMENT;
         param.release_policy = TASK_EARLY; /* early releasing */
         param.cls = RT_CLASS_SOFT;
@@ -1652,7 +1653,7 @@ namespace
         pthread_exit(0);
     }
 
-    void* HOG_Impl::thread_vxHOGCells(node_t* _node,  pthread_barrier_t* init_barrier, int phase)
+    void* HOG_Impl::thread_vxHOGCells(node_t* _node,  pthread_barrier_t* init_barrier, struct task_info t_info)
     {
         node_t node = *_node;
 #ifdef LOG_DEBUG
@@ -1864,7 +1865,7 @@ namespace
         pthread_exit(0);
     }
 
-    void* HOG_Impl::thread_vxHOGFeatures(node_t* _node, pthread_barrier_t* init_barrier, int phase)
+    void* HOG_Impl::thread_vxHOGFeatures(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info)
     {
         node_t node = *_node;
 #ifdef LOG_DEBUG
@@ -1962,7 +1963,7 @@ namespace
         pthread_exit(0);
     }
 
-    void* HOG_Impl::thread_classify(node_t* _node, pthread_barrier_t* init_barrier, int phase)
+    void* HOG_Impl::thread_classify(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info)
     {
         node_t node = *_node;
 #ifdef LOG_DEBUG
@@ -2093,7 +2094,7 @@ namespace
         pthread_exit(0);
     }
 
-    void* HOG_Impl::thread_collect_locations(node_t* _node, pthread_barrier_t* init_barrier, int phase)
+    void* HOG_Impl::thread_collect_locations(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info)
     {
         node_t node = *_node;
 #ifdef LOG_DEBUG

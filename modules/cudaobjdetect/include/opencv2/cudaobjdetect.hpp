@@ -50,6 +50,15 @@
 #include "opencv2/core/cuda.hpp"
 #include "pgm.h"
 
+struct task_info
+{
+    int id;
+    /* real-time parameters in milliseconds */
+    int period;
+    int phase;
+    /* fair-lateness priority point */
+    int relative_deadline;
+};
 /**
   @addtogroup cuda
   @{
@@ -191,23 +200,23 @@ public:
 
     /* coarse-grained */
     /* vxHOGCellsNode node function */
-    virtual void* thread_vxHOGCells(node_t* _node, pthread_barrier_t* init_barrier, int phase) = 0;
-    virtual void* thread_unrolled_vxHOGCells(node_t* _node, pthread_barrier_t* init_barrier, int phase) = 0;
+    virtual void* thread_vxHOGCells(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0;
+    virtual void* thread_unrolled_vxHOGCells(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0;
     /* vxHOGFeatureNode node function */
-    virtual void* thread_vxHOGFeatures(node_t* _node, pthread_barrier_t* init_barrier, int phase) = 0;
+    virtual void* thread_vxHOGFeatures(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0;
     /* classify node function */
-    virtual void* thread_classify(node_t* _node, pthread_barrier_t* init_barrier, int phase) = 0;
+    virtual void* thread_classify(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0;
     /* collect location node function */
-    virtual void* thread_collect_locations(node_t* _node, pthread_barrier_t* init_barrier, int phase) = 0;
+    virtual void* thread_collect_locations(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0;
 
     /* fine-grained */
-    virtual void* thread_fine_compute_scales(node_t* _node, pthread_barrier_t* init_barrier, int phase) = 0;
-    virtual void* thread_fine_resize(node_t* _node, pthread_barrier_t* init_barrier, int phase) = 0;
-    virtual void* thread_fine_compute_gradients(node_t* _node, pthread_barrier_t* init_barrier, int phase) = 0;
-    virtual void* thread_fine_compute_histograms(node_t* _node, pthread_barrier_t* init_barrier, int phase) = 0;
-    virtual void* thread_fine_normalize_histograms(node_t* _node, pthread_barrier_t* init_barrier, int phase) = 0;
-    virtual void* thread_fine_classify(node_t* _node, pthread_barrier_t* init_barrier, int phase) = 0;
-    virtual void* thread_fine_collect_locations(node_t* _node, pthread_barrier_t* init_barrier, int phase) = 0;
+    virtual void* thread_fine_compute_scales(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0;
+    virtual void* thread_fine_resize(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0;
+    virtual void* thread_fine_compute_gradients(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0;
+    virtual void* thread_fine_compute_histograms(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0;
+    virtual void* thread_fine_normalize_histograms(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0;
+    virtual void* thread_fine_classify(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0;
+    virtual void* thread_fine_collect_locations(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0;
 
 };
 

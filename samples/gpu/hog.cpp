@@ -47,7 +47,7 @@ __thread char hog_sample_errstr[80];
 
 //#define LOG_DEBUG 1
 #define NUM_SCALE_LEVELS 13
-#define NUM_FINE_GRAPHS 1
+#define NUM_FINE_GRAPHS 2
 #define CheckError(e) \
 do { int __ret = (e); \
 if(__ret < 0) { \
@@ -135,14 +135,6 @@ public:
 };
 
 
-struct task_info
-{
-    int id;
-    /* real-time parameters in milliseconds */
-    int period;
-    int phase;
-};
-
 struct params_compute  // a.k.a. compute scales node
 {
     cv::cuda::GpuMat * gpu_img;
@@ -152,7 +144,6 @@ struct params_compute  // a.k.a. compute scales node
     int64 start_time;
     int64 end_time;
 };
-
 
 struct params_normalize
 {
@@ -311,7 +302,7 @@ public:
     void sched_coarse_grained_unrolled_for_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog, Mat* frames);
     void sched_fine_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog, Mat* frames);
     void thread_color_convert(node_t *_node, pthread_barrier_t* init_barrier,
-            cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog, Mat* frames);
+            cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog, Mat* frames, struct task_info t_info);
 
     void* thread_display(node_t* node, pthread_barrier_t* init_barrier);
 
@@ -707,10 +698,11 @@ void App::sched_coarse_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescri
 
     pthread_barrier_init(&init_barrier, 0, 6);
 
-    thread t1(&cv::cuda::HOG::thread_vxHOGCells, gpu_hog, &vxHOGCells_node, &init_barrier, 0);
-    thread t2(&cv::cuda::HOG::thread_vxHOGFeatures, gpu_hog, &vxHOGFeatures_node, &init_barrier, 0);
-    thread t3(&cv::cuda::HOG::thread_classify, gpu_hog, &classify_node, &init_barrier, 0);
-    thread t4(&cv::cuda::HOG::thread_collect_locations, gpu_hog, &collect_locations_node, &init_barrier, 0);
+    struct task_info t_info;
+    thread t1(&cv::cuda::HOG::thread_vxHOGCells, gpu_hog, &vxHOGCells_node, &init_barrier, t_info);
+    thread t2(&cv::cuda::HOG::thread_vxHOGFeatures, gpu_hog, &vxHOGFeatures_node, &init_barrier, t_info);
+    thread t3(&cv::cuda::HOG::thread_classify, gpu_hog, &classify_node, &init_barrier, t_info);
+    thread t4(&cv::cuda::HOG::thread_collect_locations, gpu_hog, &collect_locations_node, &init_barrier, t_info);
     thread t5(&App::thread_display, this, &display_node, &init_barrier);
 
     pgm_claim_node(color_convert_node);
@@ -916,13 +908,14 @@ void App::sched_coarse_grained_unrolled_for_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, 
     thread** t3 = (thread**) calloc(NUM_SCALE_LEVELS, sizeof(std::thread *));
     thread** t4 = (thread**) calloc(NUM_SCALE_LEVELS, sizeof(std::thread *));
 
-    thread t1(&cv::cuda::HOG::thread_fine_compute_scales, gpu_hog, &compute_scales_node, &init_barrier, 5);
+    struct task_info t_info;
+    thread t1(&cv::cuda::HOG::thread_fine_compute_scales, gpu_hog, &compute_scales_node, &init_barrier, t_info);
     for (int i=0; i<NUM_SCALE_LEVELS; i++) {
-        t2[i] = new thread(&cv::cuda::HOG::thread_unrolled_vxHOGCells, gpu_hog, &unrolled_vxHOGCells_node[i], &init_barrier, 9);
-        t3[i] = new thread(&cv::cuda::HOG::thread_fine_normalize_histograms, gpu_hog, &normalize_node[i], &init_barrier, 20);
-        t4[i] = new thread(&cv::cuda::HOG::thread_fine_classify, gpu_hog, &classify_node[i], &init_barrier, 22);
+        t2[i] = new thread(&cv::cuda::HOG::thread_unrolled_vxHOGCells, gpu_hog, &unrolled_vxHOGCells_node[i], &init_barrier, t_info);
+        t3[i] = new thread(&cv::cuda::HOG::thread_fine_normalize_histograms, gpu_hog, &normalize_node[i], &init_barrier, t_info);
+        t4[i] = new thread(&cv::cuda::HOG::thread_fine_classify, gpu_hog, &classify_node[i], &init_barrier, t_info);
     }
-    thread t5(&cv::cuda::HOG::thread_fine_collect_locations, gpu_hog, &collect_locations_node, &init_barrier, 24);
+    thread t5(&cv::cuda::HOG::thread_fine_collect_locations, gpu_hog, &collect_locations_node, &init_barrier, t_info);
     thread t6(&App::thread_display, this, &display_node, &init_barrier);
 
     pgm_claim_node(color_convert_node);
@@ -1075,7 +1068,7 @@ void App::sched_coarse_grained_unrolled_for_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, 
 }
 
 void App::thread_color_convert(node_t *_node, pthread_barrier_t* init_barrier,
-        cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog, Mat* frames)
+        cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog, Mat* frames, struct task_info t_info)
 {
     node_t node = *_node;
 #ifdef LOG_DEBUG
@@ -1106,8 +1099,9 @@ void App::thread_color_convert(node_t *_node, pthread_barrier_t* init_barrier,
     struct rt_task param;
     init_rt_task_param(&param);
     param.exec_cost = ms2ns(EXEC_COST);
-    param.period = ms2ns(PERIOD);
-    param.relative_deadline = ms2ns(RELATIVE_DEADLINE);
+    param.period = ms2ns(t_info.period);
+    param.relative_deadline = ms2ns(t_info.relative_deadline);
+    param.phase = ms2ns(t_info.phase);
     param.budget_policy = NO_ENFORCEMENT;
     param.cls = RT_CLASS_SOFT;
     param.priority = LITMUS_LOWEST_PRIORITY;
@@ -1268,6 +1262,7 @@ void App::sched_fine_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
         edge_t* e6_7 = arr_e6_7[g_idx];
         edge_t* e7_8 = arr_e7_8 + g_idx;
 
+        thread** t0 = arr_t0 + g_idx;
         thread** t1 = arr_t1 + g_idx;
         thread** t2 = arr_t2 + g_idx * NUM_SCALE_LEVELS;
         thread** t3 = arr_t3 + g_idx * NUM_SCALE_LEVELS;
@@ -1364,26 +1359,83 @@ void App::sched_fine_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
 
         pthread_barrier_init(fine_init_barrier, 0, 5 * NUM_SCALE_LEVELS + 4);
 
-        *t1 = new thread(&cv::cuda::HOG::thread_fine_compute_scales, gpu_hog, compute_scales_node, fine_init_barrier, 5);
+        int bound_color_convert                   = 10;
+        int bound_compute_scales                  = 10;
+        int bounds_resize      [NUM_SCALE_LEVELS] = {13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1};
+        int bounds_compute_grad[NUM_SCALE_LEVELS] = {13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1};
+        int bounds_compute_hist[NUM_SCALE_LEVELS] = {13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1};
+        int bounds_normalize   [NUM_SCALE_LEVELS] = {13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1};
+        int bounds_classify    [NUM_SCALE_LEVELS] = {13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1};
+        int bound_collect_locations               = 10;
+
+        int cost_color_convert                   = 10;
+        int cost_compute_scales                  = 10;
+        int costs_resize      [NUM_SCALE_LEVELS] = {13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1};
+        int costs_compute_grad[NUM_SCALE_LEVELS] = {13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1};
+        int costs_compute_hist[NUM_SCALE_LEVELS] = {13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1};
+        int costs_normalize   [NUM_SCALE_LEVELS] = {13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1};
+        int costs_classify    [NUM_SCALE_LEVELS] = {13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1};
+        int cost_collect_locations               = 10;
+
+        /* | first graph release      | second graph release     | first graph release again
+         *  <---------PERIOD--------->
+         *  <--------------- PERIOD * NUM_FINE_GRAPHS ---------->
+         */
+        int period = PERIOD * NUM_FINE_GRAPHS;
+        int m_cpus = 32;
+#define FAIR_LATENESS_PP(m, period, cost) (period - m * cost / (m - 1))
+        struct task_info t_info;
+        t_info.period = period;
+        t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, cost_color_convert);
+        t_info.phase = period * g_idx;
+        *t0 = new thread(&App::thread_color_convert, this,
+                color_convert_node, fine_init_barrier,
+                gpu_hog, cpu_hog, frames, t_info);
+
+        t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, cost_compute_scales);
+        t_info.phase = t_info.phase + bound_color_convert;
+        *t1 = new thread(&cv::cuda::HOG::thread_fine_compute_scales, gpu_hog,
+                compute_scales_node, fine_init_barrier, t_info);
+
         for (int i=0; i<NUM_SCALE_LEVELS; i++) {
-            t2[i] = new thread(&cv::cuda::HOG::thread_fine_resize, gpu_hog, resize_node + i, fine_init_barrier, 6);
-            t3[i] = new thread(&cv::cuda::HOG::thread_fine_compute_gradients, gpu_hog, compute_gradients_node + i, fine_init_barrier, 8);
-            t4[i] = new thread(&cv::cuda::HOG::thread_fine_compute_histograms, gpu_hog, compute_histograms_node + i, fine_init_barrier, 13);
-            t5[i] = new thread(&cv::cuda::HOG::thread_fine_normalize_histograms, gpu_hog, normalize_node + i, fine_init_barrier, 20);
-            t6[i] = new thread(&cv::cuda::HOG::thread_fine_classify, gpu_hog, classify_node + i, fine_init_barrier, 22);
+            t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_resize[i]);
+            t_info.phase = bound_color_convert + bound_compute_scales;
+            t2[i] = new thread(&cv::cuda::HOG::thread_fine_resize, gpu_hog,
+                    resize_node + i, fine_init_barrier, t_info);
+
+            t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_compute_grad[i]);
+            t_info.phase = t_info.phase + bounds_resize[i];
+            t3[i] = new thread(&cv::cuda::HOG::thread_fine_compute_gradients,
+                    gpu_hog, compute_gradients_node + i, fine_init_barrier, t_info);
+
+            t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_compute_hist[i]);
+            t_info.phase = t_info.phase + bounds_compute_grad[i];
+            t4[i] = new thread(&cv::cuda::HOG::thread_fine_compute_histograms,
+                    gpu_hog, compute_histograms_node + i, fine_init_barrier,
+                    t_info);
+
+            t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_normalize[i]);
+            t_info.phase = t_info.phase + bounds_compute_hist[i];
+            t5[i] = new thread(&cv::cuda::HOG::thread_fine_normalize_histograms,
+                    gpu_hog, normalize_node + i, fine_init_barrier, t_info);
+
+            t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_classify[i]);
+            t_info.phase = t_info.phase + bounds_normalize[i];
+            t6[i] = new thread(&cv::cuda::HOG::thread_fine_classify, gpu_hog,
+                    classify_node + i, fine_init_barrier, t_info);
         }
-        *t7 = new thread(&cv::cuda::HOG::thread_fine_collect_locations, gpu_hog, collect_locations_node, fine_init_barrier, 24);
-        *t8 = new thread(&App::thread_display, this, display_node, fine_init_barrier);
+
+        t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, cost_collect_locations);
+        t_info.phase = t_info.phase + *std::max_element(bounds_classify, bounds_classify+NUM_SCALE_LEVELS);
+        *t7 = new thread(&cv::cuda::HOG::thread_fine_collect_locations, gpu_hog,
+                collect_locations_node, fine_init_barrier, t_info);
+        //t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, cost_display);
+        //t_info.phase;
+        *t8 = new thread(&App::thread_display, this, display_node,
+                fine_init_barrier);
     }
 
     /* graph construction finishes */
-
-    for (int g_idx = 0; g_idx < NUM_FINE_GRAPHS; g_idx++) {
-        thread** t0 = arr_t0 + g_idx;
-        *t0 = new thread(&App::thread_color_convert, this,
-                arr_color_convert_node + g_idx, arr_fine_init_barrier + g_idx,
-                gpu_hog, cpu_hog, frames);
-    }
 
     printf("Joining pthreads...\n");
 
