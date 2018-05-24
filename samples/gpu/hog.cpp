@@ -48,6 +48,7 @@ __thread char hog_sample_errstr[80];
 //#define LOG_DEBUG 1
 #define NUM_SCALE_LEVELS 13
 #define NUM_FINE_GRAPHS 2
+#define FAIR_LATENESS_PP(m, period, cost) (period - m * cost / (m - 1))
 #define CheckError(e) \
 do { int __ret = (e); \
 if(__ret < 0) { \
@@ -908,13 +909,43 @@ void App::sched_coarse_grained_unrolled_for_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, 
     thread** t3 = (thread**) calloc(NUM_SCALE_LEVELS, sizeof(std::thread *));
     thread** t4 = (thread**) calloc(NUM_SCALE_LEVELS, sizeof(std::thread *));
 
+    int bound_color_convert                   = 10;
+    int bound_compute_scales                  = 10;
+    int bounds_vxHOGCells  [NUM_SCALE_LEVELS] = {13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1};
+    int bounds_normalize   [NUM_SCALE_LEVELS] = {13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1};
+    int bounds_classify    [NUM_SCALE_LEVELS] = {13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1};
+    int bound_collect_locations               = 10;
+
+    int cost_color_convert                   = 10;
+    int cost_compute_scales                  = 10;
+    int costs_vxHOGCells  [NUM_SCALE_LEVELS] = {13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1};
+    int costs_normalize   [NUM_SCALE_LEVELS] = {13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1};
+    int costs_classify    [NUM_SCALE_LEVELS] = {13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1};
+    int cost_collect_locations               = 10;
+
     struct task_info t_info;
+    int period = PERIOD * NUM_FINE_GRAPHS;
+    int m_cpus = 32;
+    t_info.id = 0;
+    t_info.period = PERIOD;
+    t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, cost_compute_scales);
+    t_info.phase = bound_color_convert;
     thread t1(&cv::cuda::HOG::thread_fine_compute_scales, gpu_hog, &compute_scales_node, &init_barrier, t_info);
     for (int i=0; i<NUM_SCALE_LEVELS; i++) {
+        t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_vxHOGCells[i]);
+        t_info.phase = bound_color_convert + bound_compute_scales;
         t2[i] = new thread(&cv::cuda::HOG::thread_unrolled_vxHOGCells, gpu_hog, &unrolled_vxHOGCells_node[i], &init_barrier, t_info);
+
+        t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_normalize[i]);
+        t_info.phase = t_info.phase + bounds_vxHOGCells[i];
         t3[i] = new thread(&cv::cuda::HOG::thread_fine_normalize_histograms, gpu_hog, &normalize_node[i], &init_barrier, t_info);
+
+        t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_classify[i]);
+        t_info.phase = t_info.phase + bounds_normalize[i];
         t4[i] = new thread(&cv::cuda::HOG::thread_fine_classify, gpu_hog, &classify_node[i], &init_barrier, t_info);
     }
+    t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, cost_collect_locations);
+    t_info.phase = t_info.phase + *std::max_element(bounds_classify, bounds_classify + NUM_SCALE_LEVELS);
     thread t5(&cv::cuda::HOG::thread_fine_collect_locations, gpu_hog, &collect_locations_node, &init_barrier, t_info);
     thread t6(&App::thread_display, this, &display_node, &init_barrier);
 
@@ -940,10 +971,12 @@ void App::sched_coarse_grained_unrolled_for_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, 
     pthread_barrier_wait(&init_barrier);
 
     struct rt_task param;
+    t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, cost_color_convert);
+    t_info.phase = 0;
     init_rt_task_param(&param);
     param.exec_cost = ms2ns(EXEC_COST);
-    param.period = ms2ns(PERIOD);
-    param.relative_deadline = ms2ns(RELATIVE_DEADLINE);
+    param.period = ms2ns(t_info.period);
+    param.relative_deadline = ms2ns(t_info.relative_deadline);
     param.budget_policy = NO_ENFORCEMENT;
     param.cls = RT_CLASS_SOFT;
     param.priority = LITMUS_LOWEST_PRIORITY;
@@ -1115,7 +1148,7 @@ void App::thread_color_convert(node_t *_node, pthread_barrier_t* init_barrier,
         for (int j=0; j<100; j++) {
             if (count_frame >= args.count)
                 break;
-            frame = frames[j];
+            frame = frames[(j * NUM_FINE_GRAPHS + t_info.id) % 100];
             //fprintf(stdout, "0 fires: image_to_show: %p, found: %p\n", img, found);
             workBegin();
 
@@ -1383,11 +1416,11 @@ void App::sched_fine_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
          */
         int period = PERIOD * NUM_FINE_GRAPHS;
         int m_cpus = 32;
-#define FAIR_LATENESS_PP(m, period, cost) (period - m * cost / (m - 1))
         struct task_info t_info;
+        t_info.id = g_idx;
         t_info.period = period;
         t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, cost_color_convert);
-        t_info.phase = period * g_idx;
+        t_info.phase = PERIOD * g_idx;
         *t0 = new thread(&App::thread_color_convert, this,
                 color_convert_node, fine_init_barrier,
                 gpu_hog, cpu_hog, frames, t_info);
@@ -1399,7 +1432,7 @@ void App::sched_fine_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
 
         for (int i=0; i<NUM_SCALE_LEVELS; i++) {
             t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_resize[i]);
-            t_info.phase = bound_color_convert + bound_compute_scales;
+            t_info.phase = PERIOD * g_idx + bound_color_convert + bound_compute_scales;
             t2[i] = new thread(&cv::cuda::HOG::thread_fine_resize, gpu_hog,
                     resize_node + i, fine_init_barrier, t_info);
 
