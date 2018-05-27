@@ -58,7 +58,18 @@ struct task_info
     int phase;
     /* fair-lateness priority point */
     int relative_deadline;
+    int cluster;
 };
+
+/* Next, we define period and execution cost to be constant.
+ * These are only constants for convenience in this example, they can be
+ * determined at run time, e.g., from command line parameters.
+ *
+ * These are in milliseconds.
+ */
+#define PERIOD            40
+#define RELATIVE_DEADLINE 40
+#define EXEC_COST         5
 /**
   @addtogroup cuda
   @{

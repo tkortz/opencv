@@ -62,10 +62,6 @@
 #include <litmus.h>
 /* LITMUS^RT */
 
-#define PERIOD            50
-#define RELATIVE_DEADLINE 50
-#define EXEC_COST         5
-
 #define CALL( exp ) do { \
     int ret; \
     ret = exp; \
@@ -491,16 +487,20 @@ namespace
 
         pthread_barrier_wait(init_barrier);
 
+        if (t_info.cluster != -1)
+            CALL(be_migrate_to_domain(t_info.cluster));
         struct rt_task param;
         init_rt_task_param(&param);
         param.exec_cost = ms2ns(EXEC_COST);
         param.period = ms2ns(t_info.period);
         param.relative_deadline = ms2ns(t_info.relative_deadline);
-        param.phase = ms2ns(t_info.phase); /* color conver node takes about 5 ms in isolation */
+        param.phase = ms2ns(t_info.phase);
         param.budget_policy = NO_ENFORCEMENT;
         param.release_policy = TASK_EARLY; /* early releasing */
         param.cls = RT_CLASS_SOFT;
         param.priority = LITMUS_LOWEST_PRIORITY;
+        if (t_info.cluster != -1)
+            param.cpu = domain_to_first_cpu(t_info.cluster);
         CALL( init_litmus() );
         CALL( set_rt_task_param(gettid(), &param) );
         CALL( task_mode(LITMUS_RT_TASK) );
@@ -599,7 +599,6 @@ namespace
 
             } while(ret != PGM_TERMINATE);
         }
-        CALL( task_mode(BACKGROUND_TASK) );
 
         pthread_barrier_wait(init_barrier);
 
@@ -608,6 +607,7 @@ namespace
         free(in_edge);
         free(out_edges);
         free(out_bufs);
+        CALL( task_mode(BACKGROUND_TASK) );
         pthread_exit(0);
     }
 
@@ -641,6 +641,8 @@ namespace
 
         pthread_barrier_wait(init_barrier);
 
+        if (t_info.cluster != -1)
+            CALL(be_migrate_to_domain(t_info.cluster));
         struct rt_task param;
         init_rt_task_param(&param);
         param.exec_cost = ms2ns(EXEC_COST);
@@ -651,6 +653,8 @@ namespace
         param.release_policy = TASK_EARLY; /* early releasing */
         param.cls = RT_CLASS_SOFT;
         param.priority = LITMUS_LOWEST_PRIORITY;
+        if (t_info.cluster != -1)
+            param.cpu = domain_to_first_cpu(t_info.cluster);
         CALL( init_litmus() );
         CALL( set_rt_task_param(gettid(), &param) );
         CALL( task_mode(LITMUS_RT_TASK) );
@@ -712,7 +716,6 @@ namespace
             } while(ret != PGM_TERMINATE);
         }
 
-        CALL( task_mode(BACKGROUND_TASK) );
         pthread_barrier_wait(init_barrier);
 
         CheckError(pgm_release_node(node));
@@ -720,6 +723,7 @@ namespace
         free(in_edge);
         free(out_edge);
 
+        CALL( task_mode(BACKGROUND_TASK) );
         pthread_exit(0);
     }
 
@@ -753,6 +757,8 @@ namespace
 
         pthread_barrier_wait(init_barrier);
 
+        if (t_info.cluster != -1)
+            CALL(be_migrate_to_domain(t_info.cluster));
         struct rt_task param;
         init_rt_task_param(&param);
         param.exec_cost = ms2ns(EXEC_COST);
@@ -763,6 +769,8 @@ namespace
         param.release_policy = TASK_EARLY; /* early releasing */
         param.cls = RT_CLASS_SOFT;
         param.priority = LITMUS_LOWEST_PRIORITY;
+        if (t_info.cluster != -1)
+            param.cpu = domain_to_first_cpu(t_info.cluster);
         CALL( init_litmus() );
         CALL( set_rt_task_param(gettid(), &param) );
         CALL( task_mode(LITMUS_RT_TASK) );
@@ -842,7 +850,6 @@ namespace
             } while(ret != PGM_TERMINATE);
         }
 
-        CALL( task_mode(BACKGROUND_TASK) );
         pthread_barrier_wait(init_barrier);
 
         CheckError(pgm_release_node(node));
@@ -850,6 +857,7 @@ namespace
         free(in_edge);
         free(out_edge);
 
+        CALL( task_mode(BACKGROUND_TASK) );
         pthread_exit(0);
     }
 
@@ -886,6 +894,8 @@ namespace
 
         pthread_barrier_wait(init_barrier);
 
+        if (t_info.cluster != -1)
+            CALL(be_migrate_to_domain(t_info.cluster));
         struct rt_task param;
         init_rt_task_param(&param);
         param.exec_cost = ms2ns(EXEC_COST);
@@ -896,6 +906,8 @@ namespace
         param.release_policy = TASK_EARLY; /* early releasing */
         param.cls = RT_CLASS_SOFT;
         param.priority = LITMUS_LOWEST_PRIORITY;
+        if (t_info.cluster != -1)
+            param.cpu = domain_to_first_cpu(t_info.cluster);
         CALL( init_litmus() );
         CALL( set_rt_task_param(gettid(), &param) );
         CALL( task_mode(LITMUS_RT_TASK) );
@@ -968,7 +980,6 @@ namespace
             } while(ret != PGM_TERMINATE);
         }
 
-        CALL( task_mode(BACKGROUND_TASK) );
         pthread_barrier_wait(init_barrier);
 
         CheckError(pgm_release_node(node));
@@ -976,6 +987,7 @@ namespace
         free(in_edge);
         free(out_edge);
 
+        CALL( task_mode(BACKGROUND_TASK) );
         pthread_exit(0);
     }
 
@@ -1007,6 +1019,8 @@ namespace
 
         pthread_barrier_wait(init_barrier);
 
+        if (t_info.cluster != -1)
+            CALL(be_migrate_to_domain(t_info.cluster));
         struct rt_task param;
         init_rt_task_param(&param);
         param.exec_cost = ms2ns(EXEC_COST);
@@ -1017,6 +1031,8 @@ namespace
         param.release_policy = TASK_EARLY; /* early releasing */
         param.cls = RT_CLASS_SOFT;
         param.priority = LITMUS_LOWEST_PRIORITY;
+        if (t_info.cluster != -1)
+            param.cpu = domain_to_first_cpu(t_info.cluster);
         CALL( init_litmus() );
         CALL( set_rt_task_param(gettid(), &param) );
         CALL( task_mode(LITMUS_RT_TASK) );
@@ -1079,7 +1095,6 @@ namespace
 
             } while(ret != PGM_TERMINATE);
         }
-        CALL( task_mode(BACKGROUND_TASK) );
 
         pthread_barrier_wait(init_barrier);
 
@@ -1087,6 +1102,7 @@ namespace
 
         free(in_edge);
         free(out_edge);
+        CALL( task_mode(BACKGROUND_TASK) );
         pthread_exit(0);
     }
 
@@ -1122,16 +1138,20 @@ namespace
 
         pthread_barrier_wait(init_barrier);
 
+        if (t_info.cluster != -1)
+            CALL(be_migrate_to_domain(t_info.cluster));
         struct rt_task param;
         init_rt_task_param(&param);
         param.exec_cost = ms2ns(EXEC_COST);
         param.period = ms2ns(t_info.period);
         param.relative_deadline = ms2ns(t_info.relative_deadline);
-        param.phase = ms2ns(t_info.phase); /* color conver node takes about 5 ms in isolation */
+        param.phase = ms2ns(t_info.phase);
         param.budget_policy = NO_ENFORCEMENT;
         param.release_policy = TASK_EARLY; /* early releasing */
         param.cls = RT_CLASS_SOFT;
         param.priority = LITMUS_LOWEST_PRIORITY;
+        if (t_info.cluster != -1)
+            param.cpu = domain_to_first_cpu(t_info.cluster);
         CALL( init_litmus() );
         CALL( set_rt_task_param(gettid(), &param) );
         CALL( task_mode(LITMUS_RT_TASK) );
@@ -1220,7 +1240,6 @@ namespace
             } while(ret != PGM_TERMINATE);
         }
 
-        CALL( task_mode(BACKGROUND_TASK) );
 
         pthread_barrier_wait(init_barrier);
 
@@ -1228,6 +1247,7 @@ namespace
 
         free(in_edge);
         free(out_edge);
+        CALL( task_mode(BACKGROUND_TASK) );
 
         pthread_exit(0);
     }
@@ -1240,6 +1260,7 @@ namespace
 
     void* HOG_Impl::thread_fine_collect_locations(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info)
     {
+        fprintf(stdout, "node tid: collect_locations(sink): %d\n", gettid());
         node_t node = *_node;
 #ifdef LOG_DEBUG
         char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
@@ -1284,16 +1305,20 @@ namespace
         */
         pthread_barrier_wait(init_barrier);
 
+        if (t_info.cluster != -1)
+            CALL(be_migrate_to_domain(t_info.cluster));
         struct rt_task param;
         init_rt_task_param(&param);
         param.exec_cost = ms2ns(EXEC_COST);
         param.period = ms2ns(t_info.period);
         param.relative_deadline = ms2ns(t_info.relative_deadline);
-        param.phase = ms2ns(t_info.phase); /* color conver node takes about 5 ms in isolation */
+        param.phase = ms2ns(t_info.phase);
         param.budget_policy = NO_ENFORCEMENT;
         param.release_policy = TASK_EARLY; /* early releasing */
         param.cls = RT_CLASS_SOFT;
         param.priority = LITMUS_LOWEST_PRIORITY;
+        if (t_info.cluster != -1)
+            param.cpu = domain_to_first_cpu(t_info.cluster);
         CALL( init_litmus() );
         CALL( set_rt_task_param(gettid(), &param) );
         CALL( task_mode(LITMUS_RT_TASK) );
@@ -1465,7 +1490,6 @@ namespace
             } while(ret != PGM_TERMINATE);
         }
 
-        CALL( task_mode(BACKGROUND_TASK) );
 
         pthread_barrier_wait(init_barrier);
 
@@ -1474,6 +1498,7 @@ namespace
         free(in_edges);
         free(out_edge);
         free(in_bufs);
+        CALL( task_mode(BACKGROUND_TASK) );
         pthread_exit(0);
     }
 
@@ -1513,16 +1538,20 @@ namespace
 
         pthread_barrier_wait(init_barrier);
 
+        if (t_info.cluster != -1)
+            CALL(be_migrate_to_domain(t_info.cluster));
         struct rt_task param;
         init_rt_task_param(&param);
         param.exec_cost = ms2ns(EXEC_COST);
         param.period = ms2ns(t_info.period);
         param.relative_deadline = ms2ns(t_info.relative_deadline);
-        param.phase = ms2ns(t_info.phase); /* color conver node takes about 5 ms in isolation */
+        param.phase = ms2ns(t_info.phase);
         param.budget_policy = NO_ENFORCEMENT;
         param.release_policy = TASK_EARLY; /* early releasing */
         param.cls = RT_CLASS_SOFT;
         param.priority = LITMUS_LOWEST_PRIORITY;
+        if (t_info.cluster != -1)
+            param.cpu = domain_to_first_cpu(t_info.cluster);
         CALL( init_litmus() );
         CALL( set_rt_task_param(gettid(), &param) );
         CALL( task_mode(LITMUS_RT_TASK) );
@@ -1641,7 +1670,6 @@ namespace
 
             } while(ret != PGM_TERMINATE);
         }
-        CALL( task_mode(BACKGROUND_TASK) );
 
         pthread_barrier_wait(init_barrier);
 
@@ -1649,6 +1677,7 @@ namespace
 
         free(in_edge);
         free(out_edge);
+        CALL( task_mode(BACKGROUND_TASK) );
 
         pthread_exit(0);
     }
