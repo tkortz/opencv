@@ -69,14 +69,6 @@ if(__ret < 0) { \
     fprintf(stderr, "%s ok.\n", #exp); \
 } while (0)
 
-enum scheduling_option
-{
-    end_to_end = 0,
-    coarse_grained,
-    fine_grained,
-    coarse_unrolled,
-    scheduling_option_end,
-};
 
 bool help_showed = false;
 
@@ -870,8 +862,7 @@ void App::sched_coarse_grained_unrolled_for_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, 
     }
     CheckError(pgm_init_node(&collect_locations_node, g, "collect_locations"));
 
-    if (args.display)
-        CheckError(pgm_init_node(&display_node, g, "display"));
+    CheckError(pgm_init_node(&display_node, g, "display"));
 
     edge_attr_t fast_mq_attr;
     memset(&fast_mq_attr, 0, sizeof(fast_mq_attr));
@@ -910,17 +901,12 @@ void App::sched_coarse_grained_unrolled_for_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, 
         CheckError(pgm_init_edge(&e4_5[i], classify_node[i], collect_locations_node, buf, &fast_mq_attr));
     }
 
-    if (args.display) {
-        fast_mq_attr.nr_produce = sizeof(struct params_display);
-        fast_mq_attr.nr_consume = sizeof(struct params_display);
-        fast_mq_attr.nr_threshold = sizeof(struct params_display);
-        CheckError(pgm_init_edge(&e5_6, collect_locations_node, display_node, "e5_6", &fast_mq_attr));
-    }
+    fast_mq_attr.nr_produce = sizeof(struct params_display);
+    fast_mq_attr.nr_consume = sizeof(struct params_display);
+    fast_mq_attr.nr_threshold = sizeof(struct params_display);
+    CheckError(pgm_init_edge(&e5_6, collect_locations_node, display_node, "e5_6", &fast_mq_attr));
 
-    if (args.display)
-        pthread_barrier_init(&init_barrier, 0, 3 * NUM_SCALE_LEVELS + 4);
-    else
-        pthread_barrier_init(&init_barrier, 0, 3 * NUM_SCALE_LEVELS + 3);
+    pthread_barrier_init(&init_barrier, 0, 3 * NUM_SCALE_LEVELS + 4);
 
     thread** t2 = (thread**) calloc(NUM_SCALE_LEVELS, sizeof(std::thread *));
     thread** t3 = (thread**) calloc(NUM_SCALE_LEVELS, sizeof(std::thread *));
@@ -943,6 +929,7 @@ void App::sched_coarse_grained_unrolled_for_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, 
     struct task_info t_info;
     int period = PERIOD * args.num_fine_graphs;
     int m_cpus = 32;
+    t_info.sched = coarse_unrolled;
     t_info.id = 0;
     t_info.period = PERIOD;
     t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, cost_compute_scales);
@@ -966,8 +953,7 @@ void App::sched_coarse_grained_unrolled_for_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, 
     t_info.phase = t_info.phase + *std::max_element(bounds_classify, bounds_classify + NUM_SCALE_LEVELS);
     thread t5(&cv::cuda::HOG::thread_fine_collect_locations, gpu_hog, &collect_locations_node, &init_barrier, t_info);
     thread t6;
-    if (args.display)
-        t6 = thread(&App::thread_display, this, &display_node, &init_barrier);
+    t6 = thread(&App::thread_display, this, &display_node, &init_barrier);
 
     pgm_claim_node(color_convert_node);
 
@@ -1119,8 +1105,7 @@ void App::sched_coarse_grained_unrolled_for_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, 
     delete t3;
     delete t4;
     t5.join();
-    if (args.display)
-        t6.join();
+    t6.join();
 
     CheckError(pgm_destroy_graph(g));
     CheckError(pgm_destroy());
@@ -1178,7 +1163,7 @@ void App::thread_color_convert(node_t *_node, pthread_barrier_t* init_barrier,
     int count_frame = 0;
     while (count_frame < args.count / args.num_fine_graphs && running) {
         for (int j=0; j<100; j++) {
-            fprintf(stdout, "frame %d\n", count_frame);
+            //fprintf(stdout, "frame %d\n", count_frame);
             if (count_frame >= args.count)
                 break;
             frame = frames[(j * args.num_fine_graphs + t_info.id) % 100];
@@ -1355,14 +1340,13 @@ void App::sched_fine_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
             CheckError(pgm_init_node(classify_node + i, g, "classify"));
         }
         CheckError(pgm_init_node(collect_locations_node, g, "collect_locations"));
-        if (args.display)
-            CheckError(pgm_init_node(display_node, g, "display"));
+        CheckError(pgm_init_node(display_node, g, "display"));
 
         edge_attr_t fast_mq_attr;
         memset(&fast_mq_attr, 0, sizeof(fast_mq_attr));
-        fast_mq_attr.mq_maxmsg = 20; /* root required for values larger than 10 */
-        fast_mq_attr.type = pgm_fast_mq_edge;
-        //fast_mq_attr.type = pgm_fast_fifo_edge;
+        //fast_mq_attr.mq_maxmsg = 20; /* root required for values larger than 10 */
+        //fast_mq_attr.type = pgm_fast_mq_edge;
+        fast_mq_attr.type = pgm_fast_fifo_edge;
 
         fast_mq_attr.nr_produce = sizeof(struct params_compute);
         fast_mq_attr.nr_consume = sizeof(struct params_compute);
@@ -1422,17 +1406,12 @@ void App::sched_fine_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
                         &fast_mq_attr));
         }
 
-        if (args.display) {
-            fast_mq_attr.nr_produce = sizeof(struct params_display);
-            fast_mq_attr.nr_consume = sizeof(struct params_display);
-            fast_mq_attr.nr_threshold = sizeof(struct params_display);
-            CheckError(pgm_init_edge(e7_8, *collect_locations_node, *display_node, "e7_8", &fast_mq_attr));
-        }
+        fast_mq_attr.nr_produce = sizeof(struct params_display);
+        fast_mq_attr.nr_consume = sizeof(struct params_display);
+        fast_mq_attr.nr_threshold = sizeof(struct params_display);
+        CheckError(pgm_init_edge(e7_8, *collect_locations_node, *display_node, "e7_8", &fast_mq_attr));
 
-        if (args.display)
-            pthread_barrier_init(fine_init_barrier, 0, 5 * NUM_SCALE_LEVELS + 4);
-        else
-            pthread_barrier_init(fine_init_barrier, 0, 5 * NUM_SCALE_LEVELS + 3);
+        pthread_barrier_init(fine_init_barrier, 0, 5 * NUM_SCALE_LEVELS + 4);
 
         int bound_color_convert                   = 10;
         int bound_compute_scales                  = 10;
@@ -1459,12 +1438,13 @@ void App::sched_fine_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
         int period = PERIOD * args.num_fine_graphs;
         int m_cpus = 32;
         struct task_info t_info;
+        t_info.sched = fine_grained;
         t_info.id = g_idx;
         t_info.period = period;
         t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, cost_color_convert);
         t_info.phase = PERIOD * g_idx;
         if (args.cluster != -1)
-            t_info.cluster = args.cluster * 8 + g_idx;
+            t_info.cluster = args.cluster;// + g_idx;
         else
             t_info.cluster = args.cluster;
         *t0 = new thread(&App::thread_color_convert, this,
@@ -1510,9 +1490,8 @@ void App::sched_fine_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
                 collect_locations_node, fine_init_barrier, t_info);
         //t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, cost_display);
         //t_info.phase;
-        if (args.display)
-            *t8 = new thread(&App::thread_display, this, display_node,
-                    fine_init_barrier);
+        *t8 = new thread(&App::thread_display, this, display_node,
+                fine_init_barrier);
     }
 
     /* graph construction finishes */
@@ -1548,11 +1527,9 @@ void App::sched_fine_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
             delete t6[i];
         }
         t7->join();
-        if (args.display)
-            t8->join();
+        t8->join();
         delete t7;
-        if (args.display)
-            delete t8;
+        delete t8;
         CheckError(pgm_destroy_graph(g));
     }
     free(arr_t1);
@@ -1562,8 +1539,7 @@ void App::sched_fine_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
     free(arr_t5);
     free(arr_t6);
     free(arr_t7);
-    if (args.display)
-        free(arr_t8);
+    free(arr_t8);
 
     //CheckError(pgm_destroy_graph(g));
     CheckError(pgm_destroy());

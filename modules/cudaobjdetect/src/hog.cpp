@@ -67,9 +67,9 @@
     ret = exp; \
     if (ret != 0) \
     fprintf(stderr, "%s failed: %m\n", #exp);\
-    else \
-    fprintf(stderr, "%s ok.\n", #exp); \
 } while (0)
+    /*else \
+    fprintf(stderr, "%s ok.\n", #exp); \ */
 
 using namespace cv;
 using namespace cv::cuda;
@@ -677,6 +677,11 @@ namespace
                     /* ===========================
                      * resize image
                      */
+                    unsigned long long curr_deadline;
+                    if (t_info.sched == fine_grained) {
+                        CALL(get_current_deadline(&curr_deadline));
+                        CALL(set_current_deadline(curr_deadline + param.period));
+                    }
                     if (smaller_img->size() != gpu_img->size())
                     {
                         switch (gpu_img->type())
@@ -703,6 +708,9 @@ namespace
                     out_buf->frame_index = in_buf->frame_index;
                     out_buf->start_time = in_buf->start_time;
                     CheckError(pgm_complete(node));
+                    if (t_info.sched == fine_grained) {
+                        CALL(set_current_deadline(curr_deadline));
+                    }
                     sleep_next_period(); /* this calls the system call sys_complete_job. With early releasing, this shouldn't block.*/
                 }
                 else
@@ -819,6 +827,11 @@ namespace
                                     StreamAccessor::getStream(stream));
                             break;
                     }
+                    unsigned long long curr_deadline;
+                    if (t_info.sched == fine_grained) {
+                        CALL(get_current_deadline(&curr_deadline));
+                        CALL(set_current_deadline(curr_deadline + param.period));
+                    }
                     cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
                     /*
                      * end of compute gradients
@@ -837,6 +850,9 @@ namespace
                     out_buf->frame_index = in_buf->frame_index;
                     out_buf->start_time = in_buf->start_time;
                     CheckError(pgm_complete(node));
+                    if (t_info.sched == fine_grained) {
+                        CALL(set_current_deadline(curr_deadline));
+                    }
                     sleep_next_period(); /* this calls the system call sys_complete_job. With early releasing, this shouldn't block.*/
                 }
                 else
@@ -945,6 +961,11 @@ namespace
                             cell_size_.width, cell_size_.height,
                             cells_per_block_.width, cells_per_block_.height,
                             StreamAccessor::getStream(stream));
+                    unsigned long long curr_deadline;
+                    if (t_info.sched == fine_grained) {
+                        CALL(get_current_deadline(&curr_deadline));
+                        CALL(set_current_deadline(curr_deadline + param.period));
+                    }
                     cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
 
                     grad->release();
@@ -967,6 +988,9 @@ namespace
                     out_buf->block_hists= block_hists;
 
                     CheckError(pgm_complete(node));
+                    if (t_info.sched == fine_grained) {
+                        CALL(set_current_deadline(curr_deadline));
+                    }
                     sleep_next_period(); /* this calls the system call sys_complete_job. With early releasing, this shouldn't block.*/
                 }
                 else
@@ -1065,6 +1089,11 @@ namespace
                             cells_per_block_.width, cells_per_block_.height,
                             StreamAccessor::getStream(stream));
 
+                    unsigned long long curr_deadline;
+                    if (t_info.sched == fine_grained) {
+                        CALL(get_current_deadline(&curr_deadline));
+                        CALL(set_current_deadline(curr_deadline + param.period));
+                    }
                     cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
                     /*
                      * end of nomalize histograms
@@ -1083,6 +1112,9 @@ namespace
                     out_buf->start_time = in_buf->start_time;
 
                     CheckError(pgm_complete(node));
+                    if (t_info.sched == fine_grained) {
+                        CALL(set_current_deadline(curr_deadline));
+                    }
                     sleep_next_period(); /* this calls the system call sys_complete_job. With early releasing, this shouldn't block.*/
                 }
                 else
@@ -1178,10 +1210,17 @@ namespace
                      */
                     wins_per_img = numPartsWithin(smaller_img->size(), win_size_, win_stride_);
 
+                    unsigned long long curr_deadline;
+                    if (t_info.sched == fine_grained) {
+                        CALL(get_current_deadline(&curr_deadline));
+                    }
                     if (confidences == NULL)
                     {
                         *labels = pool.getBuffer(1, wins_per_img.area(), CV_8UC1);
 
+                        if (t_info.sched == fine_grained) {
+                            CALL(set_current_deadline(curr_deadline + param.period));
+                        }
                         hog::classify_hists(win_size_.height, win_size_.width,
                                 block_stride_.height, block_stride_.width,
                                 win_stride_.height, win_stride_.width,
@@ -1197,6 +1236,9 @@ namespace
                     {
                         *labels = pool.getBuffer(1, wins_per_img.area(), CV_32FC1);
 
+                        if (t_info.sched == fine_grained) {
+                            CALL(set_current_deadline(curr_deadline + param.period));
+                        }
                         hog::compute_confidence_hists(win_size_.height, win_size_.width,
                                 block_stride_.height, block_stride_.width,
                                 win_stride_.height, win_stride_.width,
@@ -1227,6 +1269,9 @@ namespace
                     out_buf->labels = in_buf->labels;
 
                     CheckError(pgm_complete(node));
+                    if (t_info.sched == fine_grained) {
+                        CALL(set_current_deadline(curr_deadline));
+                    }
                     sleep_next_period(); /* this calls the system call sys_complete_job. With early releasing, this shouldn't block.*/
                 }
                 else
@@ -1337,54 +1382,6 @@ namespace
                     fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
 #endif
 
-                    /*
-                    tp = (struct params_fine_collect_locations*)
-                        malloc(sizeof(struct params_fine_collect_locations));
-                    tp->gpu_img = in_buf->gpu_img;
-                    tp->found = in_buf->found;
-                    tp->img_to_show = in_buf->img_to_show;
-                    tp->level_scale = in_buf->level_scale;
-                    tp->confidences = in_buf->confidences;
-                    tp->smaller_img = in_buf->smaller_img;
-                    tp->labels = in_buf->labels;
-                    tp->index = in_buf->index;
-                    tp->frame_index = in_buf->frame_index;
-                    tp->start_time = in_buf->start_time;
-
-                    ready = false;
-                    added = false;
-                    int pos = 0;
-                    for (pos = 0; pos<NUM_READY_LINK; pos++)
-                    {
-                        if (rl[pos].params != NULL && tp->gpu_img == rl[pos].params->gpu_img) {
-                            rl[pos].count++;
-                            added = true;
-                            if (rl[pos].count == tp->level_scale->size())
-                                ready = true;
-                            break;
-                        }
-                    }
-
-                    if (!added) {
-                        for (pos = 0; pos<NUM_READY_LINK; pos++)
-                        {
-                            if (NULL == rl[pos].params) {
-                                rl[pos].count++;
-                                rl[pos].params = tp;
-                                if (rl[pos].count == tp->level_scale->size())
-                                    ready = true;
-                                break;
-                            }
-                        }
-                    }
-
-                    if (!ready) {
-                        continue;
-                    } else {
-                        rl[pos].params = NULL;
-                        rl[pos].count = 0;
-                    }
-                    */
 
                     struct params_fine_collect_locations * in_buf = in_bufs[0];
                     found = in_buf->found;

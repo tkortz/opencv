@@ -50,6 +50,15 @@
 #include "opencv2/core/cuda.hpp"
 #include "pgm.h"
 
+enum scheduling_option
+{
+    end_to_end = 0,
+    coarse_grained,
+    fine_grained,
+    coarse_unrolled,
+    scheduling_option_end,
+};
+
 struct task_info
 {
     int id;
@@ -59,6 +68,7 @@ struct task_info
     /* fair-lateness priority point */
     int relative_deadline;
     int cluster;
+    enum scheduling_option sched;
 };
 
 /* Next, we define period and execution cost to be constant.
