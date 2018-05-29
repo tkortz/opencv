@@ -487,24 +487,26 @@ namespace
 
         pthread_barrier_wait(init_barrier);
 
-        if (t_info.cluster != -1)
-            CALL(be_migrate_to_domain(t_info.cluster));
         struct rt_task param;
-        init_rt_task_param(&param);
-        param.exec_cost = ms2ns(EXEC_COST);
-        param.period = ms2ns(t_info.period);
-        param.relative_deadline = ms2ns(t_info.relative_deadline);
-        param.phase = ms2ns(t_info.phase);
-        param.budget_policy = NO_ENFORCEMENT;
-        param.release_policy = TASK_EARLY; /* early releasing */
-        param.cls = RT_CLASS_SOFT;
-        param.priority = LITMUS_LOWEST_PRIORITY;
-        if (t_info.cluster != -1)
-            param.cpu = domain_to_first_cpu(t_info.cluster);
-        CALL( init_litmus() );
-        CALL( set_rt_task_param(gettid(), &param) );
-        CALL( task_mode(LITMUS_RT_TASK) );
-        CALL( wait_for_ts_release() );
+        if (t_info.realtime) {
+            if (t_info.cluster != -1)
+                CALL(be_migrate_to_domain(t_info.cluster));
+            init_rt_task_param(&param);
+            param.exec_cost = ms2ns(EXEC_COST);
+            param.period = ms2ns(t_info.period);
+            param.relative_deadline = ms2ns(t_info.relative_deadline);
+            param.phase = ms2ns(t_info.phase);
+            param.budget_policy = NO_ENFORCEMENT;
+            param.release_policy = TASK_EARLY; /* early releasing */
+            param.cls = RT_CLASS_SOFT;
+            param.priority = LITMUS_LOWEST_PRIORITY;
+            if (t_info.cluster != -1)
+                param.cpu = domain_to_first_cpu(t_info.cluster);
+            CALL( init_litmus() );
+            CALL( set_rt_task_param(gettid(), &param) );
+            CALL( task_mode(LITMUS_RT_TASK) );
+            CALL( wait_for_ts_release() );
+        }
 
         if(!hog_errors)
         {
@@ -584,7 +586,8 @@ namespace
                         out_buf->start_time = in_buf->start_time;
                     }
                     CheckError(pgm_complete(node));
-                    sleep_next_period(); /* this calls the system call sys_complete_job. With early releasing, this shouldn't block.*/
+                    if (t_info.realtime)
+                        sleep_next_period(); /* this calls the system call sys_complete_job. With early releasing, this shouldn't block.*/
                     /*
                      * end of compute scale levels
                      * =========================== */
@@ -641,24 +644,26 @@ namespace
 
         pthread_barrier_wait(init_barrier);
 
-        if (t_info.cluster != -1)
-            CALL(be_migrate_to_domain(t_info.cluster));
         struct rt_task param;
-        init_rt_task_param(&param);
-        param.exec_cost = ms2ns(EXEC_COST);
-        param.period = ms2ns(t_info.period);
-        param.relative_deadline = ms2ns(t_info.relative_deadline);
-        param.phase = ms2ns(t_info.phase);
-        param.budget_policy = NO_ENFORCEMENT;
-        param.release_policy = TASK_EARLY; /* early releasing */
-        param.cls = RT_CLASS_SOFT;
-        param.priority = LITMUS_LOWEST_PRIORITY;
-        if (t_info.cluster != -1)
-            param.cpu = domain_to_first_cpu(t_info.cluster);
-        CALL( init_litmus() );
-        CALL( set_rt_task_param(gettid(), &param) );
-        CALL( task_mode(LITMUS_RT_TASK) );
-        CALL( wait_for_ts_release() );
+        if (t_info.realtime) {
+            if (t_info.cluster != -1)
+                CALL(be_migrate_to_domain(t_info.cluster));
+            init_rt_task_param(&param);
+            param.exec_cost = ms2ns(EXEC_COST);
+            param.period = ms2ns(t_info.period);
+            param.relative_deadline = ms2ns(t_info.relative_deadline);
+            param.phase = ms2ns(t_info.phase);
+            param.budget_policy = NO_ENFORCEMENT;
+            param.release_policy = TASK_EARLY; /* early releasing */
+            param.cls = RT_CLASS_SOFT;
+            param.priority = LITMUS_LOWEST_PRIORITY;
+            if (t_info.cluster != -1)
+                param.cpu = domain_to_first_cpu(t_info.cluster);
+            CALL( init_litmus() );
+            CALL( set_rt_task_param(gettid(), &param) );
+            CALL( task_mode(LITMUS_RT_TASK) );
+            CALL( wait_for_ts_release() );
+        }
 
         if(!hog_errors)
         {
@@ -678,7 +683,7 @@ namespace
                      * resize image
                      */
                     unsigned long long curr_deadline;
-                    if (t_info.sched == fine_grained) {
+                    if (t_info.realtime && t_info.sched == fine_grained) {
                         CALL(get_current_deadline(&curr_deadline));
                         CALL(set_current_deadline(curr_deadline + param.period));
                     }
@@ -708,10 +713,11 @@ namespace
                     out_buf->frame_index = in_buf->frame_index;
                     out_buf->start_time = in_buf->start_time;
                     CheckError(pgm_complete(node));
-                    if (t_info.sched == fine_grained) {
+                    if (t_info.realtime && t_info.sched == fine_grained) {
                         CALL(set_current_deadline(curr_deadline));
                     }
-                    sleep_next_period(); /* this calls the system call sys_complete_job. With early releasing, this shouldn't block.*/
+                    if (t_info.realtime)
+                        sleep_next_period(); /* this calls the system call sys_complete_job. With early releasing, this shouldn't block.*/
                 }
                 else
                 {
@@ -765,24 +771,26 @@ namespace
 
         pthread_barrier_wait(init_barrier);
 
-        if (t_info.cluster != -1)
-            CALL(be_migrate_to_domain(t_info.cluster));
         struct rt_task param;
-        init_rt_task_param(&param);
-        param.exec_cost = ms2ns(EXEC_COST);
-        param.period = ms2ns(t_info.period);
-        param.relative_deadline = ms2ns(t_info.relative_deadline);
-        param.phase = ms2ns(t_info.phase);
-        param.budget_policy = NO_ENFORCEMENT;
-        param.release_policy = TASK_EARLY; /* early releasing */
-        param.cls = RT_CLASS_SOFT;
-        param.priority = LITMUS_LOWEST_PRIORITY;
-        if (t_info.cluster != -1)
-            param.cpu = domain_to_first_cpu(t_info.cluster);
-        CALL( init_litmus() );
-        CALL( set_rt_task_param(gettid(), &param) );
-        CALL( task_mode(LITMUS_RT_TASK) );
-        CALL( wait_for_ts_release() );
+        if (t_info.realtime) {
+            if (t_info.cluster != -1)
+                CALL(be_migrate_to_domain(t_info.cluster));
+            init_rt_task_param(&param);
+            param.exec_cost = ms2ns(EXEC_COST);
+            param.period = ms2ns(t_info.period);
+            param.relative_deadline = ms2ns(t_info.relative_deadline);
+            param.phase = ms2ns(t_info.phase);
+            param.budget_policy = NO_ENFORCEMENT;
+            param.release_policy = TASK_EARLY; /* early releasing */
+            param.cls = RT_CLASS_SOFT;
+            param.priority = LITMUS_LOWEST_PRIORITY;
+            if (t_info.cluster != -1)
+                param.cpu = domain_to_first_cpu(t_info.cluster);
+            CALL( init_litmus() );
+            CALL( set_rt_task_param(gettid(), &param) );
+            CALL( task_mode(LITMUS_RT_TASK) );
+            CALL( wait_for_ts_release() );
+        }
 
         if(!hog_errors)
         {
@@ -828,7 +836,7 @@ namespace
                             break;
                     }
                     unsigned long long curr_deadline;
-                    if (t_info.sched == fine_grained) {
+                    if (t_info.realtime && t_info.sched == fine_grained) {
                         CALL(get_current_deadline(&curr_deadline));
                         CALL(set_current_deadline(curr_deadline + param.period));
                     }
@@ -850,10 +858,11 @@ namespace
                     out_buf->frame_index = in_buf->frame_index;
                     out_buf->start_time = in_buf->start_time;
                     CheckError(pgm_complete(node));
-                    if (t_info.sched == fine_grained) {
+                    if (t_info.realtime && t_info.sched == fine_grained) {
                         CALL(set_current_deadline(curr_deadline));
                     }
-                    sleep_next_period(); /* this calls the system call sys_complete_job. With early releasing, this shouldn't block.*/
+                    if (t_info.realtime)
+                        sleep_next_period(); /* this calls the system call sys_complete_job. With early releasing, this shouldn't block.*/
                 }
                 else
                 {
@@ -910,24 +919,26 @@ namespace
 
         pthread_barrier_wait(init_barrier);
 
-        if (t_info.cluster != -1)
-            CALL(be_migrate_to_domain(t_info.cluster));
         struct rt_task param;
-        init_rt_task_param(&param);
-        param.exec_cost = ms2ns(EXEC_COST);
-        param.period = ms2ns(t_info.period);
-        param.relative_deadline = ms2ns(t_info.relative_deadline);
-        param.phase = ms2ns(t_info.phase);
-        param.budget_policy = NO_ENFORCEMENT;
-        param.release_policy = TASK_EARLY; /* early releasing */
-        param.cls = RT_CLASS_SOFT;
-        param.priority = LITMUS_LOWEST_PRIORITY;
-        if (t_info.cluster != -1)
-            param.cpu = domain_to_first_cpu(t_info.cluster);
-        CALL( init_litmus() );
-        CALL( set_rt_task_param(gettid(), &param) );
-        CALL( task_mode(LITMUS_RT_TASK) );
-        CALL( wait_for_ts_release() );
+        if (t_info.realtime) {
+            if (t_info.cluster != -1)
+                CALL(be_migrate_to_domain(t_info.cluster));
+            init_rt_task_param(&param);
+            param.exec_cost = ms2ns(EXEC_COST);
+            param.period = ms2ns(t_info.period);
+            param.relative_deadline = ms2ns(t_info.relative_deadline);
+            param.phase = ms2ns(t_info.phase);
+            param.budget_policy = NO_ENFORCEMENT;
+            param.release_policy = TASK_EARLY; /* early releasing */
+            param.cls = RT_CLASS_SOFT;
+            param.priority = LITMUS_LOWEST_PRIORITY;
+            if (t_info.cluster != -1)
+                param.cpu = domain_to_first_cpu(t_info.cluster);
+            CALL( init_litmus() );
+            CALL( set_rt_task_param(gettid(), &param) );
+            CALL( task_mode(LITMUS_RT_TASK) );
+            CALL( wait_for_ts_release() );
+        }
 
         if(!hog_errors)
         {
@@ -962,7 +973,7 @@ namespace
                             cells_per_block_.width, cells_per_block_.height,
                             StreamAccessor::getStream(stream));
                     unsigned long long curr_deadline;
-                    if (t_info.sched == fine_grained) {
+                    if (t_info.realtime && t_info.sched == fine_grained) {
                         CALL(get_current_deadline(&curr_deadline));
                         CALL(set_current_deadline(curr_deadline + param.period));
                     }
@@ -988,10 +999,11 @@ namespace
                     out_buf->block_hists= block_hists;
 
                     CheckError(pgm_complete(node));
-                    if (t_info.sched == fine_grained) {
+                    if (t_info.realtime && t_info.sched == fine_grained) {
                         CALL(set_current_deadline(curr_deadline));
                     }
-                    sleep_next_period(); /* this calls the system call sys_complete_job. With early releasing, this shouldn't block.*/
+                    if (t_info.realtime)
+                        sleep_next_period(); /* this calls the system call sys_complete_job. With early releasing, this shouldn't block.*/
                 }
                 else
                 {
@@ -1043,24 +1055,26 @@ namespace
 
         pthread_barrier_wait(init_barrier);
 
-        if (t_info.cluster != -1)
-            CALL(be_migrate_to_domain(t_info.cluster));
         struct rt_task param;
-        init_rt_task_param(&param);
-        param.exec_cost = ms2ns(EXEC_COST);
-        param.period = ms2ns(t_info.period);
-        param.relative_deadline = ms2ns(t_info.relative_deadline);
-        param.phase = ms2ns(t_info.phase);
-        param.budget_policy = NO_ENFORCEMENT;
-        param.release_policy = TASK_EARLY; /* early releasing */
-        param.cls = RT_CLASS_SOFT;
-        param.priority = LITMUS_LOWEST_PRIORITY;
-        if (t_info.cluster != -1)
-            param.cpu = domain_to_first_cpu(t_info.cluster);
-        CALL( init_litmus() );
-        CALL( set_rt_task_param(gettid(), &param) );
-        CALL( task_mode(LITMUS_RT_TASK) );
-        CALL( wait_for_ts_release() );
+        if (t_info.realtime) {
+            if (t_info.cluster != -1)
+                CALL(be_migrate_to_domain(t_info.cluster));
+            init_rt_task_param(&param);
+            param.exec_cost = ms2ns(EXEC_COST);
+            param.period = ms2ns(t_info.period);
+            param.relative_deadline = ms2ns(t_info.relative_deadline);
+            param.phase = ms2ns(t_info.phase);
+            param.budget_policy = NO_ENFORCEMENT;
+            param.release_policy = TASK_EARLY; /* early releasing */
+            param.cls = RT_CLASS_SOFT;
+            param.priority = LITMUS_LOWEST_PRIORITY;
+            if (t_info.cluster != -1)
+                param.cpu = domain_to_first_cpu(t_info.cluster);
+            CALL( init_litmus() );
+            CALL( set_rt_task_param(gettid(), &param) );
+            CALL( task_mode(LITMUS_RT_TASK) );
+            CALL( wait_for_ts_release() );
+        }
 
         if(!hog_errors)
         {
@@ -1090,7 +1104,7 @@ namespace
                             StreamAccessor::getStream(stream));
 
                     unsigned long long curr_deadline;
-                    if (t_info.sched == fine_grained) {
+                    if (t_info.realtime && t_info.sched == fine_grained) {
                         CALL(get_current_deadline(&curr_deadline));
                         CALL(set_current_deadline(curr_deadline + param.period));
                     }
@@ -1112,10 +1126,11 @@ namespace
                     out_buf->start_time = in_buf->start_time;
 
                     CheckError(pgm_complete(node));
-                    if (t_info.sched == fine_grained) {
+                    if (t_info.realtime && t_info.sched == fine_grained) {
                         CALL(set_current_deadline(curr_deadline));
                     }
-                    sleep_next_period(); /* this calls the system call sys_complete_job. With early releasing, this shouldn't block.*/
+                    if (t_info.realtime)
+                        sleep_next_period(); /* this calls the system call sys_complete_job. With early releasing, this shouldn't block.*/
                 }
                 else
                 {
@@ -1170,24 +1185,26 @@ namespace
 
         pthread_barrier_wait(init_barrier);
 
-        if (t_info.cluster != -1)
-            CALL(be_migrate_to_domain(t_info.cluster));
         struct rt_task param;
-        init_rt_task_param(&param);
-        param.exec_cost = ms2ns(EXEC_COST);
-        param.period = ms2ns(t_info.period);
-        param.relative_deadline = ms2ns(t_info.relative_deadline);
-        param.phase = ms2ns(t_info.phase);
-        param.budget_policy = NO_ENFORCEMENT;
-        param.release_policy = TASK_EARLY; /* early releasing */
-        param.cls = RT_CLASS_SOFT;
-        param.priority = LITMUS_LOWEST_PRIORITY;
-        if (t_info.cluster != -1)
-            param.cpu = domain_to_first_cpu(t_info.cluster);
-        CALL( init_litmus() );
-        CALL( set_rt_task_param(gettid(), &param) );
-        CALL( task_mode(LITMUS_RT_TASK) );
-        CALL( wait_for_ts_release() );
+        if (t_info.realtime) {
+            if (t_info.cluster != -1)
+                CALL(be_migrate_to_domain(t_info.cluster));
+            init_rt_task_param(&param);
+            param.exec_cost = ms2ns(EXEC_COST);
+            param.period = ms2ns(t_info.period);
+            param.relative_deadline = ms2ns(t_info.relative_deadline);
+            param.phase = ms2ns(t_info.phase);
+            param.budget_policy = NO_ENFORCEMENT;
+            param.release_policy = TASK_EARLY; /* early releasing */
+            param.cls = RT_CLASS_SOFT;
+            param.priority = LITMUS_LOWEST_PRIORITY;
+            if (t_info.cluster != -1)
+                param.cpu = domain_to_first_cpu(t_info.cluster);
+            CALL( init_litmus() );
+            CALL( set_rt_task_param(gettid(), &param) );
+            CALL( task_mode(LITMUS_RT_TASK) );
+            CALL( wait_for_ts_release() );
+        }
 
         if(!hog_errors)
         {
@@ -1211,14 +1228,14 @@ namespace
                     wins_per_img = numPartsWithin(smaller_img->size(), win_size_, win_stride_);
 
                     unsigned long long curr_deadline;
-                    if (t_info.sched == fine_grained) {
+                    if (t_info.realtime && t_info.sched == fine_grained) {
                         CALL(get_current_deadline(&curr_deadline));
                     }
                     if (confidences == NULL)
                     {
                         *labels = pool.getBuffer(1, wins_per_img.area(), CV_8UC1);
 
-                        if (t_info.sched == fine_grained) {
+                        if (t_info.realtime && t_info.sched == fine_grained) {
                             CALL(set_current_deadline(curr_deadline + param.period));
                         }
                         hog::classify_hists(win_size_.height, win_size_.width,
@@ -1236,7 +1253,7 @@ namespace
                     {
                         *labels = pool.getBuffer(1, wins_per_img.area(), CV_32FC1);
 
-                        if (t_info.sched == fine_grained) {
+                        if (t_info.realtime && t_info.sched == fine_grained) {
                             CALL(set_current_deadline(curr_deadline + param.period));
                         }
                         hog::compute_confidence_hists(win_size_.height, win_size_.width,
@@ -1269,10 +1286,11 @@ namespace
                     out_buf->labels = in_buf->labels;
 
                     CheckError(pgm_complete(node));
-                    if (t_info.sched == fine_grained) {
+                    if (t_info.realtime && t_info.sched == fine_grained) {
                         CALL(set_current_deadline(curr_deadline));
                     }
-                    sleep_next_period(); /* this calls the system call sys_complete_job. With early releasing, this shouldn't block.*/
+                    if (t_info.realtime)
+                        sleep_next_period(); /* this calls the system call sys_complete_job. With early releasing, this shouldn't block.*/
                 }
                 else
                 {
@@ -1341,34 +1359,28 @@ namespace
         GpuMat * smaller_img;
         GpuMat * labels;
 
-        /*
-#define NUM_READY_LINK 64
-        struct params_fine_collect_locations* tp;
-        struct ready_link rl[NUM_READY_LINK];
-        bool ready;
-        bool added;
-        */
         pthread_barrier_wait(init_barrier);
 
-        if (t_info.cluster != -1)
-            CALL(be_migrate_to_domain(t_info.cluster));
         struct rt_task param;
-        init_rt_task_param(&param);
-        param.exec_cost = ms2ns(EXEC_COST);
-        param.period = ms2ns(t_info.period);
-        param.relative_deadline = ms2ns(t_info.relative_deadline);
-        param.phase = ms2ns(t_info.phase);
-        param.budget_policy = NO_ENFORCEMENT;
-        param.release_policy = TASK_EARLY; /* early releasing */
-        param.cls = RT_CLASS_SOFT;
-        param.priority = LITMUS_LOWEST_PRIORITY;
-        if (t_info.cluster != -1)
-            param.cpu = domain_to_first_cpu(t_info.cluster);
-        CALL( init_litmus() );
-        CALL( set_rt_task_param(gettid(), &param) );
-        CALL( task_mode(LITMUS_RT_TASK) );
-        CALL( wait_for_ts_release() );
-
+        if (t_info.realtime) {
+            if (t_info.cluster != -1)
+                CALL(be_migrate_to_domain(t_info.cluster));
+            init_rt_task_param(&param);
+            param.exec_cost = ms2ns(EXEC_COST);
+            param.period = ms2ns(t_info.period);
+            param.relative_deadline = ms2ns(t_info.relative_deadline);
+            param.phase = ms2ns(t_info.phase);
+            param.budget_policy = NO_ENFORCEMENT;
+            param.release_policy = TASK_EARLY; /* early releasing */
+            param.cls = RT_CLASS_SOFT;
+            param.priority = LITMUS_LOWEST_PRIORITY;
+            if (t_info.cluster != -1)
+                param.cpu = domain_to_first_cpu(t_info.cluster);
+            CALL( init_litmus() );
+            CALL( set_rt_task_param(gettid(), &param) );
+            CALL( task_mode(LITMUS_RT_TASK) );
+            CALL( wait_for_ts_release() );
+        }
 
         if(!hog_errors)
         {
@@ -1474,7 +1486,8 @@ namespace
                     out_buf->start_time = in_buf->start_time;
 
                     CheckError(pgm_complete(node));
-                    sleep_next_period(); /* this calls the system call sys_complete_job. With early releasing, this shouldn't block.*/
+                    if (t_info.realtime)
+                        sleep_next_period(); /* this calls the system call sys_complete_job. With early releasing, this shouldn't block.*/
                 }
                 else
                 {
@@ -1535,24 +1548,26 @@ namespace
 
         pthread_barrier_wait(init_barrier);
 
-        if (t_info.cluster != -1)
-            CALL(be_migrate_to_domain(t_info.cluster));
         struct rt_task param;
-        init_rt_task_param(&param);
-        param.exec_cost = ms2ns(EXEC_COST);
-        param.period = ms2ns(t_info.period);
-        param.relative_deadline = ms2ns(t_info.relative_deadline);
-        param.phase = ms2ns(t_info.phase);
-        param.budget_policy = NO_ENFORCEMENT;
-        param.release_policy = TASK_EARLY; /* early releasing */
-        param.cls = RT_CLASS_SOFT;
-        param.priority = LITMUS_LOWEST_PRIORITY;
-        if (t_info.cluster != -1)
-            param.cpu = domain_to_first_cpu(t_info.cluster);
-        CALL( init_litmus() );
-        CALL( set_rt_task_param(gettid(), &param) );
-        CALL( task_mode(LITMUS_RT_TASK) );
-        CALL( wait_for_ts_release() );
+        if (t_info.realtime) {
+            if (t_info.cluster != -1)
+                CALL(be_migrate_to_domain(t_info.cluster));
+            init_rt_task_param(&param);
+            param.exec_cost = ms2ns(EXEC_COST);
+            param.period = ms2ns(t_info.period);
+            param.relative_deadline = ms2ns(t_info.relative_deadline);
+            param.phase = ms2ns(t_info.phase);
+            param.budget_policy = NO_ENFORCEMENT;
+            param.release_policy = TASK_EARLY; /* early releasing */
+            param.cls = RT_CLASS_SOFT;
+            param.priority = LITMUS_LOWEST_PRIORITY;
+            if (t_info.cluster != -1)
+                param.cpu = domain_to_first_cpu(t_info.cluster);
+            CALL( init_litmus() );
+            CALL( set_rt_task_param(gettid(), &param) );
+            CALL( task_mode(LITMUS_RT_TASK) );
+            CALL( wait_for_ts_release() );
+        }
 
         if(!hog_errors)
         {
@@ -1655,7 +1670,8 @@ namespace
 
                     out_buf->block_hists= block_hists;
                     CheckError(pgm_complete(node));
-                    sleep_next_period(); /* this calls the system call sys_complete_job. With early releasing, this shouldn't block.*/
+                    if (t_info.realtime)
+                        sleep_next_period(); /* this calls the system call sys_complete_job. With early releasing, this shouldn't block.*/
                 }
                 else
                 {

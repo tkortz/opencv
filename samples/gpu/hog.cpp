@@ -118,6 +118,7 @@ public:
     int num_fine_graphs;
     int cluster;
     int task_id;
+    int realtime;
 };
 
 
@@ -361,6 +362,7 @@ static void printHelp()
          << "  [--graph_bound <int>] # response time bound of fine-grained HOG\n"
          << "  [--cluster <int>] # cluster ID of this task\n"
          << "  [--id <int>] # task ID of this task\n"
+         << "  [--rt <true/false>] # run under LITMUS^RT scheduler or not\n"
          << "  [--display <true/false>] # to display result frame or not\n";
 
     help_showed = true;
@@ -433,6 +435,7 @@ Args::Args()
     display = false;
     cluster = -1;
     task_id = 0;
+    realtime = true;
 }
 
 
@@ -488,6 +491,7 @@ Args Args::read(int argc, char** argv)
         }
         else if (string(argv[i]) == "--cluster") { args.cluster = atoi(argv[++i]); }
         else if (string(argv[i]) == "--id") { args.task_id = atoi(argv[++i]); }
+        else if (string(argv[i]) == "--rt") args.realtime = (string(argv[++i]) == "true");
         else if (string(argv[i]) == "--display") args.display = (string(argv[++i]) == "true");
         else if (args.src.empty()) args.src = argv[i];
         else throw runtime_error((string("unknown key: ") + argv[i]));
@@ -929,6 +933,7 @@ void App::sched_coarse_grained_unrolled_for_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, 
     struct task_info t_info;
     int period = PERIOD * args.num_fine_graphs;
     int m_cpus = 32;
+    t_info.realtime = args.realtime;
     t_info.sched = coarse_unrolled;
     t_info.id = 0;
     t_info.period = PERIOD;
@@ -976,26 +981,28 @@ void App::sched_coarse_grained_unrolled_for_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, 
 
     pthread_barrier_wait(&init_barrier);
 
-    struct rt_task param;
-    t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, cost_color_convert);
-    t_info.phase = 0;
+    if (args.realtime) {
+        struct rt_task param;
+        t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, cost_color_convert);
+        t_info.phase = 0;
 
-    if (t_info.cluster != -1)
-        CALL(be_migrate_to_domain(t_info.cluster));
-    init_rt_task_param(&param);
-    param.exec_cost = ms2ns(EXEC_COST);
-    param.period = ms2ns(t_info.period);
-    param.relative_deadline = ms2ns(t_info.relative_deadline);
-    param.budget_policy = NO_ENFORCEMENT;
-    param.cls = RT_CLASS_SOFT;
-    param.priority = LITMUS_LOWEST_PRIORITY;
-    param.cpu = domain_to_first_cpu(t_info.cluster);
-    if (t_info.cluster != -1)
+        if (t_info.cluster != -1)
+            CALL(be_migrate_to_domain(t_info.cluster));
+        init_rt_task_param(&param);
+        param.exec_cost = ms2ns(EXEC_COST);
+        param.period = ms2ns(t_info.period);
+        param.relative_deadline = ms2ns(t_info.relative_deadline);
+        param.budget_policy = NO_ENFORCEMENT;
+        param.cls = RT_CLASS_SOFT;
+        param.priority = LITMUS_LOWEST_PRIORITY;
         param.cpu = domain_to_first_cpu(t_info.cluster);
-    CALL( init_litmus() );
-    CALL( set_rt_task_param(gettid(), &param) );
-    CALL( task_mode(LITMUS_RT_TASK) );
-    CALL( wait_for_ts_release() );
+        if (t_info.cluster != -1)
+            param.cpu = domain_to_first_cpu(t_info.cluster);
+        CALL( init_litmus() );
+        CALL( set_rt_task_param(gettid(), &param) );
+        CALL( task_mode(LITMUS_RT_TASK) );
+        CALL( wait_for_ts_release() );
+    }
 
     int count_frame = 0;
     while (count_frame < args.count && running) {
@@ -1080,7 +1087,8 @@ void App::sched_coarse_grained_unrolled_for_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, 
             img = new Mat();
             count_frame++;
             /* Wait until the next job is released. */
-            sleep_next_period();
+            if (args.realtime)
+                sleep_next_period();
         }
     }
     /*****
@@ -1142,23 +1150,25 @@ void App::thread_color_convert(node_t *_node, pthread_barrier_t* init_barrier,
     /* initialization is finished */
     pthread_barrier_wait(init_barrier);
 
-    if (t_info.cluster != -1)
-        CALL(be_migrate_to_domain(t_info.cluster));
-    struct rt_task param;
-    init_rt_task_param(&param);
-    param.exec_cost = ms2ns(EXEC_COST);
-    param.period = ms2ns(t_info.period);
-    param.relative_deadline = ms2ns(t_info.relative_deadline);
-    param.phase = ms2ns(t_info.phase);
-    param.budget_policy = NO_ENFORCEMENT;
-    param.cls = RT_CLASS_SOFT;
-    param.priority = LITMUS_LOWEST_PRIORITY;
-    if (t_info.cluster != -1)
-        param.cpu = domain_to_first_cpu(t_info.cluster);
-    CALL( init_litmus() );
-    CALL( set_rt_task_param(gettid(), &param) );
-    CALL( task_mode(LITMUS_RT_TASK) );
-    CALL( wait_for_ts_release() );
+    if (t_info.realtime) {
+        if (t_info.cluster != -1)
+            CALL(be_migrate_to_domain(t_info.cluster));
+        struct rt_task param;
+        init_rt_task_param(&param);
+        param.exec_cost = ms2ns(EXEC_COST);
+        param.period = ms2ns(t_info.period);
+        param.relative_deadline = ms2ns(t_info.relative_deadline);
+        param.phase = ms2ns(t_info.phase);
+        param.budget_policy = NO_ENFORCEMENT;
+        param.cls = RT_CLASS_SOFT;
+        param.priority = LITMUS_LOWEST_PRIORITY;
+        if (t_info.cluster != -1)
+            param.cpu = domain_to_first_cpu(t_info.cluster);
+        CALL( init_litmus() );
+        CALL( set_rt_task_param(gettid(), &param) );
+        CALL( task_mode(LITMUS_RT_TASK) );
+        CALL( wait_for_ts_release() );
+    }
 
     int count_frame = 0;
     while (count_frame < args.count / args.num_fine_graphs && running) {
@@ -1244,7 +1254,8 @@ void App::thread_color_convert(node_t *_node, pthread_barrier_t* init_barrier,
             found = new vector<Rect>();
             img = new Mat();
             count_frame++;
-            sleep_next_period();
+            if (t_info.realtime)
+                sleep_next_period();
         }
     }
 
@@ -1438,6 +1449,7 @@ void App::sched_fine_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
         int period = PERIOD * args.num_fine_graphs;
         int m_cpus = 32;
         struct task_info t_info;
+        t_info.realtime = args.realtime;
         t_info.sched = fine_grained;
         t_info.id = g_idx;
         t_info.period = period;
@@ -1550,48 +1562,6 @@ void App::sched_etoe_hog_preload(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
 {
     fprintf(stdout, "node tid: color_convert(source): %d\n", gettid());
     fprintf(stdout, "node tid: collect_locations(sink): %d\n", gettid());
-    if (args.cluster != -1)
-        CALL(be_migrate_to_domain(args.cluster));
-	struct rt_task param;
-    unsigned int job_no = 0;
-
-	/* Setup task parameters */
-	init_rt_task_param(&param);
-	param.exec_cost = ms2ns(EXEC_COST);
-	param.period = ms2ns(PERIOD);
-	//param.relative_deadline = ms2ns(RELATIVE_DEADLINE);
-    param.relative_deadline = ms2ns(FAIR_LATENESS_PP(32, param.period, param.exec_cost));
-    if (args.cluster != -1)
-        param.cpu = domain_to_first_cpu(args.cluster);
-
-	/* What to do in the case of budget overruns? */
-	param.budget_policy = NO_ENFORCEMENT;
-
-	/* The task class parameter is ignored by most plugins. */
-	param.cls = RT_CLASS_SOFT;
-
-	/* The priority parameter is only used by fixed-priority plugins. */
-	param.priority = LITMUS_LOWEST_PRIORITY;
-
-    /*****
-     * 3) Setup real-time parameters.
-     *    In this example, we create a sporadic task that does not specify a
-     *    target partition (and thus is intended to run under global scheduling).
-     *    If this were to execute under a partitioned scheduler, it would be assigned
-     *    to the first partition (since partitioning is performed offline).
-     */
-    CALL( init_litmus() );
-
-	/* To specify a partition, do
-	 *
-	 * param.cpu = CPU;
-	 * be_migrate_to(CPU);
-	 *
-	 * where CPU ranges from 0 to "Number of CPUs" - 1 before calling
-	 * set_rt_task_param().
-	 */
-	CALL( set_rt_task_param(gettid(), &param) );
-    fprintf(stdout, "threa id %d is now real-time task\n", gettid());
 
     Size win_stride(args.win_stride_width, args.win_stride_height);
     Size win_size(args.win_width, args.win_width * 2);
@@ -1606,11 +1576,57 @@ void App::sched_etoe_hog_preload(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
     int count_frame = 0;
     cudaFree(0);
 
-    /*****
-     * 4) Transition to real-time mode.
-     */
-    CALL( task_mode(LITMUS_RT_TASK) );
-    CALL( wait_for_ts_release() );
+    unsigned int job_no = 0;
+
+    if (args.realtime) {
+        if (args.cluster != -1)
+            CALL(be_migrate_to_domain(args.cluster));
+        struct rt_task param;
+
+        /* Setup task parameters */
+        init_rt_task_param(&param);
+        param.exec_cost = ms2ns(EXEC_COST);
+        param.period = ms2ns(PERIOD);
+        //param.relative_deadline = ms2ns(RELATIVE_DEADLINE);
+        param.relative_deadline = ms2ns(FAIR_LATENESS_PP(32, param.period, param.exec_cost));
+        if (args.cluster != -1)
+            param.cpu = domain_to_first_cpu(args.cluster);
+
+        /* What to do in the case of budget overruns? */
+        param.budget_policy = NO_ENFORCEMENT;
+
+        /* The task class parameter is ignored by most plugins. */
+        param.cls = RT_CLASS_SOFT;
+
+        /* The priority parameter is only used by fixed-priority plugins. */
+        param.priority = LITMUS_LOWEST_PRIORITY;
+
+        /*****
+         * 3) Setup real-time parameters.
+         *    In this example, we create a sporadic task that does not specify a
+         *    target partition (and thus is intended to run under global scheduling).
+         *    If this were to execute under a partitioned scheduler, it would be assigned
+         *    to the first partition (since partitioning is performed offline).
+         */
+        CALL( init_litmus() );
+
+        /* To specify a partition, do
+         *
+         * param.cpu = CPU;
+         * be_migrate_to(CPU);
+         *
+         * where CPU ranges from 0 to "Number of CPUs" - 1 before calling
+         * set_rt_task_param().
+         */
+        CALL( set_rt_task_param(gettid(), &param) );
+        fprintf(stdout, "threa id %d is now real-time task\n", gettid());
+
+        /*****
+         * 4) Transition to real-time mode.
+         */
+        CALL( task_mode(LITMUS_RT_TASK) );
+        CALL( wait_for_ts_release() );
+    }
 
     /* The task is now executing as a real-time task if the call didn't fail.
      */
@@ -1621,7 +1637,8 @@ void App::sched_etoe_hog_preload(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
             if (count_frame >= args.count)
                 break;
             frame = frames[j];
-            //usleep(33000);
+            if (!args.realtime)
+                usleep(33000);
             workBegin();
 
             // Change format of the image
@@ -1692,7 +1709,8 @@ void App::sched_etoe_hog_preload(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
             img = new Mat();
             count_frame++;
             /* Wait until the next job is released. */
-            sleep_next_period();
+            if (args.realtime)
+                sleep_next_period();
         }
     }
     /*****
