@@ -612,6 +612,53 @@ namespace
         pthread_exit(0);
     }
 
+    static void gpu_period_guard(struct sync_info *in, struct sync_info *out)
+    {
+        struct timespec ts = {0, 0};
+        unsigned long long curr_release;
+        unsigned long long to_sleep = 0;
+        unsigned long long to_sleep_by_release = 0;
+        unsigned long long to_sleep_by_start = 0;
+        unsigned long long now = litmus_clock();
+        CALL(get_current_release(&curr_release));
+        if (now >= curr_release || (out->job_no == 0 && in->job_no ==0)) {
+            goto go_ahead;
+        }
+
+        if (in->job_no > out->job_no) {
+            to_sleep_by_release = curr_release - now;
+            //fprintf(stdout, "now - start time: %llu\n", now - in->start_time);
+            //fprintf(stdout, "to_sleep_by_start: %llu\n", ms2ns(PERIOD) - (now - in->start_time));
+            if (ms2ns(PERIOD) < (now - in->start_time))
+                goto go_ahead;
+            to_sleep_by_start = ms2ns(PERIOD) - (now - in->start_time);
+            to_sleep = (to_sleep_by_release < to_sleep_by_start) ? to_sleep_by_release : to_sleep_by_start;
+            ts.tv_nsec = to_sleep;
+            nanosleep(&ts, NULL);
+        }
+
+        /*
+        while (in->job_no <= out->job_no) {
+            now = litmus_clock();
+            fprintf(stderr, "Previous instance job is started later??? Come on!\n");
+            to_sleep_by_release = curr_release - now;
+            to_sleep_by_start = ms2ns(PERIOD) - (now - in->start_time);
+            if (to_sleep_by_release < to_sleep_by_start) {
+                ts.tv_nsec = to_sleep_by_release;
+                nanosleep(&ts, NULL);
+                goto go_ahead;
+            } else {
+                ts.tv_nsec = to_sleep_by_start;
+                nanosleep(&ts, NULL);
+            }
+        }
+        */
+go_ahead:
+        out->job_no = in->job_no + 1;
+        //fprintf(stdout, "job no: %d\n", out->job_no);
+        out->start_time = litmus_clock();
+        return;
+    }
 
     void* HOG_Impl::thread_fine_resize(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info)
     {
@@ -679,6 +726,8 @@ namespace
 #ifdef LOG_DEBUG
                     fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
 #endif
+                    if (t_info.sched == fine_grained)
+                        gpu_period_guard(t_info.s_info_in, t_info.s_info_out);
 
                     smaller_img = in_buf->smaller_img;
                     gpu_img = in_buf->gpu_img;
@@ -812,6 +861,8 @@ namespace
 #ifdef LOG_DEBUG
                     fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
 #endif
+                    if (t_info.sched == fine_grained)
+                        gpu_period_guard(t_info.s_info_in, t_info.s_info_out);
 
                     smaller_img = in_buf->smaller_img;
                     /* ===========================
@@ -965,6 +1016,8 @@ namespace
 #ifdef LOG_DEBUG
                     fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
 #endif
+                    if (t_info.sched == fine_grained)
+                        gpu_period_guard(t_info.s_info_in, t_info.s_info_out);
 
                     smaller_img = in_buf->smaller_img;
                     grad = in_buf->grad;
@@ -1106,6 +1159,8 @@ namespace
 #ifdef LOG_DEBUG
                     fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
 #endif
+                    if (t_info.sched == fine_grained)
+                        gpu_period_guard(t_info.s_info_in, t_info.s_info_out);
 
                     smaller_img = in_buf->smaller_img;
                     block_hists = in_buf->block_hists;
@@ -1241,6 +1296,9 @@ namespace
 #ifdef LOG_DEBUG
                     fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
 #endif
+                    if (t_info.sched == fine_grained)
+                        gpu_period_guard(t_info.s_info_in, t_info.s_info_out);
+
                     smaller_img = in_buf->smaller_img;
                     block_hists = in_buf->block_hists;
                     confidences = in_buf->confidences;

@@ -59,6 +59,12 @@ enum scheduling_option
     scheduling_option_end,
 };
 
+struct sync_info
+{
+    unsigned long long start_time;
+    int job_no;
+};
+
 struct task_info
 {
     int id;
@@ -71,6 +77,8 @@ struct task_info
     enum scheduling_option sched;
     bool realtime;
     bool early;
+    struct sync_info *s_info_in;
+    struct sync_info *s_info_out;
 };
 
 /* Next, we define period and execution cost to be constant.
@@ -79,8 +87,8 @@ struct task_info
  *
  * These are in milliseconds.
  */
-#define PERIOD            30
-#define RELATIVE_DEADLINE 30
+#define PERIOD            33
+#define RELATIVE_DEADLINE 33
 #define EXEC_COST         5
 /**
   @addtogroup cuda

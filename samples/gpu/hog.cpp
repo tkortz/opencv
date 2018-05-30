@@ -46,7 +46,7 @@ __thread char hog_sample_errstr[80];
 
 //#define LOG_DEBUG 1
 #define NUM_SCALE_LEVELS 13
-#define FAIR_LATENESS_PP(m, period, cost) (period - m * cost / (m - 1))
+#define FAIR_LATENESS_PP(m, period, cost) (period - (float)m * cost / (m - 1))
 #define CheckError(e) \
 do { int __ret = (e); \
 if(__ret < 0) { \
@@ -748,7 +748,7 @@ void App::sched_coarse_grained_unrolled_for_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, 
 
     struct task_info t_info;
     //int period = PERIOD * args.num_fine_graphs;
-    int m_cpus = 32;
+    int m_cpus = 16;
     t_info.early = args.early;
     t_info.realtime = args.realtime;
     t_info.sched = coarse_unrolled;
@@ -996,7 +996,7 @@ void App::thread_color_convert(node_t *_node, pthread_barrier_t* init_barrier,
 
     int count_frame = 0;
     while (count_frame < args.count / args.num_fine_graphs && running) {
-        for (int j=0; j<100; j++) {
+        for (int j=0; j<100; j = j + args.num_fine_graphs) {
             if (!t_info.realtime)
                 usleep(30000);
             //fprintf(stdout, "frame %d\n", count_frame);
@@ -1096,12 +1096,12 @@ void App::thread_color_convert(node_t *_node, pthread_barrier_t* init_barrier,
         CALL( task_mode(BACKGROUND_TASK) );
 }
 
-static void sync_info_init(struct sync_info *s_info)
+static void sync_info_init(struct sync_info *s)
 {
-    pthread_mutex_init(&s_info.lock, NULL);
-    pthread_cond_init(&s_info.cond, NULL);
-    t_info.is_ready = false;
+    s->start_time = 0;
+    s->job_no = 0;
 }
+
 
 void App::sched_fine_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog, Mat* frames)
 {
@@ -1128,6 +1128,12 @@ void App::sched_fine_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
     edge_t arr_e6_7[args.num_fine_graphs][NUM_SCALE_LEVELS];
     edge_t arr_e7_8[args.num_fine_graphs];
 
+    struct sync_info arr_sync_info_resize             [args.num_fine_graphs][NUM_SCALE_LEVELS];
+    struct sync_info arr_sync_info_compute_gradients  [args.num_fine_graphs][NUM_SCALE_LEVELS];
+    struct sync_info arr_sync_info_compute_histograms [args.num_fine_graphs][NUM_SCALE_LEVELS];
+    struct sync_info arr_sync_info_normalize          [args.num_fine_graphs][NUM_SCALE_LEVELS];
+    struct sync_info arr_sync_info_classify           [args.num_fine_graphs][NUM_SCALE_LEVELS];
+
     thread** arr_t0 = (thread**) calloc(args.num_fine_graphs, sizeof(std::thread *));
     thread** arr_t1 = (thread**) calloc(args.num_fine_graphs, sizeof(std::thread *));
     thread** arr_t2 = (thread**) calloc(args.num_fine_graphs * NUM_SCALE_LEVELS, sizeof(std::thread *));
@@ -1143,8 +1149,11 @@ void App::sched_fine_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
     CheckError(pgm_init(buf, 1));
 
     for (int g_idx = 0; g_idx < args.num_fine_graphs; g_idx++) {
+
         pthread_barrier_t* fine_init_barrier = arr_fine_init_barrier + g_idx;
+
         graph_t* g_ptr = arr_g + g_idx;
+
         node_t* color_convert_node      = arr_color_convert_node + g_idx;
         node_t* compute_scales_node     = arr_compute_scales_node + g_idx;
         node_t* resize_node             = arr_resize_node[g_idx];
@@ -1154,6 +1163,7 @@ void App::sched_fine_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
         node_t* classify_node           = arr_classify_node[g_idx];
         node_t* collect_locations_node  = arr_collect_locations_node + g_idx;
         node_t* display_node            = arr_display_node + g_idx;
+
         edge_t* e0_1 = arr_e0_1 + g_idx;
         edge_t* e1_2 = arr_e1_2[g_idx];
         edge_t* e2_3 = arr_e2_3[g_idx];
@@ -1172,6 +1182,32 @@ void App::sched_fine_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
         thread** t6 = arr_t6 + g_idx * NUM_SCALE_LEVELS;
         thread** t7 = arr_t7 + g_idx;
         thread** t8 = arr_t8 + g_idx;
+
+        struct sync_info* in_sync_info_resize             = arr_sync_info_resize            [((g_idx + args.num_fine_graphs - 1) % args.num_fine_graphs)];
+        struct sync_info* in_sync_info_compute_gradients  = arr_sync_info_compute_gradients [((g_idx + args.num_fine_graphs - 1) % args.num_fine_graphs)];
+        struct sync_info* in_sync_info_compute_histograms = arr_sync_info_compute_histograms[((g_idx + args.num_fine_graphs - 1) % args.num_fine_graphs)];
+        struct sync_info* in_sync_info_normalize          = arr_sync_info_normalize         [((g_idx + args.num_fine_graphs - 1) % args.num_fine_graphs)];
+        struct sync_info* in_sync_info_classify           = arr_sync_info_classify          [((g_idx + args.num_fine_graphs - 1) % args.num_fine_graphs)];
+
+        struct sync_info* out_sync_info_resize             = arr_sync_info_resize            [g_idx];
+        struct sync_info* out_sync_info_compute_gradients  = arr_sync_info_compute_gradients [g_idx];
+        struct sync_info* out_sync_info_compute_histograms = arr_sync_info_compute_histograms[g_idx];
+        struct sync_info* out_sync_info_normalize          = arr_sync_info_normalize         [g_idx];
+        struct sync_info* out_sync_info_classify           = arr_sync_info_classify          [g_idx];
+
+        for (int i=0; i<NUM_SCALE_LEVELS; i++) {
+            sync_info_init(i + in_sync_info_resize);
+            sync_info_init(i + in_sync_info_compute_gradients);
+            sync_info_init(i + in_sync_info_compute_histograms);
+            sync_info_init(i + in_sync_info_normalize);
+            sync_info_init(i + in_sync_info_classify);
+
+            sync_info_init(i + out_sync_info_resize);
+            sync_info_init(i + out_sync_info_compute_gradients);
+            sync_info_init(i + out_sync_info_compute_histograms);
+            sync_info_init(i + out_sync_info_normalize);
+            sync_info_init(i + out_sync_info_classify);
+        }
 
         sprintf(buf, "hog_%d", g_idx);
         CheckError(pgm_init_graph(g_ptr, buf));
@@ -1260,30 +1296,30 @@ void App::sched_fine_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
 
         pthread_barrier_init(fine_init_barrier, 0, 5 * NUM_SCALE_LEVELS + 4);
 
-        int bound_color_convert                   = 10;
-        int bound_compute_scales                  = 10;
-        int bounds_resize      [NUM_SCALE_LEVELS] = {13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1};
-        int bounds_compute_grad[NUM_SCALE_LEVELS] = {13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1};
-        int bounds_compute_hist[NUM_SCALE_LEVELS] = {13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1};
-        int bounds_normalize   [NUM_SCALE_LEVELS] = {13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1};
-        int bounds_classify    [NUM_SCALE_LEVELS] = {13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1};
+        int bound_color_convert                   = 22;
+        int bound_compute_scales                  = 17;
+        int bounds_resize      [NUM_SCALE_LEVELS] = {16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16};
+        int bounds_compute_grad[NUM_SCALE_LEVELS] = {17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17};
+        int bounds_compute_hist[NUM_SCALE_LEVELS] = {17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 16, 17};
+        int bounds_normalize   [NUM_SCALE_LEVELS] = {16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16};
+        int bounds_classify    [NUM_SCALE_LEVELS] = {16, 16, 16, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17};
         //int bound_collect_locations               = 10;
 
         int cost_color_convert                   = 10;
-        int cost_compute_scales                  = 10;
-        int costs_resize      [NUM_SCALE_LEVELS] = {13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1};
-        int costs_compute_grad[NUM_SCALE_LEVELS] = {13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1};
-        int costs_compute_hist[NUM_SCALE_LEVELS] = {13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1};
-        int costs_normalize   [NUM_SCALE_LEVELS] = {13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1};
-        int costs_classify    [NUM_SCALE_LEVELS] = {13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1};
-        int cost_collect_locations               = 10;
+        int cost_compute_scales                  = 3;
+        int costs_resize      [NUM_SCALE_LEVELS] = {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1};
+        int costs_compute_grad[NUM_SCALE_LEVELS] = {2, 2, 2, 2, 2, 2, 2, 2, 2, 1, 1, 1, 1};
+        int costs_compute_hist[NUM_SCALE_LEVELS] = {2, 2, 2, 2, 2, 1, 2, 2, 2, 1, 1, 1, 2};
+        int costs_normalize   [NUM_SCALE_LEVELS] = {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1};
+        int costs_classify    [NUM_SCALE_LEVELS] = {1, 1, 1, 2, 2, 1, 1, 1, 1, 2, 1, 1, 2};
+        int cost_collect_locations               = 3;
 
         /* | first graph release      | second graph release     | first graph release again
          *  <---------PERIOD--------->
          *  <--------------- PERIOD * args.num_fine_graphs ---------->
          */
         int period = PERIOD * args.num_fine_graphs;
-        int m_cpus = 32;
+        int m_cpus = 16;
         struct task_info t_info;
         t_info.early = args.early;
         t_info.realtime = args.realtime;
@@ -1310,18 +1346,24 @@ void App::sched_fine_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
             t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_resize[i]);
             t_info.id = 0 * NUM_SCALE_LEVELS + i + 2;
             t_info.phase = PERIOD * g_idx + bound_color_convert + bound_compute_scales;
+            t_info.s_info_in = in_sync_info_resize + i;
+            t_info.s_info_out = out_sync_info_resize + i;
             t2[i] = new thread(&cv::cuda::HOG::thread_fine_resize, gpu_hog,
                     resize_node + i, fine_init_barrier, t_info);
 
             t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_compute_grad[i]);
             t_info.id = 1 * NUM_SCALE_LEVELS + i + 2;
             t_info.phase = t_info.phase + bounds_resize[i];
+            t_info.s_info_in = in_sync_info_compute_gradients + i;
+            t_info.s_info_out = out_sync_info_compute_gradients + i;
             t3[i] = new thread(&cv::cuda::HOG::thread_fine_compute_gradients,
                     gpu_hog, compute_gradients_node + i, fine_init_barrier, t_info);
 
             t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_compute_hist[i]);
             t_info.id = 2 * NUM_SCALE_LEVELS + i + 2;
             t_info.phase = t_info.phase + bounds_compute_grad[i];
+            t_info.s_info_in = in_sync_info_compute_histograms + i;
+            t_info.s_info_out = out_sync_info_compute_histograms + i;
             t4[i] = new thread(&cv::cuda::HOG::thread_fine_compute_histograms,
                     gpu_hog, compute_histograms_node + i, fine_init_barrier,
                     t_info);
@@ -1329,12 +1371,16 @@ void App::sched_fine_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
             t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_normalize[i]);
             t_info.id = 3 * NUM_SCALE_LEVELS + i + 2;
             t_info.phase = t_info.phase + bounds_compute_hist[i];
+            t_info.s_info_in = in_sync_info_normalize + i;
+            t_info.s_info_out = out_sync_info_normalize + i;
             t5[i] = new thread(&cv::cuda::HOG::thread_fine_normalize_histograms,
                     gpu_hog, normalize_node + i, fine_init_barrier, t_info);
 
             t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_classify[i]);
             t_info.id = 4 * NUM_SCALE_LEVELS + i + 2;
             t_info.phase = t_info.phase + bounds_normalize[i];
+            t_info.s_info_in = in_sync_info_classify + i;
+            t_info.s_info_out = out_sync_info_classify + i;
             t6[i] = new thread(&cv::cuda::HOG::thread_fine_classify, gpu_hog,
                     classify_node + i, fine_init_barrier, t_info);
         }
