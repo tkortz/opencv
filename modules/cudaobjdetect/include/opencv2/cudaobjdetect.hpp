@@ -70,6 +70,7 @@ struct task_info
     int cluster;
     enum scheduling_option sched;
     bool realtime;
+    bool early;
 };
 
 /* Next, we define period and execution cost to be constant.

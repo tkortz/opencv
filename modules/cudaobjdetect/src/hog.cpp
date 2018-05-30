@@ -171,8 +171,8 @@ namespace cv { namespace cuda { namespace device
                                     bool correct_gamma,
                                     const cudaStream_t& stream);
 
-        void resize_8UC1(const cv::cuda::PtrStepSzb& src, cv::cuda::PtrStepSzb dst);
-        void resize_8UC4(const cv::cuda::PtrStepSzb& src, cv::cuda::PtrStepSzb dst);
+        void resize_8UC1(const cv::cuda::PtrStepSzb& src, cv::cuda::PtrStepSzb dst, const cudaStream_t& stream);
+        void resize_8UC4(const cv::cuda::PtrStepSzb& src, cv::cuda::PtrStepSzb dst, const cudaStream_t& stream);
     }
 }}}
 
@@ -436,6 +436,7 @@ namespace
 
     void* HOG_Impl::thread_fine_compute_scales(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info)
     {
+        fprintf(stdout, "node name: compute_scales, task id: %d, node tid: %d\n", t_info.id, gettid());
         node_t node = *_node;
 #ifdef LOG_DEBUG
         char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
@@ -490,7 +491,10 @@ namespace
             param.relative_deadline = ms2ns(t_info.relative_deadline);
             param.phase = ms2ns(t_info.phase);
             param.budget_policy = NO_ENFORCEMENT;
-            param.release_policy = TASK_EARLY; /* early releasing */
+            if (t_info.early)
+                param.release_policy = TASK_EARLY; /* early releasing */
+            else
+                param.release_policy = TASK_PERIODIC;
             param.cls = RT_CLASS_SOFT;
             param.priority = LITMUS_LOWEST_PRIORITY;
             if (t_info.cluster != -1)
@@ -603,13 +607,15 @@ namespace
         free(in_edge);
         free(out_edges);
         free(out_bufs);
-        CALL( task_mode(BACKGROUND_TASK) );
+        if (t_info.realtime)
+            CALL( task_mode(BACKGROUND_TASK) );
         pthread_exit(0);
     }
 
 
     void* HOG_Impl::thread_fine_resize(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info)
     {
+        fprintf(stdout, "node name: resize, task id: %d, node tid: %d\n", t_info.id, gettid());
         node_t node = *_node;
 #ifdef LOG_DEBUG
         char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
@@ -632,6 +638,7 @@ namespace
         if (out_buf == NULL)
             fprintf(stderr, "detect node out buffer is NULL\n");
 
+        Stream stream;
         GpuMat * smaller_img;
         GpuMat * gpu_img;
 
@@ -647,7 +654,10 @@ namespace
             param.relative_deadline = ms2ns(t_info.relative_deadline);
             param.phase = ms2ns(t_info.phase);
             param.budget_policy = NO_ENFORCEMENT;
-            param.release_policy = TASK_EARLY; /* early releasing */
+            if (t_info.early)
+                param.release_policy = TASK_EARLY; /* early releasing */
+            else
+                param.release_policy = TASK_PERIODIC;
             param.cls = RT_CLASS_SOFT;
             param.priority = LITMUS_LOWEST_PRIORITY;
             if (t_info.cluster != -1)
@@ -676,18 +686,19 @@ namespace
                      * resize image
                      */
                     unsigned long long curr_deadline;
-                    if (t_info.realtime && t_info.sched == fine_grained) {
-                        CALL(get_current_deadline(&curr_deadline));
-                        CALL(set_current_deadline(curr_deadline + param.period));
-                    }
                     if (smaller_img->size() != gpu_img->size())
                     {
                         switch (gpu_img->type())
                         {
-                            case CV_8UC1: hog::resize_8UC1(*gpu_img, *smaller_img); break;
-                            case CV_8UC4: hog::resize_8UC4(*gpu_img, *smaller_img); break;
+                            case CV_8UC1: hog::resize_8UC1(*gpu_img, *smaller_img, StreamAccessor::getStream(stream)); break;
+                            case CV_8UC4: hog::resize_8UC4(*gpu_img, *smaller_img, StreamAccessor::getStream(stream)); break;
                         }
                     }
+                    if (t_info.realtime && t_info.sched == fine_grained) {
+                        CALL(get_current_deadline(&curr_deadline));
+                        CALL(set_current_deadline(curr_deadline + param.period));
+                    }
+                    cudaStreamSynchronize(StreamAccessor::getStream(stream));
 
                     CV_Assert( smaller_img->type() == CV_8UC1 || smaller_img->type() == CV_8UC4 );
                     CV_Assert( win_stride_.width % block_stride_.width == 0 && win_stride_.height % block_stride_.height == 0 );
@@ -730,12 +741,14 @@ namespace
         free(in_edge);
         free(out_edge);
 
-        CALL( task_mode(BACKGROUND_TASK) );
+        if (t_info.realtime)
+            CALL( task_mode(BACKGROUND_TASK) );
         pthread_exit(0);
     }
 
     void* HOG_Impl::thread_fine_compute_gradients(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info)
     {
+        fprintf(stdout, "node name: compute_gradients, task id: %d, node tid: %d\n", t_info.id, gettid());
         node_t node = *_node;
 #ifdef LOG_DEBUG
         char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
@@ -774,7 +787,10 @@ namespace
             param.relative_deadline = ms2ns(t_info.relative_deadline);
             param.phase = ms2ns(t_info.phase);
             param.budget_policy = NO_ENFORCEMENT;
-            param.release_policy = TASK_EARLY; /* early releasing */
+            if (t_info.early)
+                param.release_policy = TASK_EARLY; /* early releasing */
+            else
+                param.release_policy = TASK_PERIODIC;
             param.cls = RT_CLASS_SOFT;
             param.priority = LITMUS_LOWEST_PRIORITY;
             if (t_info.cluster != -1)
@@ -875,12 +891,14 @@ namespace
         free(in_edge);
         free(out_edge);
 
-        CALL( task_mode(BACKGROUND_TASK) );
+        if (t_info.realtime)
+            CALL( task_mode(BACKGROUND_TASK) );
         pthread_exit(0);
     }
 
     void* HOG_Impl::thread_fine_compute_histograms(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info)
     {
+        fprintf(stdout, "node name: compute_histograms, task id: %d, node tid: %d\n", t_info.id, gettid());
         node_t node = *_node;
 #ifdef LOG_DEBUG
         char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
@@ -922,7 +940,10 @@ namespace
             param.relative_deadline = ms2ns(t_info.relative_deadline);
             param.phase = ms2ns(t_info.phase);
             param.budget_policy = NO_ENFORCEMENT;
-            param.release_policy = TASK_EARLY; /* early releasing */
+            if (t_info.early)
+                param.release_policy = TASK_EARLY; /* early releasing */
+            else
+                param.release_policy = TASK_PERIODIC;
             param.cls = RT_CLASS_SOFT;
             param.priority = LITMUS_LOWEST_PRIORITY;
             if (t_info.cluster != -1)
@@ -1016,12 +1037,14 @@ namespace
         free(in_edge);
         free(out_edge);
 
-        CALL( task_mode(BACKGROUND_TASK) );
+        if (t_info.realtime)
+            CALL( task_mode(BACKGROUND_TASK) );
         pthread_exit(0);
     }
 
     void* HOG_Impl::thread_fine_normalize_histograms(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info)
     {
+        fprintf(stdout, "node name: normalize_histograms, task id: %d, node tid: %d\n", t_info.id, gettid());
         node_t node = *_node;
 #ifdef LOG_DEBUG
         char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
@@ -1058,7 +1081,10 @@ namespace
             param.relative_deadline = ms2ns(t_info.relative_deadline);
             param.phase = ms2ns(t_info.phase);
             param.budget_policy = NO_ENFORCEMENT;
-            param.release_policy = TASK_EARLY; /* early releasing */
+            if (t_info.early)
+                param.release_policy = TASK_EARLY; /* early releasing */
+            else
+                param.release_policy = TASK_PERIODIC;
             param.cls = RT_CLASS_SOFT;
             param.priority = LITMUS_LOWEST_PRIORITY;
             if (t_info.cluster != -1)
@@ -1142,12 +1168,14 @@ namespace
 
         free(in_edge);
         free(out_edge);
-        CALL( task_mode(BACKGROUND_TASK) );
+        if (t_info.realtime)
+            CALL( task_mode(BACKGROUND_TASK) );
         pthread_exit(0);
     }
 
     void* HOG_Impl::thread_fine_classify(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info)
     {
+        fprintf(stdout, "node name: fine_classify, task id: %d, node tid: %d\n", t_info.id, gettid());
         node_t node = *_node;
 #ifdef LOG_DEBUG
         char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
@@ -1188,7 +1216,10 @@ namespace
             param.relative_deadline = ms2ns(t_info.relative_deadline);
             param.phase = ms2ns(t_info.phase);
             param.budget_policy = NO_ENFORCEMENT;
-            param.release_policy = TASK_EARLY; /* early releasing */
+            if (t_info.early)
+                param.release_policy = TASK_EARLY; /* early releasing */
+            else
+                param.release_policy = TASK_PERIODIC;
             param.cls = RT_CLASS_SOFT;
             param.priority = LITMUS_LOWEST_PRIORITY;
             if (t_info.cluster != -1)
@@ -1303,7 +1334,8 @@ namespace
 
         free(in_edge);
         free(out_edge);
-        CALL( task_mode(BACKGROUND_TASK) );
+        if (t_info.realtime)
+            CALL( task_mode(BACKGROUND_TASK) );
 
         pthread_exit(0);
     }
@@ -1316,7 +1348,7 @@ namespace
 
     void* HOG_Impl::thread_fine_collect_locations(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info)
     {
-        fprintf(stdout, "node tid: collect_locations(sink): %d\n", gettid());
+        fprintf(stdout, "node name: collect_locations(sink), task id: %d, node tid: %d\n", t_info.id, gettid());
         node_t node = *_node;
 #ifdef LOG_DEBUG
         char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
@@ -1364,7 +1396,10 @@ namespace
             param.relative_deadline = ms2ns(t_info.relative_deadline);
             param.phase = ms2ns(t_info.phase);
             param.budget_policy = NO_ENFORCEMENT;
-            param.release_policy = TASK_EARLY; /* early releasing */
+            if (t_info.early)
+                param.release_policy = TASK_EARLY; /* early releasing */
+            else
+                param.release_policy = TASK_PERIODIC;
             param.cls = RT_CLASS_SOFT;
             param.priority = LITMUS_LOWEST_PRIORITY;
             if (t_info.cluster != -1)
@@ -1501,13 +1536,15 @@ namespace
         free(in_edges);
         free(out_edge);
         free(in_bufs);
-        CALL( task_mode(BACKGROUND_TASK) );
+        if (t_info.realtime)
+            CALL( task_mode(BACKGROUND_TASK) );
         pthread_exit(0);
     }
 
 
     void* HOG_Impl::thread_unrolled_vxHOGCells(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info)
     {
+        fprintf(stdout, "node name: vxHOGCells, task id: %d, node tid: %d\n", t_info.id, gettid());
         node_t node = *_node;
 #ifdef LOG_DEBUG
         char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
@@ -1551,7 +1588,10 @@ namespace
             param.relative_deadline = ms2ns(t_info.relative_deadline);
             param.phase = ms2ns(t_info.phase);
             param.budget_policy = NO_ENFORCEMENT;
-            param.release_policy = TASK_EARLY; /* early releasing */
+            if (t_info.early)
+                param.release_policy = TASK_EARLY; /* early releasing */
+            else
+                param.release_policy = TASK_PERIODIC;
             param.cls = RT_CLASS_SOFT;
             param.priority = LITMUS_LOWEST_PRIORITY;
             if (t_info.cluster != -1)
@@ -1582,10 +1622,11 @@ namespace
                     {
                         switch (gpu_img->type())
                         {
-                            case CV_8UC1: hog::resize_8UC1(*gpu_img, *smaller_img); break;
-                            case CV_8UC4: hog::resize_8UC4(*gpu_img, *smaller_img); break;
+                            case CV_8UC1: hog::resize_8UC1(*gpu_img, *smaller_img, StreamAccessor::getStream(stream)); break;
+                            case CV_8UC4: hog::resize_8UC4(*gpu_img, *smaller_img, StreamAccessor::getStream(stream)); break;
                         }
                     }
+                    cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
 
                     CV_Assert( smaller_img->type() == CV_8UC1 || smaller_img->type() == CV_8UC4 );
                     CV_Assert( win_stride_.width % block_stride_.width == 0 &&
@@ -1683,7 +1724,8 @@ namespace
 
         free(in_edge);
         free(out_edge);
-        CALL( task_mode(BACKGROUND_TASK) );
+        if (t_info.realtime)
+            CALL( task_mode(BACKGROUND_TASK) );
 
         pthread_exit(0);
     }
@@ -1926,8 +1968,8 @@ namespace
                 smaller_img = pool.getBuffer(sz, img.type());
                 switch (img.type())
                 {
-                    case CV_8UC1: hog::resize_8UC1(img, smaller_img); break;
-                    case CV_8UC4: hog::resize_8UC4(img, smaller_img); break;
+                    case CV_8UC1: hog::resize_8UC1(img, smaller_img, StreamAccessor::getStream(Stream::Null())); break;
+                    case CV_8UC4: hog::resize_8UC4(img, smaller_img, StreamAccessor::getStream(Stream::Null())); break;
                 }
             }
 

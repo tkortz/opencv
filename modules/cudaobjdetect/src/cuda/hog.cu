@@ -859,7 +859,8 @@ namespace cv { namespace cuda { namespace device
         }
 
         template<class T, class TEX>
-        static void resize_for_hog(const PtrStepSzb& src, PtrStepSzb dst, TEX& tex)
+        static void resize_for_hog(const PtrStepSzb& src, PtrStepSzb dst, TEX&
+                tex, const cudaStream_t& stream)
         {
             tex.filterMode = cudaFilterModeLinear;
 
@@ -882,21 +883,29 @@ namespace cv { namespace cuda { namespace device
             float sx = static_cast<float>(src.cols) / dst.cols;
             float sy = static_cast<float>(src.rows) / dst.rows;
 
-            cudaStream_t stream;
-            cudaSafeCall(cudaStreamCreate(&stream));
+            //cudaStream_t stream;
+            //cudaSafeCall(cudaStreamCreate(&stream));
             resize_for_hog_kernel<<<grid, threads, 0, stream>>>(sx, sy, (PtrStepSz<T>)dst, colOfs);
             cudaSafeCall( cudaGetLastError() );
 
 
-            cudaSafeCall(cudaStreamSynchronize(stream));
-            cudaSafeCall(cudaStreamDestroy(stream));
+            //cudaSafeCall(cudaStreamSynchronize(stream));
+            //cudaSafeCall(cudaStreamDestroy(stream));
             //cudaSafeCall( cudaDeviceSynchronize() );
 
             cudaSafeCall( cudaUnbindTexture(tex) );
         }
 
-        void resize_8UC1(const PtrStepSzb& src, PtrStepSzb dst) { resize_for_hog<uchar> (src, dst, resize8UC1_tex); }
-        void resize_8UC4(const PtrStepSzb& src, PtrStepSzb dst) { resize_for_hog<uchar4>(src, dst, resize8UC4_tex); }
+        void resize_8UC1(const PtrStepSzb& src, PtrStepSzb dst, const
+                cudaStream_t& stream)
+        {
+            resize_for_hog<uchar> (src, dst, resize8UC1_tex, stream);
+        }
+        void resize_8UC4(const PtrStepSzb& src, PtrStepSzb dst, const
+                cudaStream_t& stream)
+        {
+            resize_for_hog<uchar4>(src, dst, resize8UC4_tex, stream);
+        }
     } // namespace hog
 }}} // namespace cv { namespace cuda { namespace cudev
 
