@@ -732,19 +732,19 @@ void App::sched_coarse_grained_unrolled_for_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, 
     thread** t3 = (thread**) calloc(NUM_SCALE_LEVELS, sizeof(std::thread *));
     thread** t4 = (thread**) calloc(NUM_SCALE_LEVELS, sizeof(std::thread *));
 
-    int bound_color_convert                   = 10;
-    int bound_compute_scales                  = 10;
-    int bounds_vxHOGCells  [NUM_SCALE_LEVELS] = {13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1};
-    int bounds_normalize   [NUM_SCALE_LEVELS] = {13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1};
-    int bounds_classify    [NUM_SCALE_LEVELS] = {13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1};
+    float bound_color_convert                   = 0;
+    float bound_compute_scales                  = 0;
+    float bounds_vxHOGCells  [NUM_SCALE_LEVELS] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    float bounds_normalize   [NUM_SCALE_LEVELS] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    float bounds_classify    [NUM_SCALE_LEVELS] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
     //int bound_collect_locations               = 10;
 
-    int cost_color_convert                   = 10;
-    int cost_compute_scales                  = 10;
-    int costs_vxHOGCells  [NUM_SCALE_LEVELS] = {13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1};
-    int costs_normalize   [NUM_SCALE_LEVELS] = {13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1};
-    int costs_classify    [NUM_SCALE_LEVELS] = {13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1};
-    int cost_collect_locations               = 10;
+    float cost_color_convert                   = 3.72;
+    float cost_compute_scales                  = 2.09;
+    float costs_vxHOGCells  [NUM_SCALE_LEVELS] = {0.11, 0.64, 0.75, 0.76, 0.86, 0.71, 0.61, 0.70, 0.70, 0.66, 0.60, 0.71, 1};
+    float costs_normalize   [NUM_SCALE_LEVELS] = {13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1};
+    float costs_classify    [NUM_SCALE_LEVELS] = {13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1};
+    float cost_collect_locations               = 10;
 
     struct task_info t_info;
     //int period = PERIOD * args.num_fine_graphs;
@@ -753,28 +753,28 @@ void App::sched_coarse_grained_unrolled_for_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, 
     t_info.realtime = args.realtime;
     t_info.sched = coarse_unrolled;
     t_info.period = PERIOD;
-    t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, cost_compute_scales);
+    t_info.relative_deadline = PERIOD; //FAIR_LATENESS_PP(m_cpus, t_info.period, cost_compute_scales);
     t_info.phase = bound_color_convert;
     t_info.cluster = args.cluster;
     t_info.id = 1;
     thread t1(&cv::cuda::HOG::thread_fine_compute_scales, gpu_hog, &compute_scales_node, &init_barrier, t_info);
     for (int i=0; i<NUM_SCALE_LEVELS; i++) {
-        t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_vxHOGCells[i]);
+        t_info.relative_deadline = PERIOD; //FAIR_LATENESS_PP(m_cpus, t_info.period, costs_vxHOGCells[i]);
         t_info.id = 0 * NUM_SCALE_LEVELS + i + 2;
         t_info.phase = bound_color_convert + bound_compute_scales;
         t2[i] = new thread(&cv::cuda::HOG::thread_unrolled_vxHOGCells, gpu_hog, &unrolled_vxHOGCells_node[i], &init_barrier, t_info);
 
-        t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_normalize[i]);
+        t_info.relative_deadline = PERIOD; //FAIR_LATENESS_PP(m_cpus, t_info.period, costs_normalize[i]);
         t_info.id = 1 * NUM_SCALE_LEVELS + i + 2;
         t_info.phase = t_info.phase + bounds_vxHOGCells[i];
         t3[i] = new thread(&cv::cuda::HOG::thread_fine_normalize_histograms, gpu_hog, &normalize_node[i], &init_barrier, t_info);
 
-        t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_classify[i]);
+        t_info.relative_deadline = PERIOD; //FAIR_LATENESS_PP(m_cpus, t_info.period, costs_classify[i]);
         t_info.id = 2 * NUM_SCALE_LEVELS + i + 2;
         t_info.phase = t_info.phase + bounds_normalize[i];
         t4[i] = new thread(&cv::cuda::HOG::thread_fine_classify, gpu_hog, &classify_node[i], &init_barrier, t_info);
     }
-    t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, cost_collect_locations);
+    t_info.relative_deadline = PERIOD; //FAIR_LATENESS_PP(m_cpus, t_info.period, cost_collect_locations);
     t_info.phase = t_info.phase + *std::max_element(bounds_classify, bounds_classify + NUM_SCALE_LEVELS);
     t_info.id = 3 * NUM_SCALE_LEVELS +  2;
     thread t5(&cv::cuda::HOG::thread_fine_collect_locations, gpu_hog, &collect_locations_node, &init_barrier, t_info);
@@ -804,7 +804,7 @@ void App::sched_coarse_grained_unrolled_for_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, 
     t_info.id = 0;
     if (args.realtime) {
         struct rt_task param;
-        t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, cost_color_convert);
+        t_info.relative_deadline = PERIOD; //FAIR_LATENESS_PP(m_cpus, t_info.period, cost_color_convert);
         t_info.phase = 0;
 
         if (t_info.cluster != -1)
@@ -1296,23 +1296,45 @@ void App::sched_fine_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
 
         pthread_barrier_init(fine_init_barrier, 0, 5 * NUM_SCALE_LEVELS + 4);
 
-        int bound_color_convert                   = 22;
-        int bound_compute_scales                  = 17;
-        int bounds_resize      [NUM_SCALE_LEVELS] = {16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16};
-        int bounds_compute_grad[NUM_SCALE_LEVELS] = {17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17};
-        int bounds_compute_hist[NUM_SCALE_LEVELS] = {17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 16, 17};
-        int bounds_normalize   [NUM_SCALE_LEVELS] = {16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16};
-        int bounds_classify    [NUM_SCALE_LEVELS] = {16, 16, 16, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17};
-        //int bound_collect_locations               = 10;
+        /* G-FL fine-grained HOG */
+        float bound_color_convert                   = 31.0194960215;
+        float bound_compute_scales                  = 30.5688293615;
+        float bounds_resize      [NUM_SCALE_LEVELS] = {30.2419972231,30.3148010256,30.2936775569,30.3079650324,30.2963991483,30.3058228698,30.3005336032,30.2888197835,30.293491626,30.2840584057,30.3013304497,30.3016323015,30.3111116087};
+        float bounds_compute_grad[NUM_SCALE_LEVELS] = {30.4902863291,30.44552396,30.4706995604,30.4291495557,30.4171804989,30.4135009326,30.3785928987,30.4059076714,30.3816881109,30.3627509567,30.3564101342,30.3519205285,30.3405616838};
+        float bounds_compute_hist[NUM_SCALE_LEVELS] = {30.5326861275,30.4951636278,30.5415047381,30.4958614402,30.5149987735,30.4750125581,30.5373623676,30.522424222,30.4851937235,30.4577396346,30.4263855713,30.4118414514,30.5202006157};
+        float bounds_normalize   [NUM_SCALE_LEVELS] = {30.2903383654,30.3080869341,30.2928467608,30.3064130287,30.3114078316,30.3120987837,30.2985990076,30.2803770804,30.3099685825,30.3123524377,30.2989110618,30.2943410679,30.3081075149};
+        float bounds_classify    [NUM_SCALE_LEVELS] = {30.4792191337,30.4948973087,30.4540269983,30.429525815,30.5229441951,30.5070612675,30.497249677,30.4955912512,30.4267037822,30.4508744413,30.430038752,30.3991297266,30.3767439685};
+        //float bound_collect_locations               30.983976896;
 
-        int cost_color_convert                   = 10;
-        int cost_compute_scales                  = 3;
-        int costs_resize      [NUM_SCALE_LEVELS] = {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1};
-        int costs_compute_grad[NUM_SCALE_LEVELS] = {2, 2, 2, 2, 2, 2, 2, 2, 2, 1, 1, 1, 1};
-        int costs_compute_hist[NUM_SCALE_LEVELS] = {2, 2, 2, 2, 2, 1, 2, 2, 2, 1, 1, 1, 2};
-        int costs_normalize   [NUM_SCALE_LEVELS] = {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1};
-        int costs_classify    [NUM_SCALE_LEVELS] = {1, 1, 1, 2, 2, 1, 1, 1, 1, 2, 1, 1, 2};
-        int cost_collect_locations               = 3;
+        /* G-FL fine-grained HOG */
+        float cost_color_convert                   = 4.509346;
+        float cost_compute_scales                  = 1.947347;
+        float costs_resize      [NUM_SCALE_LEVELS] = {0.089336,0.503219,0.383134,0.464357,0.398606,0.452179,0.42211,0.355518,0.382077,0.32845,0.42664,0.428356,0.482245};
+        float costs_compute_grad[NUM_SCALE_LEVELS] = {1.500837,1.246367,1.389488,1.15328,1.085237,1.064319,0.86587,1.021152,0.883466,0.77581,0.739763,0.71424,0.649666};
+        float costs_compute_hist[NUM_SCALE_LEVELS] = {1.741876,1.528564,1.792009,1.532531,1.641325,1.414007,1.76846,1.683538,1.471886,1.315812,1.137567,1.054885,1.670897};
+        float costs_normalize   [NUM_SCALE_LEVELS] = {0.364151,0.46505,0.378411,0.455534,0.483929,0.487857,0.411112,0.307522,0.475747,0.489299,0.412886,0.386906,0.465167};
+        float costs_classify    [NUM_SCALE_LEVELS] = {1.437921,1.52705,1.294706,1.155419,1.686494,1.596201,1.540423,1.530995,1.139376,1.276784,1.158335,0.98262,0.855359};
+        float cost_collect_locations               = 4.307423;
+
+        /* C-FL fine-grained HOG */
+        //float bound_color_convert                   = 26.3496352098;
+        //float bound_compute_scales                  = 25.6841982494;
+        //float bounds_resize      [NUM_SCALE_LEVELS] = {25.0939476981,25.1387935171,25.130189875,25.1357033275,25.1312621102,25.1463332249,25.1316714257,25.1302245094,25.1267072576,25.1262401226,25.1348909935,25.1432006726,25.1413123823};
+        //float bounds_compute_grad[NUM_SCALE_LEVELS] = {25.3489965402,25.4185896374,25.4092134479,25.4079932294,25.4051932818,25.4030496702,25.312479578,25.291207475,25.2868561354,25.2685316772,25.2518075571,25.246440943,25.2364255915};
+        //float bounds_compute_hist[NUM_SCALE_LEVELS] = {25.5728014354,25.4973631396,25.5123077387,25.471628638,25.3841716342,25.3274278981,25.4720253593,25.5328196023,25.4654399579,25.3426074958,25.4860697502,25.3209827517,25.4610373822};
+        //float bounds_normalize   [NUM_SCALE_LEVELS] = {25.1658996554,25.1786894798,25.1487118351,25.1680595823,25.1750299693,25.1885187788,25.1646279147,25.1649092834,25.1582577618,25.1765865135,25.1940356661,25.1748711091,25.179600851};
+        //float bounds_classify    [NUM_SCALE_LEVELS] = {25.2909527262,25.3017792668,25.4537335318,25.3216511097,25.4693284561,25.3272781973,25.3334016159,25.3265829333,25.3061011243,25.2757711248,25.2811148401,25.2748319888,25.3276382806};
+        ////float bound_collect_locations               26.204139258;
+
+        /////* C-FL fine-grained HOG */
+        //float cost_color_convert                   = 4.475663;
+        //float cost_compute_scales                  = 2.150868;
+        //float costs_resize      [NUM_SCALE_LEVELS] = {0.088747,0.245422,0.215364,0.234626,0.21911,0.271763,0.22054,0.215485,0.203197,0.201565,0.231788,0.260819,0.254222};
+        //float costs_compute_grad[NUM_SCALE_LEVELS] = {0.979795,1.222928,1.190171,1.185908,1.176126,1.168637,0.852218,0.777901,0.762699,0.69868,0.640252,0.621503,0.586513};
+        //float costs_compute_hist[NUM_SCALE_LEVELS] = {1.761688,1.498134,1.550345,1.408227,1.102684,0.904442,1.409613,1.622006,1.386606,0.957474,1.458679,0.881925,1.371225};
+        //float costs_normalize   [NUM_SCALE_LEVELS] = {0.340121,0.384804,0.280073,0.347667,0.372019,0.419144,0.335678,0.336661,0.313423,0.377457,0.438418,0.371464,0.387988};
+        //float costs_classify    [NUM_SCALE_LEVELS] = {0.777011,0.814835,1.345708,0.88426,1.400191,0.903919,0.925312,0.90149,0.829934,0.723972,0.742641,0.720691,0.905177};
+        //float cost_collect_locations               = 3.967353;
 
         /* | first graph release      | second graph release     | first graph release again
          *  <---------PERIOD--------->
@@ -1450,8 +1472,8 @@ void App::sched_fine_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
 
 void App::sched_etoe_hog_preload(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog, Mat* frames)
 {
-    fprintf(stdout, "node name: monolithic, task id: 0, node tid: color_convert(source): %d\n", gettid());
-    fprintf(stdout, "node name: monolithic, task id: 1, node tid: collect_locations(sink): %d\n", gettid());
+    fprintf(stdout, "node name: color_convert(source), task id: 0, node tid: %d\n", gettid());
+    fprintf(stdout, "node name: collect_locations(sink), task id: 1, node tid: %d\n", gettid());
 
     Size win_stride(args.win_stride_width, args.win_stride_height);
     Size win_size(args.win_width, args.win_width * 2);

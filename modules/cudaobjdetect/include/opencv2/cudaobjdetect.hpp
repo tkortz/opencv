@@ -69,10 +69,10 @@ struct task_info
 {
     int id;
     /* real-time parameters in milliseconds */
-    int period;
-    int phase;
+    float period;
+    float phase;
     /* fair-lateness priority point */
-    int relative_deadline;
+    float relative_deadline;
     int cluster;
     enum scheduling_option sched;
     bool realtime;

@@ -726,7 +726,7 @@ go_ahead:
 #ifdef LOG_DEBUG
                     fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
 #endif
-                    if (t_info.sched == fine_grained)
+                    if (t_info.sched == fine_grained && t_info.early)
                         gpu_period_guard(t_info.s_info_in, t_info.s_info_out);
 
                     smaller_img = in_buf->smaller_img;
@@ -861,7 +861,7 @@ go_ahead:
 #ifdef LOG_DEBUG
                     fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
 #endif
-                    if (t_info.sched == fine_grained)
+                    if (t_info.sched == fine_grained && t_info.early)
                         gpu_period_guard(t_info.s_info_in, t_info.s_info_out);
 
                     smaller_img = in_buf->smaller_img;
@@ -1016,7 +1016,7 @@ go_ahead:
 #ifdef LOG_DEBUG
                     fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
 #endif
-                    if (t_info.sched == fine_grained)
+                    if (t_info.sched == fine_grained && t_info.early)
                         gpu_period_guard(t_info.s_info_in, t_info.s_info_out);
 
                     smaller_img = in_buf->smaller_img;
@@ -1159,7 +1159,7 @@ go_ahead:
 #ifdef LOG_DEBUG
                     fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
 #endif
-                    if (t_info.sched == fine_grained)
+                    if (t_info.sched == fine_grained && t_info.early)
                         gpu_period_guard(t_info.s_info_in, t_info.s_info_out);
 
                     smaller_img = in_buf->smaller_img;
@@ -1296,7 +1296,7 @@ go_ahead:
 #ifdef LOG_DEBUG
                     fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
 #endif
-                    if (t_info.sched == fine_grained)
+                    if (t_info.sched == fine_grained && t_info.early)
                         gpu_period_guard(t_info.s_info_in, t_info.s_info_out);
 
                     smaller_img = in_buf->smaller_img;
