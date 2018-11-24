@@ -9,7 +9,7 @@ DAGs. Please see more details in
 
 Our implementation is based on LITMUS^RT, liblitmus, and PGM^RT, for which our
 code have not been upstreamed yet. So please find forked repositories of these
-projects in [my GitHub profile](https://github.com/Yougmark?tab=repositories).
+projects in my GitHub profile for [liblitmus](https://github.com/Yougmark/liblitmus/tree/rtss18-gpu-wip) and [LITMUS^RT](https://github.com/Yougmark/litmus-rt/tree/rtss18-gpu-wip).
 
 Our experiments were conducted with CUDA 9.1 and NVIDIA Driver 391 on Ubuntu
 16.04 with the kernel LITMUS^RT 2017.1.
