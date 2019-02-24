@@ -173,6 +173,8 @@ namespace cv { namespace cuda { namespace device
 
         void resize_8UC1(const cv::cuda::PtrStepSzb& src, cv::cuda::PtrStepSzb dst, const cudaStream_t& stream);
         void resize_8UC4(const cv::cuda::PtrStepSzb& src, cv::cuda::PtrStepSzb dst, const cudaStream_t& stream);
+        void resize_8UC1_thread_safe(const cv::cuda::PtrStepSzb& src, cv::cuda::PtrStepSzb dst, const cudaStream_t& stream, int index);
+        void resize_8UC4_thread_safe(const cv::cuda::PtrStepSzb& src, cv::cuda::PtrStepSzb dst, const cudaStream_t& stream, int index);
     }
 }}}
 
@@ -739,8 +741,8 @@ go_ahead:
                     {
                         switch (gpu_img->type())
                         {
-                            case CV_8UC1: hog::resize_8UC1(*gpu_img, *smaller_img, StreamAccessor::getStream(stream)); break;
-                            case CV_8UC4: hog::resize_8UC4(*gpu_img, *smaller_img, StreamAccessor::getStream(stream)); break;
+                            case CV_8UC1: hog::resize_8UC1_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index); break;
+                            case CV_8UC4: hog::resize_8UC4_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index); break;
                         }
                     }
                     if (t_info.realtime && t_info.sched == fine_grained) {
@@ -1680,8 +1682,8 @@ go_ahead:
                     {
                         switch (gpu_img->type())
                         {
-                            case CV_8UC1: hog::resize_8UC1(*gpu_img, *smaller_img, StreamAccessor::getStream(stream)); break;
-                            case CV_8UC4: hog::resize_8UC4(*gpu_img, *smaller_img, StreamAccessor::getStream(stream)); break;
+                            case CV_8UC1: hog::resize_8UC1_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index); break;
+                            case CV_8UC4: hog::resize_8UC4_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index); break;
                         }
                     }
                     cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));

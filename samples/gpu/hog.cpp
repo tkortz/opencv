@@ -589,9 +589,9 @@ void* App::thread_display(node_t* _node, pthread_barrier_t* init_barrier)
                     for (size_t i = 0; i < in_buf->found->size(); i++) {
                         Rect r = (*in_buf->found)[i];
                         rectangle(*in_buf->img_to_show, r.tl(), r.br(), Scalar(0, 255, 0), 3);
-#ifdef LOG_DEBUG
+//#ifdef LOG_DEBUG
                         fprintf(stdout, "point: %d, %d, %d, %d\n", r.tl().x, r.tl().y, r.br().x, r.br().y);
-#endif
+//#endif
                     }
 
                     if (use_gpu)
@@ -1581,6 +1581,7 @@ void App::sched_etoe_hog_preload(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
                 for (size_t i = 0; i < found->size(); i++) {
                     Rect r = (*found)[i];
                     rectangle(*img_to_show, r.tl(), r.br(), Scalar(0, 255, 0), 3);
+                    fprintf(stdout, "point: %d, %d, %d, %d\n", r.tl().x, r.tl().y, r.br().x, r.br().y);
                 }
 
                 if (use_gpu)

@@ -834,33 +834,109 @@ namespace cv { namespace cuda { namespace device
         //-------------------------------------------------------------------
         // Resize
 
+#define TEX_NUM 8
         texture<uchar4, 2, cudaReadModeNormalizedFloat> resize8UC4_tex;
         texture<uchar,  2, cudaReadModeNormalizedFloat> resize8UC1_tex;
+        texture<uchar, 2, cudaReadModeNormalizedFloat> resize8UC1_tex_local0;
+        texture<uchar, 2, cudaReadModeNormalizedFloat> resize8UC1_tex_local1;
+        texture<uchar, 2, cudaReadModeNormalizedFloat> resize8UC1_tex_local2;
+        texture<uchar, 2, cudaReadModeNormalizedFloat> resize8UC1_tex_local3;
+        texture<uchar, 2, cudaReadModeNormalizedFloat> resize8UC1_tex_local4;
+        texture<uchar, 2, cudaReadModeNormalizedFloat> resize8UC1_tex_local5;
+        texture<uchar, 2, cudaReadModeNormalizedFloat> resize8UC1_tex_local6;
+        texture<uchar, 2, cudaReadModeNormalizedFloat> resize8UC1_tex_local7;
+        texture<uchar4, 2, cudaReadModeNormalizedFloat> resize8UC4_tex_local0;
+        texture<uchar4, 2, cudaReadModeNormalizedFloat> resize8UC4_tex_local1;
+        texture<uchar4, 2, cudaReadModeNormalizedFloat> resize8UC4_tex_local2;
+        texture<uchar4, 2, cudaReadModeNormalizedFloat> resize8UC4_tex_local3;
+        texture<uchar4, 2, cudaReadModeNormalizedFloat> resize8UC4_tex_local4;
+        texture<uchar4, 2, cudaReadModeNormalizedFloat> resize8UC4_tex_local5;
+        texture<uchar4, 2, cudaReadModeNormalizedFloat> resize8UC4_tex_local6;
+        texture<uchar4, 2, cudaReadModeNormalizedFloat> resize8UC4_tex_local7;
 
-        __global__ void resize_for_hog_kernel(float sx, float sy, PtrStepSz<uchar> dst, int colOfs)
+        __global__ void resize_for_hog_kernel(float sx, float sy,
+                PtrStepSz<uchar> dst, int colOfs, int tex_index)
         {
             unsigned int x = blockIdx.x * blockDim.x + threadIdx.x;
             unsigned int y = blockIdx.y * blockDim.y + threadIdx.y;
 
             if (x < dst.cols && y < dst.rows)
-                dst.ptr(y)[x] = tex2D(resize8UC1_tex, x * sx + colOfs, y * sy) * 255;
+                switch(tex_index)
+                {
+                    case 0:
+                        dst.ptr(y)[x] = tex2D(resize8UC1_tex_local0, x * sx + colOfs, y * sy) * 255;
+                        break;
+                    case 1:
+                        dst.ptr(y)[x] = tex2D(resize8UC1_tex_local1, x * sx + colOfs, y * sy) * 255;
+                        break;
+                    case 2:
+                        dst.ptr(y)[x] = tex2D(resize8UC1_tex_local2, x * sx + colOfs, y * sy) * 255;
+                        break;
+                    case 3:
+                        dst.ptr(y)[x] = tex2D(resize8UC1_tex_local3, x * sx + colOfs, y * sy) * 255;
+                        break;
+                    case 4:
+                        dst.ptr(y)[x] = tex2D(resize8UC1_tex_local4, x * sx + colOfs, y * sy) * 255;
+                        break;
+                    case 5:
+                        dst.ptr(y)[x] = tex2D(resize8UC1_tex_local5, x * sx + colOfs, y * sy) * 255;
+                        break;
+                    case 6:
+                        dst.ptr(y)[x] = tex2D(resize8UC1_tex_local6, x * sx + colOfs, y * sy) * 255;
+                        break;
+                    case 7:
+                        dst.ptr(y)[x] = tex2D(resize8UC1_tex_local7, x * sx + colOfs, y * sy) * 255;
+                        break;
+                    default:
+                        return;
+                }
         }
 
-        __global__ void resize_for_hog_kernel(float sx, float sy, PtrStepSz<uchar4> dst, int colOfs)
+        __global__ void resize_for_hog_kernel(float sx, float sy,
+                PtrStepSz<uchar4> dst, int colOfs, int tex_index)
         {
             unsigned int x = blockIdx.x * blockDim.x + threadIdx.x;
             unsigned int y = blockIdx.y * blockDim.y + threadIdx.y;
 
             if (x < dst.cols && y < dst.rows)
             {
-                float4 val = tex2D(resize8UC4_tex, x * sx + colOfs, y * sy);
+                float4 val;
+                switch(tex_index)
+                {
+                    case 0:
+                        val = tex2D(resize8UC4_tex_local0, x * sx + colOfs, y * sy);
+                        break;
+                    case 1:
+                        val = tex2D(resize8UC4_tex_local1, x * sx + colOfs, y * sy);
+                        break;
+                    case 2:
+                        val = tex2D(resize8UC4_tex_local2, x * sx + colOfs, y * sy);
+                        break;
+                    case 3:
+                        val = tex2D(resize8UC4_tex_local3, x * sx + colOfs, y * sy);
+                        break;
+                    case 4:
+                        val = tex2D(resize8UC4_tex_local4, x * sx + colOfs, y * sy);
+                        break;
+                    case 5:
+                        val = tex2D(resize8UC4_tex_local5, x * sx + colOfs, y * sy);
+                        break;
+                    case 6:
+                        val = tex2D(resize8UC4_tex_local6, x * sx + colOfs, y * sy);
+                        break;
+                    case 7:
+                        val = tex2D(resize8UC4_tex_local7, x * sx + colOfs, y * sy);
+                        break;
+                    default:
+                        return;
+                }
                 dst.ptr(y)[x] = make_uchar4(val.x * 255, val.y * 255, val.z * 255, val.w * 255);
             }
         }
 
         template<class T, class TEX>
         static void resize_for_hog(const PtrStepSzb& src, PtrStepSzb dst, TEX&
-                tex, const cudaStream_t& stream)
+                tex, const cudaStream_t& stream, int tex_index)
         {
             tex.filterMode = cudaFilterModeLinear;
 
@@ -885,7 +961,7 @@ namespace cv { namespace cuda { namespace device
 
             //cudaStream_t stream;
             //cudaSafeCall(cudaStreamCreate(&stream));
-            resize_for_hog_kernel<<<grid, threads, 0, stream>>>(sx, sy, (PtrStepSz<T>)dst, colOfs);
+            resize_for_hog_kernel<<<grid, threads, 0, stream>>>(sx, sy, (PtrStepSz<T>)dst, colOfs, tex_index);
             cudaSafeCall( cudaGetLastError() );
 
 
@@ -893,18 +969,88 @@ namespace cv { namespace cuda { namespace device
             //cudaSafeCall(cudaStreamDestroy(stream));
             //cudaSafeCall( cudaDeviceSynchronize() );
 
-            cudaSafeCall( cudaUnbindTexture(tex) );
+            //cudaSafeCall( cudaUnbindTexture(tex) );
         }
 
         void resize_8UC1(const PtrStepSzb& src, PtrStepSzb dst, const
                 cudaStream_t& stream)
         {
-            resize_for_hog<uchar> (src, dst, resize8UC1_tex, stream);
+            resize_for_hog<uchar> (src, dst, resize8UC1_tex_local0, stream, 0);
         }
         void resize_8UC4(const PtrStepSzb& src, PtrStepSzb dst, const
                 cudaStream_t& stream)
         {
-            resize_for_hog<uchar4>(src, dst, resize8UC4_tex, stream);
+            resize_for_hog<uchar4>(src, dst, resize8UC4_tex_local0, stream, 0);
+        }
+
+        void resize_8UC1_thread_safe(const PtrStepSzb& src, PtrStepSzb dst, const
+                cudaStream_t& stream, int index)
+        {
+            int tex_index = index % TEX_NUM;
+            switch(tex_index)
+            {
+                case 0:
+                    resize_for_hog<uchar>(src, dst, resize8UC1_tex_local0, stream, tex_index);
+                    break;
+                case 1:
+                    resize_for_hog<uchar>(src, dst, resize8UC1_tex_local1, stream, tex_index);
+                    break;
+                case 2:
+                    resize_for_hog<uchar>(src, dst, resize8UC1_tex_local2, stream, tex_index);
+                    break;
+                case 3:
+                    resize_for_hog<uchar>(src, dst, resize8UC1_tex_local3, stream, tex_index);
+                    break;
+                case 4:
+                    resize_for_hog<uchar>(src, dst, resize8UC1_tex_local4, stream, tex_index);
+                    break;
+                case 5:
+                    resize_for_hog<uchar>(src, dst, resize8UC1_tex_local5, stream, tex_index);
+                    break;
+                case 6:
+                    resize_for_hog<uchar>(src, dst, resize8UC1_tex_local6, stream, tex_index);
+                    break;
+                case 7:
+                    resize_for_hog<uchar>(src, dst, resize8UC1_tex_local7, stream, tex_index);
+                    break;
+                default:
+                    return;
+            }
+        }
+
+        void resize_8UC4_thread_safe(const PtrStepSzb& src, PtrStepSzb dst, const
+                cudaStream_t& stream, int index)
+        {
+            int tex_index = index % TEX_NUM;
+            switch(tex_index)
+            {
+                case 0:
+                    resize_for_hog<uchar4>(src, dst, resize8UC4_tex_local0, stream, tex_index);
+                    break;
+                case 1:
+                    resize_for_hog<uchar4>(src, dst, resize8UC4_tex_local1, stream, tex_index);
+                    break;
+                case 2:
+                    resize_for_hog<uchar4>(src, dst, resize8UC4_tex_local2, stream, tex_index);
+                    break;
+                case 3:
+                    resize_for_hog<uchar4>(src, dst, resize8UC4_tex_local3, stream, tex_index);
+                    break;
+                case 4:
+                    resize_for_hog<uchar4>(src, dst, resize8UC4_tex_local4, stream, tex_index);
+                    break;
+                case 5:
+                    resize_for_hog<uchar4>(src, dst, resize8UC4_tex_local5, stream, tex_index);
+                    break;
+                case 6:
+                    resize_for_hog<uchar4>(src, dst, resize8UC4_tex_local6, stream, tex_index);
+                    break;
+                case 7:
+                    resize_for_hog<uchar4>(src, dst, resize8UC4_tex_local7, stream, tex_index);
+                    break;
+                default:
+                    return;
+            }
         }
     } // namespace hog
 }}} // namespace cv { namespace cuda { namespace cudev
