@@ -36,7 +36,7 @@ link_directories("/home/ming/litmus/liblitmus/")  						# change this to your pa
 
 4. Make build directory and get into it: `mkdir build && cd build`
 
-5. Prepare makefile with cmake: `cmake -D CMAKE_BUILD_TYPE=Release -D CMAKE_INSTALL_PREFIX=/usr/local -D WITH_CUDA=ON -D BUILD_EXAMPLES=Yes -D ENABLE_CXX11=Yes ..`
+5. Prepare makefile with cmake: `cmake -D CMAKE_BUILD_TYPE=Release -D CMAKE_INSTALL_PREFIX=/usr/local -D WITH_CUDA=ON -D BUILD_EXAMPLES=Yes -D ENABLE_CXX11=Yes ..`.  Use `-D CUDA_GENERATION=Name` to select CUDA generation it will compile for, e.g., Volta.
 
 6. Compile HOG: `make example_gpu_hog`
 
