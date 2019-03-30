@@ -34,7 +34,7 @@ link_directories("/home/ming/litmus/liblitmus/")  						# change this to your pa
 
 3. Follow [opencv document](https://docs.opencv.org/master/d7/d9f/tutorial_linux_install.html) to get required packages.
 
-4. Make build directory and get into it: `mkdir build & cd build`
+4. Make build directory and get into it: `mkdir build && cd build`
 
 5. Prepare makefile with cmake: `cmake -D CMAKE_BUILD_TYPE=Release -D CMAKE_INSTALL_PREFIX=/usr/local -D WITH_CUDA=ON -D BUILD_EXAMPLES=Yes -D ENABLE_CXX11=Yes ..`
 
