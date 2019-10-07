@@ -258,20 +258,20 @@ App::App(const Args& s)
 
     gamma_corr = args.gamma_corr;
 
-    cout << "Scale: " << scale << endl;
-    if (args.resize_src)
-        cout << "Resized source: (" << args.width << ", " << args.height << ")\n";
-    cout << "Group threshold: " << gr_threshold << endl;
-    cout << "Levels number: " << nlevels << endl;
-    cout << "Win size: (" << args.win_width << ", " << args.win_width*2 << ")\n";
-    cout << "Win stride: (" << args.win_stride_width << ", " << args.win_stride_height << ")\n";
-    cout << "Block size: (" << args.block_width << ", " << args.block_width << ")\n";
-    cout << "Block stride: (" << args.block_stride_width << ", " << args.block_stride_height << ")\n";
-    cout << "Cell size: (" << args.cell_width << ", " << args.cell_width << ")\n";
-    cout << "Bins number: " << args.nbins << endl;
-    cout << "Hit threshold: " << hit_threshold << endl;
-    cout << "Gamma correction: " << gamma_corr << endl;
-    cout << endl;
+    // cout << "Scale: " << scale << endl;
+    // if (args.resize_src)
+    //     cout << "Resized source: (" << args.width << ", " << args.height << ")\n";
+    // cout << "Group threshold: " << gr_threshold << endl;
+    // cout << "Levels number: " << nlevels << endl;
+    // cout << "Win size: (" << args.win_width << ", " << args.win_width*2 << ")\n";
+    // cout << "Win stride: (" << args.win_stride_width << ", " << args.win_stride_height << ")\n";
+    // cout << "Block size: (" << args.block_width << ", " << args.block_width << ")\n";
+    // cout << "Block stride: (" << args.block_stride_width << ", " << args.block_stride_height << ")\n";
+    // cout << "Cell size: (" << args.cell_width << ", " << args.cell_width << ")\n";
+    // cout << "Bins number: " << args.nbins << endl;
+    // cout << "Hit threshold: " << hit_threshold << endl;
+    // cout << "Gamma correction: " << gamma_corr << endl;
+    // cout << endl;
 }
 
 
@@ -290,28 +290,40 @@ void App::run()
     cv::HOGDescriptor cpu_hog(win_size, block_size, block_stride, cell_size, args.nbins);
 
     if(args.svm_load) {
-        std::vector<float> svm_model;
+        // std::vector<float> svm_model;
+        // const std::string model_file_name = args.svm;
+        // FileStorage ifs(model_file_name, FileStorage::READ);
+        // if (ifs.isOpened()) {
+        //     ifs["svm_detector"] >> svm_model;
+        // } else {
+        //     const std::string what =
+        //             "could not load model for hog classifier from file: "
+        //             + model_file_name;
+        //     throw std::runtime_error(what);
+        // }
+
+        // // check if the variables are initialized
+        // if (svm_model.empty()) {
+        //     const std::string what =
+        //             "HoG classifier: svm model could not be loaded from file"
+        //             + model_file_name;
+        //     throw std::runtime_error(what);
+        // }
+
+        // gpu_hog->setSVMDetector(svm_model);
+        // cpu_hog.setSVMDetector(svm_model);
+
         const std::string model_file_name = args.svm;
-        FileStorage ifs(model_file_name, FileStorage::READ);
-        if (ifs.isOpened()) {
-            ifs["svm_detector"] >> svm_model;
-        } else {
+        const std::string obj_name = "";
+        bool loaded_cpu = cpu_hog.load(model_file_name);
+        bool loaded_gpu = gpu_hog->load(model_file_name);
+        if (!loaded_cpu || !loaded_gpu)
+        {
             const std::string what =
                     "could not load model for hog classifier from file: "
                     + model_file_name;
             throw std::runtime_error(what);
         }
-
-        // check if the variables are initialized
-        if (svm_model.empty()) {
-            const std::string what =
-                    "HoG classifier: svm model could not be loaded from file"
-                    + model_file_name;
-            throw std::runtime_error(what);
-        }
-
-        gpu_hog->setSVMDetector(svm_model);
-        cpu_hog.setSVMDetector(svm_model);
     } else {
         // Create HOG descriptors and detectors here
         Mat detector = gpu_hog->getDefaultPeopleDetector();
@@ -319,6 +331,27 @@ void App::run()
         gpu_hog->setSVMDetector(detector);
         cpu_hog.setSVMDetector(detector);
     }
+
+    gr_threshold = gpu_hog->getGroupThreshold();
+    nlevels = gpu_hog->getNumLevels();
+    scale = gpu_hog->getScaleFactor();
+    hit_threshold = gpu_hog->getHitThreshold();
+    gamma_corr = gpu_hog->getGammaCorrection();
+
+    cout << "Scale: " << scale << endl;
+    if (args.resize_src)
+        cout << "Resized source: (" << args.width << ", " << args.height << ")\n";
+    cout << "Group threshold: " << gr_threshold << endl;
+    cout << "Levels number: " << nlevels << endl;
+    cout << "Win size: (" << cpu_hog.winSize.width << ", " << cpu_hog.winSize.height << ")\n";
+    cout << "Win stride: (" << args.win_stride_width << ", " << args.win_stride_height << ")\n";
+    cout << "Block size: (" << cpu_hog.blockSize.width << ", " << cpu_hog.blockSize.height << ")\n";
+    cout << "Block stride: (" << cpu_hog.blockStride.width << ", " << cpu_hog.blockStride.height << ")\n";
+    cout << "Cell size: (" << args.cell_width << ", " << args.cell_width << ")\n";
+    cout << "Bins number: " << args.nbins << endl;
+    cout << "Hit threshold: " << hit_threshold << endl;
+    cout << "Gamma correction: " << gamma_corr << endl;
+    cout << endl;
 
     cout << "gpusvmDescriptorSize : " << gpu_hog->getDescriptorSize()
          << endl;

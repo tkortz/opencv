@@ -193,6 +193,12 @@ namespace
                              OutputArray descriptors,
                              Stream& stream);
 
+        virtual bool read(FileNode& obj);
+        virtual void write(FileStorage& fs, const String& objName) const;
+
+        virtual bool load(const String& filename, const String& objname);
+        virtual void save(const String& filename, const String& objName) const;
+
     private:
         Size win_size_;
         Size block_size_;
@@ -586,6 +592,90 @@ namespace
                              cell_size_.width, cell_size_.height,
                              cells_per_block_.width, cells_per_block_.height,
                              StreamAccessor::getStream(stream));
+    }
+
+#define CV_TYPE_NAME_HOG_DESCRIPTOR "opencv-object-detector-hog"
+
+    bool HOG_Impl::read(FileNode& obj)
+    {
+        CV_Assert(!obj["winSize"].empty());
+
+        if( !obj.isMap() )
+            return false;
+        FileNodeIterator it = obj["winSize"].begin();
+        it >> win_size_.width >> win_size_.height;
+        it = obj["blockSize"].begin();
+        it >> block_size_.width >> block_size_.height;
+        it = obj["blockStride"].begin();
+        it >> block_stride_.width >> block_stride_.height;
+        it = obj["cellSize"].begin();
+        it >> cell_size_.width >> cell_size_.height;
+        obj["nbins"] >> nbins_;
+        // obj["derivAperture"] >> derivAperture;
+        obj["winSigma"] >> win_sigma_;
+        // obj["histogramNormType"] >> histogramNormType; // L2hys
+        obj["L2HysThreshold"] >> threshold_L2hys_;
+        obj["gammaCorrection"] >> gamma_correction_;
+        obj["nlevels"] >> nlevels_;
+        // if (obj["signedGradient"].empty())
+        //     signedGradient = false;
+        // else
+        //     obj["signedGradient"] >> signedGradient;
+
+        win_stride_ = block_stride_;
+        scale0_ = 1.05;
+        hit_threshold_ = 0.0;
+        group_threshold_ = 2;
+        descr_format_ = DESCR_FORMAT_COL_BY_COL;
+        cells_per_block_ = Size(block_size_.width / cell_size_.width, block_size_.height / cell_size_.height);
+
+        FileNode vecNode = obj["SVMDetector"];
+        if( vecNode.isSeq() )
+        {
+            std::vector<float> _svmDetector;
+            vecNode >> _svmDetector;
+            setSVMDetector(_svmDetector);
+        }
+        return true;
+    }
+
+    void HOG_Impl::write(FileStorage& fs, const String& objName) const
+    {
+        if( !objName.empty() )
+            fs << objName;
+
+        fs << "{" CV_TYPE_NAME_HOG_DESCRIPTOR
+        << "winSize" << win_size_
+        << "blockSize" << block_size_
+        << "blockStride" << block_stride_
+        << "cellSize" << cell_size_
+        << "nbins" << nbins_
+        // << "derivAperture" << derivAperture
+        << "winSigma" << getWinSigma()
+        // << "histogramNormType" << histogramNormType
+        << "L2HysThreshold" << threshold_L2hys_
+        << "gammaCorrection" << gamma_correction_
+        << "nlevels" << nlevels_;
+        // << "signedGradient" << signedGradient;
+        // if( !detector_.empty() ) { // tamert: fails to output detector used
+        //     OutputArray detector_array();
+        //     detector_.convertTo(detector_array, CV_32FC1);
+        //     fs << "SVMDetector" << detector_array;
+        // }
+        fs << "}";
+    }
+
+    bool HOG_Impl::load(const String& filename, const String& objname)
+    {
+        FileStorage fs(filename, FileStorage::READ);
+        FileNode obj = !objname.empty() ? fs[objname] : fs.getFirstTopLevelNode();
+        return read(obj);
+    }
+
+    void HOG_Impl::save(const String& filename, const String& objName) const
+    {
+        FileStorage fs(filename, FileStorage::WRITE);
+        write(fs, !objName.empty() ? objName : FileStorage::getDefaultObjectName(filename));
     }
 }
 

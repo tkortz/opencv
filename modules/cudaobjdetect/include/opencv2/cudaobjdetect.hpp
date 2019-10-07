@@ -186,6 +186,29 @@ public:
     virtual void compute(InputArray img,
                          OutputArray descriptors,
                          Stream& stream = Stream::Null()) = 0;
+
+    /** @brief Reads HOGDescriptor parameters from a file node.
+    @param fn File node
+    */
+    virtual bool read(FileNode& fn) = 0;
+
+    /** @brief Stores HOGDescriptor parameters in a file storage.
+    @param fs File storage
+    @param objname Object name
+    */
+    virtual void write(FileStorage& fs, const String& objname) const = 0;
+
+    /** @brief loads coefficients for the linear SVM classifier from a file
+    @param filename Name of the file to read.
+    @param objname The optional name of the node to read (if empty, the first top-level node will be used).
+    */
+    virtual bool load(const String& filename, const String& objname = String()) = 0;
+
+    /** @brief saves coefficients for the linear SVM classifier to a file
+    @param filename File name
+    @param objname Object name
+    */
+    virtual void save(const String& filename, const String& objname = String()) const = 0;
 };
 
 //
