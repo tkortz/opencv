@@ -54,6 +54,8 @@ public:
     int nbins;
 
     bool gamma_corr;
+
+    string bbox_filename;
 };
 
 
@@ -123,7 +125,8 @@ static void printHelp()
          << "  [--gamma_correct <int>] # do gamma correction or not\n"
          << "  [--write_video <bool>] # write video or not\n"
          << "  [--dst_video <path>] # output video path\n"
-         << "  [--dst_video_fps <double>] # output video fps\n";
+         << "  [--dst_video_fps <double>] # output video fps\n"
+         << "  [--bbox_filename <string>] # filename of bounding box results for ground truth\n";
     help_showed = true;
 }
 
@@ -224,6 +227,7 @@ Args Args::read(int argc, char** argv)
         else if (string(argv[i]) == "--camera") { args.camera_id = atoi(argv[++i]); args.src_is_camera = true; }
         else if (string(argv[i]) == "--folder") { args.src = argv[++i]; args.src_is_folder = true;}
         else if (string(argv[i]) == "--svm") { args.svm = argv[++i]; args.svm_load = true;}
+        else if (string(argv[i]) == "--bbox_filename") args.bbox_filename = argv[++i];
         else if (args.src.empty()) args.src = argv[i];
         else throw runtime_error((string("unknown key: ") + argv[i]));
     }
@@ -358,6 +362,76 @@ void App::run()
     cout << "cpusvmDescriptorSize : " << cpu_hog.getDescriptorSize()
          << endl;
 
+    // If a file of ground-truth bounding boxes has been supplied, pre-process it
+    vector<vector<vector<int>>> per_frame_bboxes;
+    if (!args.bbox_filename.empty())
+    {
+        ifstream bbox_file(args.bbox_filename);
+
+        int prev_frame = 0;
+        int start_frame = 0;
+        vector<vector<int>> current_frame_bboxes;
+
+        string line = "";
+        while (getline(bbox_file, line))
+        {
+            if (line.find("|") == string::npos)
+            {
+                continue;
+            }
+
+            // Get the info from this bounding box into a vector
+            vector<int> bbox_info;
+
+            size_t prev_pos = 0;
+            size_t pos = 0;
+
+            // Get the frame number
+            pos = line.find("|");
+            prev_pos = pos + 1;
+            int frame_num = stoi(line.substr(0, pos));
+
+            do
+            {
+                pos = line.find("|", prev_pos);
+
+                int val = stoi(line.substr(prev_pos, pos));
+                bbox_info.push_back(val);
+
+                prev_pos = pos + 1;
+            }
+            while (pos != string::npos);
+
+            // Check if this is the first line read (assume they're in order by frame)
+            if (start_frame == 0)
+            {
+                start_frame = frame_num;
+                prev_frame = frame_num;
+            }
+
+            // If this is the first bounding box we've seen from this frame, start a new vector
+            // (there might have been multiple frames without any detections)
+            for (int i = prev_frame; i < frame_num; i++)
+            {
+                per_frame_bboxes.push_back(current_frame_bboxes);
+                current_frame_bboxes = vector<vector<int>>();
+            }
+
+            // Add this bounding box to this frame's list
+            current_frame_bboxes.push_back(bbox_info);
+
+            prev_frame = frame_num;
+        }
+
+        cout << "Found bounding boxes starting at frame " << start_frame;
+        cout << " and going through frame " << prev_frame << endl;
+
+        cout << "First BBOX for vehicle ID=" << per_frame_bboxes[0][0][0] << endl;
+        cout << "Last frame contained " << per_frame_bboxes[per_frame_bboxes.size() - 1].size() << " vehicles" << endl;
+    }
+
+    unsigned frame_id = 0;
+
     while (running)
     {
         VideoCapture vc;
@@ -402,6 +476,8 @@ void App::run()
         Mat img_aux, img, img_to_show;
         cuda::GpuMat gpu_img;
 
+        frame_id = 0;
+
         // Iterate over all frames
         while (running && !frame.empty())
         {
@@ -419,25 +495,45 @@ void App::run()
 
             vector<Rect> found;
 
-            // Perform HOG classification
-            hogWorkBegin();
-            if (use_gpu)
+            // If a ground-truth file was provided, use that instead of HOG
+            if (!per_frame_bboxes.empty())
             {
-                gpu_img.upload(img);
-                gpu_hog->setNumLevels(nlevels);
-                gpu_hog->setHitThreshold(hit_threshold);
-                gpu_hog->setWinStride(win_stride);
-                gpu_hog->setScaleFactor(scale);
-                gpu_hog->setGroupThreshold(gr_threshold);
-                gpu_hog->detectMultiScale(gpu_img, found);
+                vector<vector<int>> bounding_boxes = per_frame_bboxes[frame_id];
+                // std::cout << frame_id << " vehicle IDs: ";// << bounding_boxes[0]
+
+                for (unsigned bb_idx = 0; bb_idx < bounding_boxes.size(); bb_idx++)
+                {
+                    vector<int> bbox = bounding_boxes[bb_idx];
+                    // cout << (bb_idx == 0 ? "" : ",") << bbox[0];
+                    Rect r(bbox[1], bbox[3], bbox[2] - bbox[1], bbox[4] - bbox[3]);
+                    found.push_back(r);
+                }
+                // std::cout << endl;
             }
             else
             {
-                cpu_hog.nlevels = nlevels;
-                cpu_hog.detectMultiScale(img, found, hit_threshold, win_stride,
-                                         Size(0, 0), scale, gr_threshold);
+                // Perform HOG classification
+                hogWorkBegin();
+                if (use_gpu)
+                {
+                    gpu_img.upload(img);
+                    gpu_hog->setNumLevels(nlevels);
+                    gpu_hog->setHitThreshold(hit_threshold);
+                    gpu_hog->setWinStride(win_stride);
+                    gpu_hog->setScaleFactor(scale);
+                    gpu_hog->setGroupThreshold(gr_threshold);
+                    gpu_hog->detectMultiScale(gpu_img, found);
+                }
+                else
+                {
+                    cpu_hog.nlevels = nlevels;
+                    cpu_hog.detectMultiScale(img, found, hit_threshold, win_stride,
+                                            Size(0, 0), scale, gr_threshold);
+                }
+                hogWorkEnd();
             }
-            hogWorkEnd();
+
+            frame_id++;
 
             // Draw positive classified windows
             for (size_t i = 0; i < found.size(); i++)
