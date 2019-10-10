@@ -15,6 +15,34 @@ using namespace cv;
 
 bool help_showed = false;
 
+// Assign IDs to tracks
+unsigned int nextTrackId = 0;
+
+class Track
+{
+public:
+    Track(Rect &bbox, double score);
+
+    unsigned int id;
+
+    Scalar color;
+
+    std::vector<Rect> bboxes;
+    std::vector<double> scores;
+
+    Point2d (*motionModel)(Track &track);
+
+    unsigned int age;
+    unsigned int totalVisibleCount;
+
+    double maxConfidence;
+    double avgConfidence;
+
+    Rect predPosition;
+};
+
+Point2d constantVelocityMotionModel(Track &track);
+
 class Args
 {
 public:
@@ -55,6 +83,13 @@ public:
 
     bool gamma_corr;
 
+    // Configuration options for tracking
+    double costOfNonAssignment;
+    unsigned int timeWindowSize;
+    unsigned int trackAgeThreshold;
+    double trackVisibilityThreshold;
+    double trackConfidenceThreshold;
+
     string bbox_filename;
 };
 
@@ -76,6 +111,30 @@ public:
     string workFps() const;
 
     string message() const;
+
+    // Tracking functions
+    void predictNewLocationsOfTracks(vector<Track> &tracks);
+
+    void detectionToTrackAssignment(vector<Rect> &detections, vector<Track> &tracks, vector<int> &assignments, vector<unsigned int> &unassignedTracks, vector<unsigned int> &unassignedDetections, cv::Ptr<cv::cuda::HOG> gpu_hog);
+
+    void updateAssignedTracks(vector<Track> &tracks, vector<Rect> &detections, vector<double> &confidenceScores, vector<int> &assignments);
+    void updateUnassignedTracks(vector<Track> &tracks, vector<unsigned int> &unassignedTracks);
+    void deleteLostTracks(vector<Track> &tracks);
+    void createNewTracks(vector<Track> &tracks, vector<Rect> &detections, vector<unsigned int> &unassignedDetections, vector<double> &confidenceScores);
+
+    // Helper functions
+    inline bool equalsZero(double val)
+    {
+        // return val == 0.0;
+        return (val < 0.0) ? (val > -0.00000001) : (val < 0.00000001);
+    }
+
+    void calculateCostMatrix(vector<Track> &tracks, vector<Rect> &detections, vector<vector<double>> &costMatrix);
+    void classifyAssignments(vector<unsigned int> &assignmentPerRow, unsigned int numTracks, unsigned int numDetections,
+                            vector<int> &assignments, vector<unsigned int> &unassignedTracks, vector<unsigned int> &unassignedDetections);
+    void solveAssignmentProblem(vector<vector<double>> &costMatrix, unsigned int numTracks, unsigned int numDetections,
+                                vector<int> &assignments, vector<unsigned int> &unassignedTracks, vector<unsigned int> &unassignedDetections);
+    void updateTrackConfidence(Track *track);
 
 private:
     App operator=(App&);
@@ -190,6 +249,13 @@ Args::Args()
     nbins = 9;
 
     gamma_corr = true;
+
+    // Configuration options for tracking
+    costOfNonAssignment = 10.0;
+    timeWindowSize = 16;
+    trackAgeThreshold = 4;//8;
+    trackVisibilityThreshold = 0.3; //0.4;//0.6;
+    trackConfidenceThreshold = -1.0;
 }
 
 
@@ -432,6 +498,8 @@ void App::run()
 
     unsigned frame_id = 0;
 
+    std::vector<Track> tracks;
+
     while (running)
     {
         VideoCapture vc;
@@ -533,13 +601,85 @@ void App::run()
                 hogWorkEnd();
             }
 
-            frame_id++;
+            /* ==========================
+            *   Beginning of tracking
+            * =========================== */
+
+            // Reset the tracks at the beginning of the input
+            if (frame_id == 0)
+            {
+                tracks.clear();
+            }
+
+            // Predict the new locations of the tracks
+            App::predictNewLocationsOfTracks(tracks);
+
+            std::vector<double> confidences;
+
+            // Use predicted track positions to map current detections to existing tracks
+            std::vector<int> assignments;
+            std::vector<unsigned int> unassignedTracks, unassignedDetections;
+            App::detectionToTrackAssignment(found, tracks, assignments,
+                                            unassignedTracks, unassignedDetections, gpu_hog);
+
+            // Update the tracks (assigned and unassigned), delete any tracks that
+            // are lost enough, and create new tracks for unassigned detections
+            App::updateAssignedTracks(tracks, found, confidences, assignments);
+            App::updateUnassignedTracks(tracks, unassignedTracks);
+            App::deleteLostTracks(tracks);
+            App::createNewTracks(tracks, found, unassignedDetections, confidences);
+
+            /*
+            * end of tracking
+            * =========================== */
+
+            this->frame_id++;
 
             // Draw positive classified windows
-            for (size_t i = 0; i < found.size(); i++)
+            // for (size_t i = 0; i < found.size(); i++)
+            // {
+            //     Rect r = found[i];
+            //     rectangle(img_to_show, r.tl(), r.br(), Scalar(0, 255, 0), 3);
+            // }
+
+            // If tracking was successful, draw rectangles for tracking
+            if (tracks.size() > 0)
             {
-                Rect r = found[i];
-                rectangle(img_to_show, r.tl(), r.br(), Scalar(0, 255, 0), 3);
+                for (unsigned int trackIdx = 0; trackIdx < tracks.size(); trackIdx++)
+                {
+                    Track *track = &((tracks)[trackIdx]);
+
+                    // Don't draw tracks that are too new and/or with too low confidence
+                    if ((track->age < args.trackAgeThreshold && track->maxConfidence < args.trackConfidenceThreshold) ||
+                        (track->age < args.trackAgeThreshold / 2))
+                    {
+                        continue;
+                    }
+
+                    // double opacity = ((track->avgConfidence / 3.0 > 1.0) ? track->avgConfidence / 3.0 : 1.0) < 0.5 ?
+                    //                 ((track->avgConfidence / 3.0 > 1.0) ? track->avgConfidence / 3.0 : 1.0) :
+                    //                 0.5;
+
+                    // Draw the centroid of prior rectangles
+                    for (unsigned int bboxIdx = 0; bboxIdx < track->bboxes.size() - 1; bboxIdx++)
+                    {
+                        int centroid_alpha = (int)((float)bboxIdx / track->bboxes.size() * 255);
+                        Scalar color = Scalar(track->color[0], track->color[1], track->color[2], centroid_alpha);
+
+                        Rect *bbox = &(track->bboxes[bboxIdx]);
+                        Point2d centroid(bbox->x + bbox->width/2, bbox->y + bbox->height/2);
+                        rectangle(img_to_show, centroid, centroid, color, 2);
+                    }
+
+                    // Draw the rectangle
+                    Rect r = track->bboxes.back();
+                    rectangle(img_to_show, r.tl(), r.br(), track->color, 2);
+
+                    // Display the average confidence
+                    Point textPoint(track->bboxes.back().x + track->bboxes.back().width / 2,
+                                    track->bboxes.back().y + track->bboxes.back().height / 2);
+                    //putText(img_to_show, confidenceText(track->avgConfidence), textPoint, FONT_HERSHEY_SIMPLEX, 1., track->color, 2);
+                }
             }
 
             if (use_gpu)
@@ -678,4 +818,580 @@ inline string App::workFps() const
     stringstream ss;
     ss << work_fps;
     return ss.str();
+}
+
+void App::predictNewLocationsOfTracks(vector<Track> &tracks)
+{
+    for (unsigned int i = 0; i < tracks.size(); i++)
+    {
+        // Get the last bounding box on this track
+        Rect &bbox = tracks[i].bboxes.back();
+
+        // Predict tthe current location of the track
+        Point2d predictedCentroid = tracks[i].motionModel(tracks[i]);
+
+        // Shift the bounding box so that its center is at the predicted
+        // location
+        tracks[i].predPosition = Rect(Point2d(predictedCentroid.x - bbox.width / 2,
+                                              predictedCentroid.y - bbox.height / 2),
+                                      bbox.size());
+    }
+}
+
+void App::calculateCostMatrix(vector<Track> &tracks, vector<Rect> &detections, vector<vector<double>> &costMatrix)
+{
+    // Iterate over each track-detection pair
+    for (unsigned int i = 0; i < tracks.size(); i++)
+    {
+        costMatrix.push_back(vector<double>());
+
+        Rect predBbox = tracks[i].predPosition;
+        for (unsigned int j = 0; j < detections.size(); j++)
+        {
+            Rect bbox = detections[j];
+
+            // Compute the boundaries of the intersecting region
+            double xleft = std::max(predBbox.tl().x, bbox.tl().x);
+            double xright = std::min(predBbox.br().x, bbox.br().x);
+            double ytop = std::max(predBbox.tl().y, bbox.tl().y);
+            double ybottom = std::min(predBbox.br().y, bbox.br().y);
+
+            // Check for no overlap
+            if ((xright < xleft) || (ybottom < ytop))
+            {
+                // Cost = 1 - overlap
+                costMatrix[i].push_back(1.0);
+                continue;
+            }
+
+            // Otherwise, compute the area of the intersection and union
+            double intersectionArea = (xright - xleft) * (ybottom - ytop);
+            double unionArea = predBbox.area() + bbox.area() - intersectionArea;
+
+            // Finally, compute the overlap (in [0,1]) as intersection/union
+            double overlap = intersectionArea / unionArea;
+
+            // Again, cost = 1 - overlap
+            costMatrix[i].push_back(1.0 - overlap);
+        }
+    }
+}
+
+void App::classifyAssignments(vector<unsigned int> &assignmentPerRow, unsigned int numTracks, unsigned int numDetections,
+                              vector<int> &assignments, vector<unsigned int> &unassignedTracks, vector<unsigned int> &unassignedDetections)
+{
+    std::vector<bool> isDetectionAssigned(numDetections, false);
+    for (unsigned int i = 0; i < numTracks; i++)
+    {
+        if (assignmentPerRow[i] < numDetections)
+        {
+            assignments.push_back(assignmentPerRow[i]);
+
+            isDetectionAssigned[assignmentPerRow[i]] = true;
+        }
+        else
+        {
+            assignments.push_back(-1);
+            unassignedTracks.push_back(i);
+        }
+    }
+
+    for (unsigned int i = 0; i < numDetections; i++)
+    {
+        if (!isDetectionAssigned[i])
+        {
+            unassignedDetections.push_back(i);
+        }
+    }
+}
+
+void App::solveAssignmentProblem(vector<vector<double>> &costMatrix, unsigned int numTracks, unsigned int numDetections,
+                                 vector<int> &assignments, vector<unsigned int> &unassignedTracks, vector<unsigned int> &unassignedDetections)
+{
+    double hugeNumber = 10000000.0;
+
+    // First, expand the cost matrix to be square (columns first; detections)
+    for (unsigned int i = 0; i < numTracks; i++)
+    {
+        for (unsigned int j = 0; j < numTracks; j++)
+        {
+            if (i == j)
+            {
+                costMatrix[i].push_back(args.costOfNonAssignment);
+            }
+            else
+            {
+                costMatrix[i].push_back(hugeNumber);
+            }
+        }
+    }
+
+    // ... and expand the rows (tracks)
+    for (unsigned int i = 0; i < numDetections; i++)
+    {
+        costMatrix.push_back(vector<double>());
+
+        for (unsigned int j = 0; j < numDetections; j++)
+        {
+            if (i == j)
+            {
+                costMatrix[numTracks + i].push_back(args.costOfNonAssignment);
+            }
+            else
+            {
+                costMatrix[numTracks + i].push_back(hugeNumber);
+            }
+        }
+
+        // Also fill in the 0s in the bottom-right while we're here
+        for (unsigned int j = 0; j < numTracks; j++)
+        {
+            costMatrix[numTracks + i].push_back(0.0);
+        }
+    }
+
+    unsigned int n = costMatrix.size();
+    std::vector<unsigned int> assignmentPerRow(n, n); // default to n for each index (invalid)
+
+    if (n == 0)
+    {
+        App::classifyAssignments(assignmentPerRow, numTracks, numDetections, assignments, unassignedTracks, unassignedDetections);
+
+        std::cout << "No assignment of detections to tracks to do." << std::endl;
+
+        return;
+    }
+
+    // Step 1: subtract the row minima
+    for (unsigned int rowIdx = 0; rowIdx < n; rowIdx++)
+    {
+        double minElt = hugeNumber;
+        for (unsigned int colIdx = 0; colIdx < n; colIdx++)
+        {
+            minElt = (costMatrix[rowIdx][colIdx] < minElt) ? costMatrix[rowIdx][colIdx] : minElt;
+        }
+
+        for (unsigned int colIdx = 0; colIdx < n; colIdx++)
+        {
+            costMatrix[rowIdx][colIdx] -= minElt;
+        }
+    }
+
+    // Step 2: subtract the column minima
+    for (unsigned int colIdx = 0; colIdx < n; colIdx++)
+    {
+        double minElt = hugeNumber;
+        for (unsigned int rowIdx = 0; rowIdx < n; rowIdx++)
+        {
+            minElt = (costMatrix[rowIdx][colIdx] < minElt) ? costMatrix[rowIdx][colIdx] : minElt;
+        }
+
+        for (unsigned int rowIdx = 0; rowIdx < n; rowIdx++)
+        {
+            costMatrix[rowIdx][colIdx] -= minElt;
+        }
+    }
+
+    // Repeat until done
+    int repeatCount = 0;
+    while (true)
+    {
+        //cout << endl << repeatCount++ << endl;
+
+        // Check for a completed assignment
+        std::vector<bool> isRowAssigned(n, false);
+        std::vector<bool> isColAssigned(n, false);
+
+        unsigned int numAssigned = 0;
+        assignmentPerRow.assign(n, n);
+
+        // Assign as many rows as possible
+        bool madeAssignment = true;
+        while (madeAssignment)
+        {
+            madeAssignment = false;
+
+            // First, make a pass over rows with only one available 0
+            for (unsigned int rowIdx = 0; rowIdx < n; rowIdx++)
+            {
+                if (isRowAssigned[rowIdx]) { continue; }
+
+                std::vector<unsigned int> zeroIdxs;
+                for (unsigned int colIdx = 0; colIdx < n; colIdx++)
+                {
+                    if (App::equalsZero(costMatrix[rowIdx][colIdx]))// and !isColAssigned[colIdx])
+                    {
+                        zeroIdxs.push_back(colIdx);
+                    }
+                }
+
+                //if (zeroIdxs.size() == 1)
+                if (zeroIdxs.size() == 1 && !isColAssigned[zeroIdxs[0]])
+                {
+                    unsigned int colIdx = zeroIdxs[0];
+                    isRowAssigned[rowIdx] = true;
+                    isColAssigned[colIdx] = true;
+
+                    assignmentPerRow[rowIdx] = colIdx;
+                    madeAssignment = true;
+                    numAssigned++;
+                }
+            }
+
+            // Next, make a pass over columns with only one available 0
+            for (unsigned int colIdx = 0; colIdx < n; colIdx++)
+            {
+                if (isColAssigned[colIdx]) { continue; }
+
+                std::vector<unsigned int> zeroIdxs;
+                for (unsigned int rowIdx = 0; rowIdx < n; rowIdx++)
+                {
+                    if (App::equalsZero(costMatrix[rowIdx][colIdx]))// and !isRowAssigned[rowIdx])
+                    {
+                        zeroIdxs.push_back(rowIdx);
+                    }
+                }
+
+                //if (zeroIdxs.size() == 1)
+                if (zeroIdxs.size() == 1 && !isRowAssigned[zeroIdxs[0]])
+                {
+                    unsigned int rowIdx = zeroIdxs[0];
+                    isRowAssigned[rowIdx] = true;
+                    isColAssigned[colIdx] = true;
+
+                    assignmentPerRow[rowIdx] = colIdx;
+                    madeAssignment = true;
+                    numAssigned++;
+                }
+            }
+
+            // Finally, if no assignments have been made yet this round, check
+            // all rows and columns
+            if (!madeAssignment)
+            {
+                for (unsigned int rowIdx = 0; rowIdx < n; rowIdx++)
+                {
+                    if (isRowAssigned[rowIdx]) { continue; }
+
+                    std::vector<unsigned int> zeroIdxs;
+                    for (unsigned int colIdx = 0; colIdx < n; colIdx++)
+                    {
+                        //if (costMatrix[rowIdx][colIdx] == 0.0 and !isColAssigned[colIdx])
+                        if (App::equalsZero(costMatrix[rowIdx][colIdx]))
+                        {
+                            zeroIdxs.push_back(colIdx);
+                        }
+                    }
+
+                    for (unsigned int zeroIdx = 0; zeroIdx < zeroIdxs.size(); zeroIdx++)
+                    {
+                        unsigned int colIdx = zeroIdxs[zeroIdx];
+                        if (!isColAssigned[colIdx])
+                        {
+                            isRowAssigned[rowIdx] = true;
+                            isColAssigned[colIdx] = true;
+
+                            assignmentPerRow[rowIdx] = colIdx;
+                            madeAssignment = true;
+                            numAssigned++;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        // If all rows are assigned, we're done
+        if (numAssigned == n)
+        {
+            break;
+        }
+
+        // Step 3: cover all zeros with a minimum number of "lines"
+        std::vector<bool> isRowMarked(n, false);
+        std::vector<bool> isColMarked(n, false);
+
+        for (unsigned int rowIdx = 0; rowIdx < n; rowIdx++)
+        {
+            if (!isRowAssigned[rowIdx])
+            {
+                isRowMarked[rowIdx] = true;
+            }
+        }
+
+        while (true)
+        {
+            unsigned int newlyMarkedColCount = 0;
+
+            for (unsigned int rowIdx = 0; rowIdx < n; rowIdx++)
+            {
+                if (!isRowMarked[rowIdx]) { continue; }
+
+                for (unsigned int colIdx = 0; colIdx < n; colIdx++)
+                {
+                    if (App::equalsZero(costMatrix[rowIdx][colIdx]) &&
+                        !isColMarked[colIdx])
+                    {
+                        isColMarked[colIdx] = true;
+                        newlyMarkedColCount++;
+                    }
+                }
+            }
+
+            for (unsigned int colIdx = 0; colIdx < n; colIdx++)
+            {
+                if (!isColMarked[colIdx]) { continue; }
+
+                for (unsigned int otherRowIdx = 0; otherRowIdx < n; otherRowIdx++)
+                {
+                    if (assignmentPerRow[otherRowIdx] == colIdx)
+                    {
+                        isRowMarked[otherRowIdx] = true;
+                    }
+                }
+            }
+
+            if (newlyMarkedColCount == 0)
+            {
+                break;
+            }
+        }
+
+        std::vector<bool> isRowCovered(n, false);
+        for (unsigned int rowIdx = 0; rowIdx < n; rowIdx++)
+        {
+            isRowCovered[rowIdx] = !isRowMarked[rowIdx];
+        }
+
+        std::vector<bool> isColCovered(isColMarked);
+
+        // Step 4: create additional zeros
+        double minUncoveredElt = hugeNumber;
+        for (unsigned int rowIdx = 0; rowIdx < n; rowIdx++)
+        {
+            if (isRowCovered[rowIdx]) { continue; }
+
+            for (unsigned int colIdx = 0; colIdx < n; colIdx++)
+            {
+                if (isColCovered[colIdx]) { continue; }
+
+                minUncoveredElt = (costMatrix[rowIdx][colIdx] < minUncoveredElt) ? costMatrix[rowIdx][colIdx] : minUncoveredElt;
+            }
+        }
+
+        // Subtract the minimum uncovered element from all uncovered elements,
+        // and add it to all elements covered twice
+        for (unsigned int rowIdx = 0; rowIdx < n; rowIdx++)
+        {
+            for (unsigned int colIdx = 0; colIdx < n; colIdx++)
+            {
+                if (!isRowCovered[rowIdx] && !isColCovered[colIdx])
+                {
+                    costMatrix[rowIdx][colIdx] -= minUncoveredElt;
+                }
+                else if (isRowCovered[rowIdx] && isColCovered[colIdx])
+                {
+                    costMatrix[rowIdx][colIdx] += minUncoveredElt;
+                }
+            }
+        }
+    }
+
+    App::classifyAssignments(assignmentPerRow, numTracks, numDetections,
+                             assignments, unassignedTracks, unassignedDetections);
+}
+
+void App::detectionToTrackAssignment(vector<Rect> &detections, vector<Track> &tracks, vector<int> &assignments, vector<unsigned int> &unassignedTracks, vector<unsigned int> &unassignedDetections, cv::Ptr<cv::cuda::HOG> gpu_hog)
+{
+    // Compute the cost (based on overlap ratio) of assigning each detection to
+    // each track - store results in #tracks x #detections matrix
+    vector<vector<double>> costMatrix; // per track, then per detection
+    App::calculateCostMatrix(tracks, detections, costMatrix);
+    vector<Rect> trackRects;
+    for (unsigned i = 0; i < tracks.size(); i++)
+    {
+        trackRects.push_back(tracks[i].predPosition);
+    }
+
+    // TODO: add gating cost
+
+    // Solve assignment, taking into account the cost of not assigning
+    // any detections to a given track
+    App::solveAssignmentProblem(costMatrix, tracks.size(), detections.size(),
+                                assignments, unassignedTracks, unassignedDetections);
+}
+
+void App::updateTrackConfidence(Track *track)
+{
+    unsigned int numScoresToUse = (track->scores.size() < args.timeWindowSize) ? track->scores.size() : args.timeWindowSize;
+    double maxScore = 0.0, sumScores = 0.0;
+    for (unsigned int scoreIdx = track->scores.size() - numScoresToUse; scoreIdx < track->scores.size(); scoreIdx++)
+    {
+        double score = track->scores[scoreIdx];
+        sumScores += score;
+
+        if (score > maxScore)
+        {
+            maxScore = score;
+        }
+    }
+
+    track->maxConfidence = maxScore;
+    track->avgConfidence = sumScores / numScoresToUse;
+}
+
+/*
+ * Updates the assigned tracks with the corresponding detections.
+ */
+void App::updateAssignedTracks(vector<Track> &tracks, vector<Rect> &detections, vector<double> &confidenceScores, vector<int> &assignments)
+{
+    for (unsigned int trackIdx = 0; trackIdx < tracks.size(); trackIdx++)
+    {
+        if (assignments[trackIdx] < 0) { continue; }
+
+        unsigned int detectionIdx = assignments[trackIdx];
+
+        Track *track = &(tracks[trackIdx]);
+        Rect *detection = &(detections[detectionIdx]);
+
+        // Stabilize the bounding box by taking the average of the size
+        // of recent (up to) 4 boxes on the track
+        unsigned int numPriorBboxes = (track->bboxes.size() < 4) ? track->bboxes.size() : 4;
+        unsigned int w, h;
+
+        unsigned int wsum = 0, hsum = 0;
+        for (unsigned int bboxIdx = track->bboxes.size() - numPriorBboxes; bboxIdx < track->bboxes.size(); bboxIdx++)
+        {
+            wsum += track->bboxes[bboxIdx].width;
+            hsum += track->bboxes[bboxIdx].height;
+        }
+
+        w = (wsum + detection->width) / (numPriorBboxes + 1);
+        h = (hsum + detection->height) / (numPriorBboxes + 1);
+
+        // Update the track with the bounding box
+        Point2d centroid(detection->x, detection->y);
+        centroid.x += (detection->width / 2) - (w / 2);
+        centroid.y += (detection->height / 2) - (h / 2);
+        track->bboxes.push_back(Rect(centroid, Size(w, h)));
+
+        // Update the track's age, visibility, and score history
+        track->age++;
+        track->totalVisibleCount++;
+//        track->scores.push_back(confidenceScores[detectionIdx]);
+
+        // Update the track's confidence score based on the maximum detection
+        // score in the past 'timeWindowSize' frames
+        App::updateTrackConfidence(track);
+    }
+}
+
+/*
+ * Updates the tracks that were not assigned detections this frame.
+ */
+void App::updateUnassignedTracks(vector<Track> &tracks, vector<unsigned int> &unassignedTracks)
+{
+    for (unsigned int unassignedIdx = 0; unassignedIdx < unassignedTracks.size(); unassignedIdx++)
+    {
+        unsigned trackIdx = unassignedTracks[unassignedIdx];
+        Track *track = &(tracks[trackIdx]);
+
+        // Update the track's age, append the predicted bounding box, and
+        // set the confidence to 0 (to indicate we don't know why it
+        // did not get a detection)
+        track->age++;
+        track->bboxes.push_back(track->predPosition);
+        track->scores.push_back(0.0);
+
+        // Update the track's confidence based on the maximum detection
+        // score in the past 'timeWindowSize' frames
+        App::updateTrackConfidence(track);
+    }
+}
+
+void App::deleteLostTracks(vector<Track> &tracks)
+{
+    vector<unsigned int> trackIndicesToDelete;
+
+    for (unsigned int trackIdx = 0; trackIdx < tracks.size(); trackIdx++)
+    {
+        Track *track = &(tracks[trackIdx]);
+
+        // Compute the fraction of the track's age for which it was visible
+        double visibility = ((double)track->totalVisibleCount) / track->age;
+
+        // Determine if the track is lost based on the visible fraction
+        // and the confidence
+        if ((track->age <= args.trackAgeThreshold && visibility <= args.trackVisibilityThreshold) ||
+            (track->maxConfidence <= args.trackConfidenceThreshold))
+        {
+            trackIndicesToDelete.push_back(trackIdx);
+        }
+    }
+
+    // Remove the lost tracks (maybe not the most efficient implementation)
+    for (int i = trackIndicesToDelete.size() - 1; i >= 0; i--)
+    {
+        tracks.erase(tracks.begin() + trackIndicesToDelete[i]);
+    }
+}
+
+/*
+ * Creates new tracks from unassigned detections; assumes that any unassigned
+ * detection is the start of a new track.
+ */
+void App::createNewTracks(vector<Track> &tracks, vector<Rect> &detections, vector<unsigned int> &unassignedDetections, vector<double> &confidenceScores)
+{
+    //cout << "Called createNewTracks with " << unassignedDetections.size() << " new detections." << endl;
+
+    for (unsigned int unassignedIdx = 0; unassignedIdx < unassignedDetections.size(); unassignedIdx++)
+    {
+        unsigned detectionIdx = unassignedDetections[unassignedIdx];
+
+        //Track newTrack(detections[detectionIdx], confidenceScores[detectionIdx]);
+        Track newTrack(detections[detectionIdx], 0.0);
+
+        tracks.push_back(newTrack);
+    }
+}
+
+Track::Track(Rect &bbox, double score)
+{
+    this->id = nextTrackId++;
+
+    int r = rand() % 256;
+    int g = rand() % 256;
+    int b = rand() % 256;
+    this->color = Scalar(r, g, b);
+
+    this->bboxes.push_back(bbox);
+    this->scores.push_back(score);
+
+    this->motionModel = &constantVelocityMotionModel;
+
+    this->age = 1;
+    this->totalVisibleCount = 1;
+
+    this->maxConfidence = score;
+    this->avgConfidence = score;
+
+    this->predPosition = bbox;
+}
+
+Point2d constantVelocityMotionModel(Track &track)
+{
+    // If the track has only a single detection, just return the same position
+    if (track.age == 1)
+    {
+        // Translate the top-left corner of the box to the center
+        return Point2d(track.bboxes.back().x + track.bboxes.back().width / 2,
+                       track.bboxes.back().y + track.bboxes.back().height / 2);
+    }
+
+    // Otherwise, assume constant velocity between the past two detections
+    double dx, dy;
+    dx = track.bboxes[track.bboxes.size()-1].x - track.bboxes[track.bboxes.size()-2].x;
+    dy = track.bboxes[track.bboxes.size()-1].y - track.bboxes[track.bboxes.size()-2].y;
+    return Point2d(track.bboxes.back().x + track.bboxes.back().width / 2 + dx,
+                   track.bboxes.back().y + track.bboxes.back().height / 2 + dy);
 }
