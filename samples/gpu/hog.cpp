@@ -15,6 +15,18 @@ using namespace cv;
 
 bool help_showed = false;
 
+class Detection
+{
+public:
+    Detection(int id, Rect &bbox, double confidence);
+
+    int id;
+
+    Rect bbox;
+
+    double confidence; // between 0.0 and 1.0
+};
+
 // Assign IDs to tracks
 unsigned int nextTrackId = 0;
 
@@ -115,12 +127,12 @@ public:
     // Tracking functions
     void predictNewLocationsOfTracks(vector<Track> &tracks);
 
-    void detectionToTrackAssignment(vector<Rect> &detections, vector<Track> &tracks, vector<int> &assignments, vector<unsigned int> &unassignedTracks, vector<unsigned int> &unassignedDetections, cv::Ptr<cv::cuda::HOG> gpu_hog, bool debug);
+    void detectionToTrackAssignment(vector<Detection> &detections, vector<Track> &tracks, vector<int> &assignments, vector<unsigned int> &unassignedTracks, vector<unsigned int> &unassignedDetections, cv::Ptr<cv::cuda::HOG> gpu_hog, bool debug);
 
-    void updateAssignedTracks(vector<Track> &tracks, vector<Rect> &detections, vector<double> &confidenceScores, vector<int> &assignments);
+    void updateAssignedTracks(vector<Track> &tracks, vector<Detection> &detections, vector<double> &confidenceScores, vector<int> &assignments);
     void updateUnassignedTracks(vector<Track> &tracks, vector<unsigned int> &unassignedTracks);
     void deleteLostTracks(vector<Track> &tracks);
-    void createNewTracks(vector<Track> &tracks, vector<Rect> &detections, vector<unsigned int> &unassignedDetections, vector<double> &confidenceScores);
+    void createNewTracks(vector<Track> &tracks, vector<Detection> &detections, vector<unsigned int> &unassignedDetections, vector<double> &confidenceScores);
 
     // Helper functions
     inline bool equalsZero(double val)
@@ -129,7 +141,7 @@ public:
         return (val < 0.0) ? (val > -0.00000001) : (val < 0.00000001);
     }
 
-    void calculateCostMatrix(vector<Track> &tracks, vector<Rect> &detections, vector<vector<double>> &costMatrix);
+    void calculateCostMatrix(vector<Track> &tracks, vector<Detection> &detections, vector<vector<double>> &costMatrix);
     void classifyAssignments(vector<unsigned int> &assignmentPerRow, unsigned int numTracks, unsigned int numDetections,
                             vector<int> &assignments, vector<unsigned int> &unassignedTracks, vector<unsigned int> &unassignedDetections);
     void solveAssignmentProblem(vector<vector<double>> &costMatrix, unsigned int numTracks, unsigned int numDetections,
@@ -562,7 +574,7 @@ void App::run()
             else img = img_aux;
             img_to_show = img;
 
-            vector<Rect> found;
+            vector<Detection> foundDetections;
 
             // If a ground-truth file was provided, use that instead of HOG
             if (!per_frame_bboxes.empty())
@@ -575,12 +587,16 @@ void App::run()
                     vector<int> bbox = bounding_boxes[bb_idx];
                     // cout << (bb_idx == 0 ? "" : ",") << bbox[0];
                     Rect r(bbox[1], bbox[3], bbox[2] - bbox[1], bbox[4] - bbox[3]);
-                    found.push_back(r);
+
+                    Detection d(bbox[0], r, 1.0);
+                    foundDetections.push_back(d);
                 }
                 // std::cout << endl;
             }
             else
             {
+                vector<Rect> foundRects;
+
                 // Perform HOG classification
                 hogWorkBegin();
                 if (use_gpu)
@@ -591,15 +607,22 @@ void App::run()
                     gpu_hog->setWinStride(win_stride);
                     gpu_hog->setScaleFactor(scale);
                     gpu_hog->setGroupThreshold(gr_threshold);
-                    gpu_hog->detectMultiScale(gpu_img, found);
+                    gpu_hog->detectMultiScale(gpu_img, foundRects);
                 }
                 else
                 {
                     cpu_hog.nlevels = nlevels;
-                    cpu_hog.detectMultiScale(img, found, hit_threshold, win_stride,
+                    cpu_hog.detectMultiScale(img, foundRects, hit_threshold, win_stride,
                                             Size(0, 0), scale, gr_threshold);
                 }
                 hogWorkEnd();
+
+                for (unsigned rect_idx = 0; rect_idx < foundRects.size(); rect_idx++)
+                {
+                    // Create a detection object with no known ID and unknown confidence
+                    // TODO: actually pass confidence vector to detectMultiScale
+                    Detection d(-1, foundRects[rect_idx], 0.0);
+                }
             }
 
             /* ==========================
@@ -620,16 +643,16 @@ void App::run()
             // Use predicted track positions to map current detections to existing tracks
             std::vector<int> assignments;
             std::vector<unsigned int> unassignedTracks, unassignedDetections;
-            App::detectionToTrackAssignment(found, tracks, assignments,
+            App::detectionToTrackAssignment(foundDetections, tracks, assignments,
                                             unassignedTracks, unassignedDetections, gpu_hog,
                                             false);
 
             // Update the tracks (assigned and unassigned), delete any tracks that
             // are lost enough, and create new tracks for unassigned detections
-            App::updateAssignedTracks(tracks, found, confidences, assignments);
+            App::updateAssignedTracks(tracks, foundDetections, confidences, assignments);
             App::updateUnassignedTracks(tracks, unassignedTracks);
             App::deleteLostTracks(tracks);
-            App::createNewTracks(tracks, found, unassignedDetections, confidences);
+            App::createNewTracks(tracks, foundDetections, unassignedDetections, confidences);
 
             /*
             * end of tracking
@@ -822,6 +845,13 @@ inline string App::workFps() const
     return ss.str();
 }
 
+Detection::Detection(int id, Rect &bbox, double confidence)
+{
+    this->id = id;
+    this->bbox = bbox;
+    this->confidence = confidence;
+}
+
 void App::predictNewLocationsOfTracks(vector<Track> &tracks)
 {
     for (unsigned int i = 0; i < tracks.size(); i++)
@@ -840,7 +870,7 @@ void App::predictNewLocationsOfTracks(vector<Track> &tracks)
     }
 }
 
-void App::calculateCostMatrix(vector<Track> &tracks, vector<Rect> &detections, vector<vector<double>> &costMatrix)
+void App::calculateCostMatrix(vector<Track> &tracks, vector<Detection> &detections, vector<vector<double>> &costMatrix)
 {
     // Iterate over each track-detection pair
     for (unsigned int i = 0; i < tracks.size(); i++)
@@ -850,7 +880,7 @@ void App::calculateCostMatrix(vector<Track> &tracks, vector<Rect> &detections, v
         Rect predBbox = tracks[i].predPosition;
         for (unsigned int j = 0; j < detections.size(); j++)
         {
-            Rect bbox = detections[j];
+            Rect bbox = detections[j].bbox;
 
             // Compute the boundaries of the intersecting region
             double xleft = std::max(predBbox.tl().x, bbox.tl().x);
@@ -1419,7 +1449,7 @@ void App::solveAssignmentProblem(vector<vector<double>> &costMatrix, unsigned in
                              assignments, unassignedTracks, unassignedDetections);
 }
 
-void App::detectionToTrackAssignment(vector<Rect> &detections, vector<Track> &tracks, vector<int> &assignments, vector<unsigned int> &unassignedTracks, vector<unsigned int> &unassignedDetections, cv::Ptr<cv::cuda::HOG> gpu_hog, bool debug)
+void App::detectionToTrackAssignment(vector<Detection> &detections, vector<Track> &tracks, vector<int> &assignments, vector<unsigned int> &unassignedTracks, vector<unsigned int> &unassignedDetections, cv::Ptr<cv::cuda::HOG> gpu_hog, bool debug)
 {
     // Compute the cost (based on overlap ratio) of assigning each detection to
     // each track - store results in #tracks x #detections matrix
@@ -1458,7 +1488,7 @@ void App::updateTrackConfidence(Track *track)
 /*
  * Updates the assigned tracks with the corresponding detections.
  */
-void App::updateAssignedTracks(vector<Track> &tracks, vector<Rect> &detections, vector<double> &confidenceScores, vector<int> &assignments)
+void App::updateAssignedTracks(vector<Track> &tracks, vector<Detection> &detections, vector<double> &confidenceScores, vector<int> &assignments)
 {
     for (unsigned int trackIdx = 0; trackIdx < tracks.size(); trackIdx++)
     {
@@ -1467,7 +1497,7 @@ void App::updateAssignedTracks(vector<Track> &tracks, vector<Rect> &detections, 
         unsigned int detectionIdx = assignments[trackIdx];
 
         Track *track = &(tracks[trackIdx]);
-        Rect *detection = &(detections[detectionIdx]);
+        Rect *detectionBbox = &(detections[detectionIdx]).bbox;
 
         // Stabilize the bounding box by taking the average of the size
         // of recent (up to) 4 boxes on the track
@@ -1481,13 +1511,13 @@ void App::updateAssignedTracks(vector<Track> &tracks, vector<Rect> &detections, 
             hsum += track->bboxes[bboxIdx].height;
         }
 
-        w = (wsum + detection->width) / (numPriorBboxes + 1);
-        h = (hsum + detection->height) / (numPriorBboxes + 1);
+        w = (wsum + detectionBbox->width) / (numPriorBboxes + 1);
+        h = (hsum + detectionBbox->height) / (numPriorBboxes + 1);
 
         // Update the track with the bounding box
-        Point2d centroid(detection->x, detection->y);
-        centroid.x += (detection->width / 2) - (w / 2);
-        centroid.y += (detection->height / 2) - (h / 2);
+        Point2d centroid(detectionBbox->x, detectionBbox->y);
+        centroid.x += (detectionBbox->width / 2) - (w / 2);
+        centroid.y += (detectionBbox->height / 2) - (h / 2);
         track->bboxes.push_back(Rect(centroid, Size(w, h)));
 
         // Update the track's age, visibility, and score history
@@ -1555,7 +1585,7 @@ void App::deleteLostTracks(vector<Track> &tracks)
  * Creates new tracks from unassigned detections; assumes that any unassigned
  * detection is the start of a new track.
  */
-void App::createNewTracks(vector<Track> &tracks, vector<Rect> &detections, vector<unsigned int> &unassignedDetections, vector<double> &confidenceScores)
+void App::createNewTracks(vector<Track> &tracks, vector<Detection> &detections, vector<unsigned int> &unassignedDetections, vector<double> &confidenceScores)
 {
     //cout << "Called createNewTracks with " << unassignedDetections.size() << " new detections." << endl;
 
@@ -1564,7 +1594,7 @@ void App::createNewTracks(vector<Track> &tracks, vector<Rect> &detections, vecto
         unsigned detectionIdx = unassignedDetections[unassignedIdx];
 
         //Track newTrack(detections[detectionIdx], confidenceScores[detectionIdx]);
-        Track newTrack(detections[detectionIdx], 0.0);
+        Track newTrack(detections[detectionIdx].bbox, 0.0);
 
         tracks.push_back(newTrack);
     }
