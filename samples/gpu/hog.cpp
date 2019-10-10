@@ -115,7 +115,7 @@ public:
     // Tracking functions
     void predictNewLocationsOfTracks(vector<Track> &tracks);
 
-    void detectionToTrackAssignment(vector<Rect> &detections, vector<Track> &tracks, vector<int> &assignments, vector<unsigned int> &unassignedTracks, vector<unsigned int> &unassignedDetections, cv::Ptr<cv::cuda::HOG> gpu_hog);
+    void detectionToTrackAssignment(vector<Rect> &detections, vector<Track> &tracks, vector<int> &assignments, vector<unsigned int> &unassignedTracks, vector<unsigned int> &unassignedDetections, cv::Ptr<cv::cuda::HOG> gpu_hog, bool debug);
 
     void updateAssignedTracks(vector<Track> &tracks, vector<Rect> &detections, vector<double> &confidenceScores, vector<int> &assignments);
     void updateUnassignedTracks(vector<Track> &tracks, vector<unsigned int> &unassignedTracks);
@@ -133,7 +133,8 @@ public:
     void classifyAssignments(vector<unsigned int> &assignmentPerRow, unsigned int numTracks, unsigned int numDetections,
                             vector<int> &assignments, vector<unsigned int> &unassignedTracks, vector<unsigned int> &unassignedDetections);
     void solveAssignmentProblem(vector<vector<double>> &costMatrix, unsigned int numTracks, unsigned int numDetections,
-                                vector<int> &assignments, vector<unsigned int> &unassignedTracks, vector<unsigned int> &unassignedDetections);
+                                vector<int> &assignments, vector<unsigned int> &unassignedTracks, vector<unsigned int> &unassignedDetections,
+                                bool debug);
     void updateTrackConfidence(Track *track);
 
 private:
@@ -155,6 +156,8 @@ private:
 
     int64 work_begin;
     double work_fps;
+
+    unsigned frame_id;
 };
 
 static void printHelp()
@@ -496,8 +499,6 @@ void App::run()
         cout << "Last frame contained " << per_frame_bboxes[per_frame_bboxes.size() - 1].size() << " vehicles" << endl;
     }
 
-    unsigned frame_id = 0;
-
     std::vector<Track> tracks;
 
     while (running)
@@ -544,7 +545,7 @@ void App::run()
         Mat img_aux, img, img_to_show;
         cuda::GpuMat gpu_img;
 
-        frame_id = 0;
+        this->frame_id = 0;
 
         // Iterate over all frames
         while (running && !frame.empty())
@@ -566,8 +567,8 @@ void App::run()
             // If a ground-truth file was provided, use that instead of HOG
             if (!per_frame_bboxes.empty())
             {
-                vector<vector<int>> bounding_boxes = per_frame_bboxes[frame_id];
-                // std::cout << frame_id << " vehicle IDs: ";// << bounding_boxes[0]
+                vector<vector<int>> bounding_boxes = per_frame_bboxes[this->frame_id];
+                // std::cout << this->frame_id << " vehicle IDs: ";// << bounding_boxes[0]
 
                 for (unsigned bb_idx = 0; bb_idx < bounding_boxes.size(); bb_idx++)
                 {
@@ -606,7 +607,7 @@ void App::run()
             * =========================== */
 
             // Reset the tracks at the beginning of the input
-            if (frame_id == 0)
+            if (this->frame_id == 0)
             {
                 tracks.clear();
             }
@@ -620,7 +621,8 @@ void App::run()
             std::vector<int> assignments;
             std::vector<unsigned int> unassignedTracks, unassignedDetections;
             App::detectionToTrackAssignment(found, tracks, assignments,
-                                            unassignedTracks, unassignedDetections, gpu_hog);
+                                            unassignedTracks, unassignedDetections, gpu_hog,
+                                            false);
 
             // Update the tracks (assigned and unassigned), delete any tracks that
             // are lost enough, and create new tracks for unassigned detections
@@ -906,47 +908,102 @@ void App::classifyAssignments(vector<unsigned int> &assignmentPerRow, unsigned i
 }
 
 void App::solveAssignmentProblem(vector<vector<double>> &costMatrix, unsigned int numTracks, unsigned int numDetections,
-                                 vector<int> &assignments, vector<unsigned int> &unassignedTracks, vector<unsigned int> &unassignedDetections)
+                                 vector<int> &assignments, vector<unsigned int> &unassignedTracks, vector<unsigned int> &unassignedDetections,
+                                 bool debug)
 {
     double hugeNumber = 10000000.0;
 
-    // First, expand the cost matrix to be square (columns first; detections)
-    for (unsigned int i = 0; i < numTracks; i++)
+    bool is_problematic = this->frame_id == 0;
+
+    if (debug)
     {
-        for (unsigned int j = 0; j < numTracks; j++)
+        std::cout << "Frame number: " << this->frame_id << std::endl;
+
+        if (is_problematic)
         {
-            if (i == j)
+            std::cout << "# tracks (rows): " << numTracks << std::endl;
+            std::cout << "# detections (columns): " << numDetections << std::endl;
+
+            // Print the cost matrix
+            for (unsigned i = 0; i < numTracks; i++)
             {
-                costMatrix[i].push_back(args.costOfNonAssignment);
-            }
-            else
-            {
-                costMatrix[i].push_back(hugeNumber);
+                std::cout << "Row " << i << ": ";
+                for (unsigned j = 0; j < numDetections; j++)
+                {
+                    if (j > 0)
+                    {
+                        std::cout << ",";
+                    }
+                    std::cout << costMatrix[i][j];
+                }
+                std::cout << std::endl;
             }
         }
     }
 
-    // ... and expand the rows (tracks)
-    for (unsigned int i = 0; i < numDetections; i++)
+    // First, expand the cost matrix to be square (columns first; detections)
+    if (numTracks > numDetections)
     {
-        costMatrix.push_back(vector<double>());
-
-        for (unsigned int j = 0; j < numDetections; j++)
+        for (unsigned int i = 0; i < numTracks; i++)
         {
-            if (i == j)
+            for (unsigned int j = 0; j < numTracks - numDetections; j++)
             {
-                costMatrix[numTracks + i].push_back(args.costOfNonAssignment);
-            }
-            else
-            {
-                costMatrix[numTracks + i].push_back(hugeNumber);
+                costMatrix[i].push_back(args.costOfNonAssignment * 2);
             }
         }
+    }
 
-        // Also fill in the 0s in the bottom-right while we're here
-        for (unsigned int j = 0; j < numTracks; j++)
+    if (debug && is_problematic)
+    {
+        std::cout << std::endl << "after expanding columns:" << std::endl;
+
+        // Print the cost matrix
+        for (unsigned i = 0; i < costMatrix.size(); i++)
         {
-            costMatrix[numTracks + i].push_back(0.0);
+            std::cout << "Row " << i << ": ";
+            for (unsigned j = 0; j < costMatrix[i].size(); j++)
+            {
+                if (j > 0)
+                {
+                    std::cout << ",";
+                }
+                std::cout << costMatrix[i][j];
+            }
+            std::cout << std::endl;
+        }
+    }
+
+    // ... or expand the rows (tracks)
+    if (numDetections > numTracks)
+    {
+        for (unsigned int i = 0; i < numDetections - numTracks; i++)
+        {
+            costMatrix.push_back(vector<double>());
+
+            for (unsigned int j = 0; j < numDetections; j++)
+            {
+                costMatrix[numTracks + i].push_back(args.costOfNonAssignment * 2);
+            }
+        }
+    }
+
+    if (debug && is_problematic)
+    {
+        std::cout << std::endl << "after expanding rows, too:" << std::endl;
+
+        // Print the cost matrix
+        for (unsigned i = 0; i < costMatrix.size(); i++)
+        {
+            std::cout << "Row " << i << ": ";
+            for (unsigned j = 0; j < costMatrix[i].size(); j++)
+            {
+                if (j > 0)
+                {
+                    std::cout << ",";
+                }
+                std::cout << costMatrix[i][j];
+            }
+            std::cout << std::endl;
         }
     }
 
@@ -971,9 +1028,39 @@ void App::solveAssignmentProblem(vector<vector<double>> &costMatrix, unsigned in
             minElt = (costMatrix[rowIdx][colIdx] < minElt) ? costMatrix[rowIdx][colIdx] : minElt;
         }
 
+        bool found_zero = false;
         for (unsigned int colIdx = 0; colIdx < n; colIdx++)
         {
             costMatrix[rowIdx][colIdx] -= minElt;
+            if (costMatrix[rowIdx][colIdx] == 0.0)
+            {
+                found_zero = true;
+            }
+        }
+
+        if (!found_zero)
+        {
+            std::cout << "DID NOT ZERO OUT AN ELEMENT IN THE ROW!!!" << std::endl;
+        }
+    }
+
+    if (debug && is_problematic)
+    {
+        std::cout << std::endl << "After step 1 (subtracting row minima):" << std::endl;
+
+        // Print the cost matrix
+        for (unsigned i = 0; i < costMatrix.size(); i++)
+        {
+            std::cout << "Row " << i << ": ";
+            for (unsigned j = 0; j < costMatrix[i].size(); j++)
+            {
+                if (j > 0)
+                {
+                    std::cout << ",";
+                }
+                std::cout << costMatrix[i][j];
+            }
+            std::cout << std::endl;
         }
     }
 
@@ -986,9 +1073,39 @@ void App::solveAssignmentProblem(vector<vector<double>> &costMatrix, unsigned in
             minElt = (costMatrix[rowIdx][colIdx] < minElt) ? costMatrix[rowIdx][colIdx] : minElt;
         }
 
+        bool found_zero = false;
         for (unsigned int rowIdx = 0; rowIdx < n; rowIdx++)
         {
             costMatrix[rowIdx][colIdx] -= minElt;
+            if (costMatrix[rowIdx][colIdx] == 0.0)
+            {
+                found_zero = true;
+            }
+        }
+
+        if (!found_zero)
+        {
+            std::cout << "DID NOT ZERO OUT AN ELEMENT IN THE COLUMN!!!" << std::endl;
+        }
+    }
+
+    if (debug && is_problematic)
+    {
+        std::cout << std::endl << "After step 2 (subtracting column minima):" << std::endl;
+
+        // Print the cost matrix
+        for (unsigned i = 0; i < costMatrix.size(); i++)
+        {
+            std::cout << "Row " << i << ": ";
+            for (unsigned j = 0; j < costMatrix[i].size(); j++)
+            {
+                if (j > 0)
+                {
+                    std::cout << ",";
+                }
+                std::cout << costMatrix[i][j];
+            }
+            std::cout << std::endl;
         }
     }
 
@@ -996,7 +1113,11 @@ void App::solveAssignmentProblem(vector<vector<double>> &costMatrix, unsigned in
     int repeatCount = 0;
     while (true)
     {
-        //cout << endl << repeatCount++ << endl;
+        repeatCount++;
+        if (debug && is_problematic && repeatCount < 5)
+        {
+            cout << endl << repeatCount << endl;
+        }
 
         // Check for a completed assignment
         std::vector<bool> isRowAssigned(n, false);
@@ -1035,6 +1156,11 @@ void App::solveAssignmentProblem(vector<vector<double>> &costMatrix, unsigned in
                     assignmentPerRow[rowIdx] = colIdx;
                     madeAssignment = true;
                     numAssigned++;
+
+                    if (debug && is_problematic && repeatCount < 5)
+                    {
+                        std::cout << "[col] Assigned row " << rowIdx << " to column " << colIdx << std::endl;
+                    }
                 }
             }
 
@@ -1062,6 +1188,11 @@ void App::solveAssignmentProblem(vector<vector<double>> &costMatrix, unsigned in
                     assignmentPerRow[rowIdx] = colIdx;
                     madeAssignment = true;
                     numAssigned++;
+
+                    if (debug && is_problematic && repeatCount < 5)
+                    {
+                        std::cout << "[row] Assigned row " << rowIdx << " to column " << colIdx << std::endl;
+                    }
                 }
             }
 
@@ -1069,6 +1200,17 @@ void App::solveAssignmentProblem(vector<vector<double>> &costMatrix, unsigned in
             // all rows and columns
             if (!madeAssignment)
             {
+                if (debug && is_problematic && repeatCount < 5)
+                {
+                    std::cout << "No assignments this round, current assignments per row (" << numAssigned << " total): ";
+                    for (unsigned row_idx = 0; row_idx < n; row_idx++)
+                    {
+                        if (row_idx > 0) { std::cout << ","; }
+                        std::cout << assignmentPerRow[row_idx];
+                    }
+                    std::cout << std::endl;
+                }
+
                 for (unsigned int rowIdx = 0; rowIdx < n; rowIdx++)
                 {
                     if (isRowAssigned[rowIdx]) { continue; }
@@ -1107,6 +1249,17 @@ void App::solveAssignmentProblem(vector<vector<double>> &costMatrix, unsigned in
             break;
         }
 
+        if (debug && is_problematic && repeatCount < 5)
+        {
+            std::cout << "Assignments per row (" << numAssigned << " total): ";
+            for (unsigned row_idx = 0; row_idx < n; row_idx++)
+            {
+                if (row_idx > 0) { std::cout << ","; }
+                std::cout << assignmentPerRow[row_idx];
+            }
+            std::cout << std::endl;
+        }
+
         // Step 3: cover all zeros with a minimum number of "lines"
         std::vector<bool> isRowMarked(n, false);
         std::vector<bool> isColMarked(n, false);
@@ -1117,6 +1270,17 @@ void App::solveAssignmentProblem(vector<vector<double>> &costMatrix, unsigned in
             {
                 isRowMarked[rowIdx] = true;
             }
+        }
+
+        if (debug && is_problematic && repeatCount < 5)
+        {
+            std::cout << "Row markings: ";
+            for (unsigned row_idx = 0; row_idx < n; row_idx++)
+            {
+                if (row_idx > 0) { std::cout << ","; }
+                std::cout << isRowMarked[row_idx];
+            }
+            std::cout << std::endl;
         }
 
         while (true)
@@ -1157,13 +1321,62 @@ void App::solveAssignmentProblem(vector<vector<double>> &costMatrix, unsigned in
             }
         }
 
+        if (debug && is_problematic && repeatCount < 5)
+        {
+            std::cout << "Column markings: ";
+            for (unsigned colIdx = 0; colIdx < n; colIdx++)
+            {
+                if (colIdx > 0) { std::cout << ","; }
+                std::cout << isColMarked[colIdx];
+            }
+            std::cout << std::endl;
+
+            std::cout << "Updated row markings: ";
+            for (unsigned row_idx = 0; row_idx < n; row_idx++)
+            {
+                if (row_idx > 0) { std::cout << ","; }
+                std::cout << isRowMarked[row_idx];
+            }
+            std::cout << std::endl;
+        }
+
         std::vector<bool> isRowCovered(n, false);
+        bool allMarked = true;
         for (unsigned int rowIdx = 0; rowIdx < n; rowIdx++)
         {
             isRowCovered[rowIdx] = !isRowMarked[rowIdx];
+            if (!isRowMarked[rowIdx])
+            {
+                allMarked = false;
+            }
+        }
+
+        // If all rows are marked, then we are done
+        if (allMarked)
+        {
+            break;
         }
 
         std::vector<bool> isColCovered(isColMarked);
+
+        if (debug && is_problematic && repeatCount < 5)
+        {
+            std::cout << "Covered rows: ";
+            for (unsigned row_idx = 0; row_idx < n; row_idx++)
+            {
+                if (row_idx > 0) { std::cout << ","; }
+                std::cout << isRowCovered[row_idx];
+            }
+            std::cout << std::endl;
+
+            std::cout << "Covered columns: ";
+            for (unsigned colIdx = 0; colIdx < n; colIdx++)
+            {
+                if (colIdx > 0) { std::cout << ","; }
+                std::cout << isColCovered[colIdx];
+            }
+            std::cout << std::endl;
+        }
 
         // Step 4: create additional zeros
         double minUncoveredElt = hugeNumber;
@@ -1177,6 +1390,11 @@ void App::solveAssignmentProblem(vector<vector<double>> &costMatrix, unsigned in
 
                 minUncoveredElt = (costMatrix[rowIdx][colIdx] < minUncoveredElt) ? costMatrix[rowIdx][colIdx] : minUncoveredElt;
             }
+        }
+
+        if (debug && is_problematic && repeatCount < 5)
+        {
+            std::cout << "Minimum uncovered element: " << minUncoveredElt << std::endl;
         }
 
         // Subtract the minimum uncovered element from all uncovered elements,
@@ -1201,24 +1419,21 @@ void App::solveAssignmentProblem(vector<vector<double>> &costMatrix, unsigned in
                              assignments, unassignedTracks, unassignedDetections);
 }
 
-void App::detectionToTrackAssignment(vector<Rect> &detections, vector<Track> &tracks, vector<int> &assignments, vector<unsigned int> &unassignedTracks, vector<unsigned int> &unassignedDetections, cv::Ptr<cv::cuda::HOG> gpu_hog)
+void App::detectionToTrackAssignment(vector<Rect> &detections, vector<Track> &tracks, vector<int> &assignments, vector<unsigned int> &unassignedTracks, vector<unsigned int> &unassignedDetections, cv::Ptr<cv::cuda::HOG> gpu_hog, bool debug)
 {
     // Compute the cost (based on overlap ratio) of assigning each detection to
     // each track - store results in #tracks x #detections matrix
     vector<vector<double>> costMatrix; // per track, then per detection
     App::calculateCostMatrix(tracks, detections, costMatrix);
-    vector<Rect> trackRects;
-    for (unsigned i = 0; i < tracks.size(); i++)
-    {
-        trackRects.push_back(tracks[i].predPosition);
-    }
 
     // TODO: add gating cost
 
     // Solve assignment, taking into account the cost of not assigning
     // any detections to a given track
+    if (debug) { cout << "Solving assignment problem" << endl; }
     App::solveAssignmentProblem(costMatrix, tracks.size(), detections.size(),
-                                assignments, unassignedTracks, unassignedDetections);
+                                assignments, unassignedTracks, unassignedDetections, debug);
+    if (debug) { cout << "Done solving assignment problem" << endl; }
 }
 
 void App::updateTrackConfidence(Track *track)
