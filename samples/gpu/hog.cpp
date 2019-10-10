@@ -1159,7 +1159,7 @@ void App::solveAssignmentProblem(vector<vector<double>> &costMatrix, unsigned in
 
                     if (debug && is_problematic && repeatCount < 5)
                     {
-                        std::cout << "[col] Assigned row " << rowIdx << " to column " << colIdx << std::endl;
+                        std::cout << "[row] Assigned row " << rowIdx << " to column " << colIdx << std::endl;
                     }
                 }
             }
@@ -1191,7 +1191,7 @@ void App::solveAssignmentProblem(vector<vector<double>> &costMatrix, unsigned in
 
                     if (debug && is_problematic && repeatCount < 5)
                     {
-                        std::cout << "[row] Assigned row " << rowIdx << " to column " << colIdx << std::endl;
+                        std::cout << "[col] Assigned row " << rowIdx << " to column " << colIdx << std::endl;
                     }
                 }
             }
