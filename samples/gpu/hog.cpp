@@ -4,6 +4,7 @@
 #include <sstream>
 #include <iomanip>
 #include <stdexcept>
+#include <map>
 #include <opencv2/core/utility.hpp>
 #include "opencv2/cudaobjdetect.hpp"
 #include "opencv2/highgui.hpp"
@@ -15,21 +16,49 @@ using namespace cv;
 
 bool help_showed = false;
 
+/*
+ * A trajectory corresponds to the ground-truth sequence of positions
+ * of a tracked object.
+ */
+class Trajectory
+{
+public:
+    Trajectory(); // necessary to put it in a map
+    Trajectory(int id);
+
+    int id;
+
+    vector<int> presentFrames;
+    map<int, Rect> positionPerFrame;
+    map<int, bool> isTrackedPerFrame;
+    map<int, int> trackIdPerFrame;
+
+    int getFirstFrame();
+
+    void addPosition(int frame, Rect &bbox);
+    void addTrackingInfo(int frame, int trackId);
+};
+
+/*
+ * A detection corresponds to an observed (potentially incorrectly)
+ * position of an object of interest.
+ */
 class Detection
 {
 public:
     Detection(int id, Rect &bbox, double confidence);
 
-    int id;
+    int id; // -1 if not known
 
     Rect bbox;
 
     double confidence; // between 0.0 and 1.0
 };
 
-// Assign IDs to tracks
-unsigned int nextTrackId = 0;
-
+/*
+ * A track correpsonds to a sequence of detections matched
+ * together over time.
+ */
 class Track
 {
 public:
@@ -52,6 +81,9 @@ public:
 
     Rect predPosition;
 };
+
+// Assign IDs to tracks
+unsigned int nextTrackId = 0;
 
 Point2d constantVelocityMotionModel(Track &track);
 
@@ -103,6 +135,9 @@ public:
     double trackConfidenceThreshold;
 
     string bbox_filename;
+
+    bool write_tracking;
+    string tracking_filename;
 };
 
 
@@ -200,7 +235,9 @@ static void printHelp()
          << "  [--write_video <bool>] # write video or not\n"
          << "  [--dst_video <path>] # output video path\n"
          << "  [--dst_video_fps <double>] # output video fps\n"
-         << "  [--bbox_filename <string>] # filename of bounding box results for ground truth\n";
+         << "  [--bbox_filename <string>] # filename of bounding box results for ground truth"
+         << "  [--write_tracking <bool>] # writer tracking output or not"
+         << "  [--tracking_filename <string>] # tracking output filename\n";
     help_showed = true;
 }
 
@@ -309,6 +346,8 @@ Args Args::read(int argc, char** argv)
         else if (string(argv[i]) == "--folder") { args.src = argv[++i]; args.src_is_folder = true;}
         else if (string(argv[i]) == "--svm") { args.svm = argv[++i]; args.svm_load = true;}
         else if (string(argv[i]) == "--bbox_filename") args.bbox_filename = argv[++i];
+        else if (string(argv[i]) == "--write_tracking") args.write_tracking = (string(argv[++i]) == "true");
+        else if (string(argv[i]) == "--tracking_filename") args.tracking_filename = argv[++i];
         else if (args.src.empty()) args.src = argv[i];
         else throw runtime_error((string("unknown key: ") + argv[i]));
     }
@@ -511,7 +550,10 @@ void App::run()
         cout << "Last frame contained " << per_frame_bboxes[per_frame_bboxes.size() - 1].size() << " vehicles" << endl;
     }
 
+    std::map<int, Trajectory> trajectoryMap;
     std::vector<Track> tracks;
+
+    bool first_pass = true;
 
     while (running)
     {
@@ -580,18 +622,26 @@ void App::run()
             if (!per_frame_bboxes.empty())
             {
                 vector<vector<int>> bounding_boxes = per_frame_bboxes[this->frame_id];
-                // std::cout << this->frame_id << " vehicle IDs: ";// << bounding_boxes[0]
 
                 for (unsigned bb_idx = 0; bb_idx < bounding_boxes.size(); bb_idx++)
                 {
                     vector<int> bbox = bounding_boxes[bb_idx];
-                    // cout << (bb_idx == 0 ? "" : ",") << bbox[0];
+
+                    int objectId = bbox[0];
                     Rect r(bbox[1], bbox[3], bbox[2] - bbox[1], bbox[4] - bbox[3]);
 
-                    Detection d(bbox[0], r, 1.0);
+                    Detection d(objectId, r, 1.0);
                     foundDetections.push_back(d);
+
+                    // Update the position of the trajectory, creating it if necessary
+                    if (trajectoryMap.find(objectId) == trajectoryMap.end())
+                    {
+                        Trajectory t(objectId);
+                        trajectoryMap[objectId] = t;
+                    }
+
+                    trajectoryMap[objectId].addPosition(this->frame_id, r);
                 }
-                // std::cout << endl;
             }
             else
             {
@@ -647,10 +697,44 @@ void App::run()
                                             unassignedTracks, unassignedDetections, gpu_hog,
                                             false);
 
-            // Update the tracks (assigned and unassigned), delete any tracks that
-            // are lost enough, and create new tracks for unassigned detections
+            // Update the tracks (assigned and unassigned)
             App::updateAssignedTracks(tracks, foundDetections, confidences, assignments);
             App::updateUnassignedTracks(tracks, unassignedTracks);
+
+            // Update trajectories for assigned detections/tracks
+            for (unsigned trackIdx = 0; trackIdx < tracks.size(); trackIdx++)
+            {
+                if (assignments[trackIdx] < 0) { continue; }
+
+                unsigned detectionIdx = assignments[trackIdx];
+
+                Track *track = &(tracks[trackIdx]);
+                Detection *detection = &(foundDetections[detectionIdx]);
+
+                // Ignore detections for which no ground truth information exists
+                if (detection->id < 0) { continue; }
+
+                Trajectory *trajectory = &(trajectoryMap[detection->id]);
+                trajectory->addTrackingInfo(this->frame_id, track->id);
+            }
+
+            // Update trajectories for unassigned detections - note that this
+            // will miss the first position/frame associated with each track,
+            // because they are created just after
+            for (unsigned udix = 0; udix < unassignedDetections.size(); udix++)
+            {
+                unsigned detectionIdx = unassignedDetections[udix];
+                Detection *detection = &(foundDetections[detectionIdx]);
+
+                // Ignore detections for which no ground truth information exists
+                if (detection->id < 0) { continue; }
+
+                Trajectory *trajectory = &(trajectoryMap[detection->id]);
+                trajectory->addTrackingInfo(this->frame_id, -1);
+            }
+
+            // Delete any tracks that are lost enough, and create new tracks
+            // for unassigned detections
             App::deleteLostTracks(tracks);
             App::createNewTracks(tracks, foundDetections, unassignedDetections, confidences);
 
@@ -746,6 +830,42 @@ void App::run()
 
             handleKey((char)waitKey(3));
         }
+
+        if (first_pass && args.write_tracking && !args.tracking_filename.empty())
+        {
+            ofstream tracking_file;
+            tracking_file.open(args.tracking_filename, ios::out | ios::app);
+
+            // Write the tracking information to the output file
+            std::map<int, Trajectory>::iterator traj_it;
+            for (traj_it = trajectoryMap.begin(); traj_it != trajectoryMap.end(); ++traj_it)
+            {
+                Trajectory *trajectory = &(traj_it->second);
+
+                // Write the trajectory's object ID,
+                tracking_file << "object|" << trajectory->id << "|";
+
+                // and tracking info each frame
+                for (int pfid = 0; pfid < trajectory->presentFrames.size(); pfid++)
+                {
+                    if (pfid > 0)
+                    {
+                        tracking_file << ";";
+                    }
+
+                    int fnum = trajectory->presentFrames[pfid];
+
+                    tracking_file << fnum << "," << trajectory->isTrackedPerFrame[fnum];
+                    tracking_file << "," << trajectory->trackIdPerFrame[fnum];
+                }
+
+                tracking_file << std::endl;
+            }
+
+            tracking_file.close();
+        }
+
+        first_pass = false;
     }
 }
 
@@ -843,6 +963,40 @@ inline string App::workFps() const
     stringstream ss;
     ss << work_fps;
     return ss.str();
+}
+
+Trajectory::Trajectory()
+{
+    this->id = -1;
+}
+
+Trajectory::Trajectory(int id)
+{
+    this->id = id;
+}
+
+int Trajectory::getFirstFrame()
+{
+    if (this->presentFrames.size() == 0)
+    {
+        return -1;
+    }
+    else
+    {
+        return this->presentFrames[0];
+    }
+}
+
+void Trajectory::addPosition(int frame, Rect &bbox)
+{
+    this->presentFrames.push_back(frame);
+    this->positionPerFrame[frame] = bbox;
+}
+
+void Trajectory::addTrackingInfo(int frame, int trackId)
+{
+    this->isTrackedPerFrame[frame] = (trackId >= 0);
+    this->trackIdPerFrame[frame] = trackId;
 }
 
 Detection::Detection(int id, Rect &bbox, double confidence)
