@@ -16,6 +16,10 @@ using namespace cv;
 
 bool help_showed = false;
 
+class Track;
+
+double computeBoundingBoxOverlap(Rect &predBbox, Rect &bbox);
+
 /*
  * A trajectory corresponds to the ground-truth sequence of positions
  * of a tracked object.
@@ -30,13 +34,19 @@ public:
 
     vector<int> presentFrames;
     map<int, Rect> positionPerFrame;
+
+    // Tracking information per frame, assumed to exist for a given key (frame ID)
+    // only if isTrackedPerFrame[key] == true
     map<int, bool> isTrackedPerFrame;
     map<int, int> trackIdPerFrame;
+    map<int, Rect> predPosPerFrame;
+    map<int, Rect> trackPosPerFrame;
+    map<int, double> bboxOverlapPerFrame;
 
     int getFirstFrame();
 
     void addPosition(int frame, Rect &bbox);
-    void addTrackingInfo(int frame, int trackId);
+    void addTrackingInfo(int frame, Track *track);
 };
 
 /*
@@ -723,7 +733,7 @@ void App::run()
                 if (detection->id < 0) { continue; }
 
                 Trajectory *trajectory = &(trajectoryMap[detection->id]);
-                trajectory->addTrackingInfo(this->frame_id, track->id);
+                trajectory->addTrackingInfo(this->frame_id, track);
             }
 
             // Update trajectories for unassigned detections - note that this
@@ -738,7 +748,7 @@ void App::run()
                 if (detection->id < 0) { continue; }
 
                 Trajectory *trajectory = &(trajectoryMap[detection->id]);
-                trajectory->addTrackingInfo(this->frame_id, -1);
+                trajectory->addTrackingInfo(this->frame_id, NULL);
             }
 
             // Delete any tracks that are lost enough, and create new tracks
@@ -942,6 +952,19 @@ void App::run()
 
                     tracking_file << fnum << "," << trajectory->isTrackedPerFrame[fnum];
                     tracking_file << "," << trajectory->trackIdPerFrame[fnum];
+
+                    if (trajectory->isTrackedPerFrame[fnum])
+                    {
+                        Rect &predBbox = trajectory->predPosPerFrame[fnum];
+                        tracking_file << ",PREDBBOX[" << predBbox.x << "^" << predBbox.y << "^";
+                        tracking_file << predBbox.width << "^" << predBbox.height << "]";
+
+                        Rect &trBbox = trajectory->trackPosPerFrame[fnum];
+                        tracking_file << ",TRBBOX[" << trBbox.x << "^" << trBbox.y << "^";
+                        tracking_file << trBbox.width << "^" << trBbox.height << "]";
+
+                        tracking_file << ",d[" << trajectory->bboxOverlapPerFrame[fnum] << "]";
+                    }
                 }
 
                 tracking_file << "|";
@@ -1102,10 +1125,24 @@ void Trajectory::addPosition(int frame, Rect &bbox)
     this->positionPerFrame[frame] = bbox;
 }
 
-void Trajectory::addTrackingInfo(int frame, int trackId)
+void Trajectory::addTrackingInfo(int frame, Track *track)
 {
-    this->isTrackedPerFrame[frame] = (trackId >= 0);
-    this->trackIdPerFrame[frame] = trackId;
+    if (track)
+    {
+        this->isTrackedPerFrame[frame] = true;
+        this->trackIdPerFrame[frame] = track->id;
+
+        Rect &bbox = track->bboxes[track->bboxes.size() - 1];
+        Rect &predBbox = track->predPosition;
+        Rect &gtPos = this->positionPerFrame[frame];
+        this->trackPosPerFrame[frame] = bbox;
+        this->predPosPerFrame[frame] = predBbox;
+        this->bboxOverlapPerFrame[frame] = computeBoundingBoxOverlap(bbox, gtPos);
+    }
+    else
+    {
+        this->isTrackedPerFrame[frame] = false;
+    }
 }
 
 Detection::Detection(int id, Rect &bbox, double confidence)
@@ -1145,28 +1182,9 @@ void App::calculateCostMatrix(vector<Track> &tracks, vector<Detection> &detectio
         {
             Rect bbox = detections[j].bbox;
 
-            // Compute the boundaries of the intersecting region
-            double xleft = std::max(predBbox.tl().x, bbox.tl().x);
-            double xright = std::min(predBbox.br().x, bbox.br().x);
-            double ytop = std::max(predBbox.tl().y, bbox.tl().y);
-            double ybottom = std::min(predBbox.br().y, bbox.br().y);
+            double overlap = computeBoundingBoxOverlap(predBbox, bbox);
 
-            // Check for no overlap
-            if ((xright < xleft) || (ybottom < ytop))
-            {
-                // Cost = 1 - overlap
-                costMatrix[i].push_back(1.0);
-                continue;
-            }
-
-            // Otherwise, compute the area of the intersection and union
-            double intersectionArea = (xright - xleft) * (ybottom - ytop);
-            double unionArea = predBbox.area() + bbox.area() - intersectionArea;
-
-            // Finally, compute the overlap (in [0,1]) as intersection/union
-            double overlap = intersectionArea / unionArea;
-
-            // Again, cost = 1 - overlap
+            // Cost = 1 - overlap
             costMatrix[i].push_back(1.0 - overlap);
         }
     }
@@ -1902,4 +1920,27 @@ Point2d constantVelocityMotionModel(Track &track)
     dy = track.bboxes[track.bboxes.size()-1].y - track.bboxes[track.bboxes.size()-2].y;
     return Point2d(track.bboxes.back().x + track.bboxes.back().width / 2 + dx,
                    track.bboxes.back().y + track.bboxes.back().height / 2 + dy);
+}
+
+double computeBoundingBoxOverlap(Rect &predBbox, Rect &bbox)
+{
+    // Compute the boundaries of the intersecting region
+    double xleft = std::max(predBbox.tl().x, bbox.tl().x);
+    double xright = std::min(predBbox.br().x, bbox.br().x);
+    double ytop = std::max(predBbox.tl().y, bbox.tl().y);
+    double ybottom = std::min(predBbox.br().y, bbox.br().y);
+
+    // Check for no overlap
+    if ((xright < xleft) || (ybottom < ytop))
+    {
+        return 0.0;
+    }
+
+    // Otherwise, compute the area of the intersection and union
+    double intersectionArea = (xright - xleft) * (ybottom - ytop);
+    double unionArea = predBbox.area() + bbox.area() - intersectionArea;
+
+    // Finally, compute the overlap (in [0,1]) as intersection/union
+    double overlap = intersectionArea / unionArea;
+    return overlap;
 }
