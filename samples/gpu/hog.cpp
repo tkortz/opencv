@@ -167,6 +167,8 @@ public:
     void workEnd();
     string workFps() const;
 
+    string frameIndex(int) const;
+
     string message() const;
 
     // Tracking functions
@@ -769,8 +771,6 @@ void App::run()
             * end of tracking
             * =========================== */
 
-            this->frame_id++;
-
             // Draw positive classified windows
             // for (size_t i = 0; i < found.size(); i++)
             // {
@@ -824,6 +824,7 @@ void App::run()
                 putText(img_to_show, "Mode: CPU", Point(5, 25), FONT_HERSHEY_SIMPLEX, 1., Scalar(255, 100, 0), 2);
             putText(img_to_show, "FPS HOG: " + hogWorkFps(), Point(5, 65), FONT_HERSHEY_SIMPLEX, 1., Scalar(255, 100, 0), 2);
             putText(img_to_show, "FPS total: " + workFps(), Point(5, 105), FONT_HERSHEY_SIMPLEX, 1., Scalar(255, 100, 0), 2);
+            putText(img_to_show, "Frame: " + frameIndex(this->frame_id), Point(5, 145), FONT_HERSHEY_SIMPLEX, 1., Scalar(255, 100, 0), 2);
             imshow("opencv_gpu_hog", img_to_show);
 
             if (args.src_is_video || args.src_is_camera) vc >> frame;
@@ -856,6 +857,8 @@ void App::run()
             }
 
             handleKey((char)waitKey(3));
+
+            this->frame_id++;
         }
 
         if (first_pass && args.write_tracking && !args.tracking_filename.empty())
@@ -1094,6 +1097,13 @@ inline string App::workFps() const
 {
     stringstream ss;
     ss << work_fps;
+    return ss.str();
+}
+
+inline string App::frameIndex(int i) const
+{
+    stringstream ss;
+    ss << i;
     return ss.str();
 }
 
