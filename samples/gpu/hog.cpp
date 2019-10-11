@@ -868,9 +868,10 @@ void App::run()
 
             // Derive trajectory-based metrics
             std::vector<int> idSwapsPerFrame = std::vector<int>(this->frame_id, 0);
+            std::map<int, int> numFragmentationsPerTrack;
             int numMostlyTracked = 0;
             int numMostlyLost = 0;
-            std::map<int, int> numFragmentationsPerTrack;
+            double totalBboxOverlap = 0.0;
             std::map<int, Trajectory>::iterator traj_it;
             for (traj_it = trajectoryMap.begin(); traj_it != trajectoryMap.end(); ++traj_it)
             {
@@ -915,6 +916,12 @@ void App::run()
                     if (!isNew && !prevTracked && trajectory->isTrackedPerFrame[fnum])
                     {
                         numFragmentationsPerTrack[trajectory->id]++;
+                    }
+
+                    // Add the bounding box overlap
+                    if (trajectory->isTrackedPerFrame[fnum])
+                    {
+                        totalBboxOverlap += trajectory->bboxOverlapPerFrame[fnum];
                     }
 
                     prevTracked = trajectory->isTrackedPerFrame[fnum];
@@ -993,9 +1000,26 @@ void App::run()
                 tracking_file << "IDSW," << idSwapsPerFrame[fnum] << std::endl;
             }
 
-            // Write total scenario tracking evaluation metrics
+            // Compute MOTA and MOTP for the scenario
+            double motaNumerator = 0.0;
+            double motaDenominator = 0.0;
+            double motpNumerator = totalBboxOverlap;
+            double motpDenominator = 0.0;
+            for (unsigned fnum = 0; fnum < truePositives.size(); fnum++)
+            {
+                motaNumerator += (falseNegatives[fnum] + falsePositives[fnum] + idSwapsPerFrame[fnum]);
+                motaDenominator += groundTruths[fnum];
+                motpDenominator += numMatches[fnum];
+            }
+
+            double mota = 1 - (motaNumerator / motaDenominator);
+            double motp = motpNumerator / motpDenominator;
+
+            // Write total scenario tracking evaluation metrics (MT, ML, MOTA, MOTP)
             tracking_file << "scenario|MT," << numMostlyTracked << ";";
-            tracking_file << "scenario|ML," << numMostlyLost << std::endl;
+            tracking_file << "ML," << numMostlyLost << ";";
+            tracking_file << "MOTA," << mota << ";";
+            tracking_file << "MOTP," << motp << std::endl;
 
             tracking_file.close();
         }
