@@ -853,16 +853,84 @@ void App::run()
             ofstream tracking_file;
             tracking_file.open(args.tracking_filename, ios::out | ios::app);
 
-            // Write the tracking information to the output file
+            // Derive trajectory-based metrics
+            std::vector<int> idSwapsPerFrame = std::vector<int>(this->frame_id, 0);
+            int numMostlyTracked = 0;
+            int numMostlyLost = 0;
+            std::map<int, int> numFragmentationsPerTrack;
             std::map<int, Trajectory>::iterator traj_it;
             for (traj_it = trajectoryMap.begin(); traj_it != trajectoryMap.end(); ++traj_it)
             {
                 Trajectory *trajectory = &(traj_it->second);
 
-                // Write the trajectory's object ID
+                numFragmentationsPerTrack[trajectory->id] = 0;
+
+                // An ID switch (added to IDSW) occurs when a ground-truth object is matched to
+                // some track j and the last known assignment was track k != j.
+                // A fragmentation is counted each time a trajectory changes its status
+                // from tracked to untracked and tracking of that same trajectory is resumed
+                // at a later frame.
+                bool isNew = true;
+                bool prevTracked = false;
+                int prevTrackId = -1;
+                int numTrackedFrames = 0;
+                for (unsigned pfid = 0; pfid < trajectory->presentFrames.size(); pfid++)
+                {
+                    int fnum = trajectory->presentFrames[pfid];
+
+                    // Check for ID swaps
+                    if (trajectory->isTrackedPerFrame[fnum])
+                    {
+                        int trackId = trajectory->trackIdPerFrame[fnum];
+                        if (isNew)
+                        {
+                            prevTrackId = trackId;
+                        }
+                        else if (trackId != prevTrackId)
+                        {
+                            idSwapsPerFrame[fnum]++;
+                        }
+                    }
+
+                    // Count the number of frames tracked
+                    if (trajectory->isTrackedPerFrame[fnum])
+                    {
+                        numTrackedFrames++;
+                    }
+
+                    // Check for fragmentations
+                    if (!isNew && !prevTracked && trajectory->isTrackedPerFrame[fnum])
+                    {
+                        numFragmentationsPerTrack[trajectory->id]++;
+                    }
+
+                    prevTracked = trajectory->isTrackedPerFrame[fnum];
+                    isNew = pfid == 0;
+                }
+
+                // A trajectory is mostly tracked if it is tracked at least 80%
+                // of its lifetime, and mostly lost if it is tracked at most 20%
+                // of its lifetime
+                double trackedRatio = ((double)numTrackedFrames) / trajectory->presentFrames.size();
+                if (trackedRatio >= 0.8)
+                {
+                    numMostlyTracked++;
+                }
+                else if (trackedRatio <= 0.2)
+                {
+                    numMostlyLost++;
+                }
+            }
+
+            // Write the tracking information to the output file
+            for (traj_it = trajectoryMap.begin(); traj_it != trajectoryMap.end(); ++traj_it)
+            {
+                Trajectory *trajectory = &(traj_it->second);
+
+                // Write the trajectory's object ID,
                 tracking_file << "object|" << trajectory->id << "|";
 
-                // and tracking info each frame
+                // tracking info each frame,
                 for (int pfid = 0; pfid < trajectory->presentFrames.size(); pfid++)
                 {
                     if (pfid > 0)
@@ -875,6 +943,9 @@ void App::run()
                     tracking_file << fnum << "," << trajectory->isTrackedPerFrame[fnum];
                     tracking_file << "," << trajectory->trackIdPerFrame[fnum];
                 }
+
+                // and fragmentations
+                tracking_file << "FM," << numFragmentationsPerTrack[trajectory->id];
 
                 tracking_file << std::endl;
             }
@@ -890,8 +961,13 @@ void App::run()
                 tracking_file << "FN," << falseNegatives[fnum] << ";";
                 tracking_file << "FP," << falsePositives[fnum] << ";";
                 tracking_file << "GT," << groundTruths[fnum] << ";";
-                tracking_file << "c," << numMatches[fnum] << std::endl;
+                tracking_file << "c," << numMatches[fnum] << ";";
+                tracking_file << "IDSW," << idSwapsPerFrame[fnum] << std::endl;
             }
+
+            // Write total scenario tracking evaluation metrics
+            tracking_file << "scenario|MT," << numMostlyTracked << ";";
+            tracking_file << "scenario|ML," << numMostlyLost << std::endl;
 
             tracking_file.close();
         }
