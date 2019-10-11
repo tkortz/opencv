@@ -903,6 +903,7 @@ void App::run()
                         else if (trackId != prevTrackId)
                         {
                             idSwapsPerFrame[fnum]++;
+                            prevTrackId = trackId;
                         }
                     }
 
