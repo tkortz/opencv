@@ -62,7 +62,7 @@ public:
 
     Rect bbox;
 
-    double confidence; // between 0.0 and 1.0
+    double confidence; // between 0.0 and 1.0; -1.0 if not calculated/known
 };
 
 /*
@@ -72,7 +72,7 @@ public:
 class Track
 {
 public:
-    Track(Rect &bbox, double score);
+    Track(Detection &detection);
 
     unsigned int id;
 
@@ -176,10 +176,10 @@ public:
 
     void detectionToTrackAssignment(vector<Detection> &detections, vector<Track> &tracks, vector<int> &assignments, vector<unsigned int> &unassignedTracks, vector<unsigned int> &unassignedDetections, cv::Ptr<cv::cuda::HOG> gpu_hog, bool debug);
 
-    void updateAssignedTracks(vector<Track> &tracks, vector<Detection> &detections, vector<double> &confidenceScores, vector<int> &assignments);
+    void updateAssignedTracks(vector<Track> &tracks, vector<Detection> &detections, vector<int> &assignments);
     void updateUnassignedTracks(vector<Track> &tracks, vector<unsigned int> &unassignedTracks);
     void deleteLostTracks(vector<Track> &tracks);
-    void createNewTracks(vector<Track> &tracks, vector<Detection> &detections, vector<unsigned int> &unassignedDetections, vector<double> &confidenceScores);
+    void createNewTracks(vector<Track> &tracks, vector<Detection> &detections, vector<unsigned int> &unassignedDetections);
 
     // Helper functions
     inline bool equalsZero(double val)
@@ -316,10 +316,10 @@ Args::Args()
 
     // Configuration options for tracking
     costOfNonAssignment = 10.0;
-    timeWindowSize = 16;
+    timeWindowSize = 8;//16
     trackAgeThreshold = 4;//8;
     trackVisibilityThreshold = 0.3; //0.4;//0.6;
-    trackConfidenceThreshold = -1.0;
+    trackConfidenceThreshold = 0.2;
 }
 
 
@@ -688,7 +688,8 @@ void App::run()
                 {
                     // Create a detection object with no known ID and unknown confidence
                     // TODO: actually pass confidence vector to detectMultiScale
-                    Detection d(-1, foundRects[rect_idx], 0.0);
+                    Detection d(-1, foundRects[rect_idx], -1.0);
+                    foundDetections.push_back(d);
                 }
             }
 
@@ -705,8 +706,6 @@ void App::run()
             // Predict the new locations of the tracks
             App::predictNewLocationsOfTracks(tracks);
 
-            std::vector<double> confidences;
-
             // Use predicted track positions to map current detections to existing tracks
             std::vector<int> assignments;
             std::vector<unsigned int> unassignedTracks, unassignedDetections;
@@ -715,7 +714,7 @@ void App::run()
                                             false);
 
             // Update the tracks (assigned and unassigned)
-            App::updateAssignedTracks(tracks, foundDetections, confidences, assignments);
+            App::updateAssignedTracks(tracks, foundDetections, assignments);
             App::updateUnassignedTracks(tracks, unassignedTracks);
 
             // Update trajectories for assigned detections/tracks
@@ -756,7 +755,7 @@ void App::run()
             // Delete any tracks that are lost enough, and create new tracks
             // for unassigned detections
             App::deleteLostTracks(tracks);
-            App::createNewTracks(tracks, foundDetections, unassignedDetections, confidences);
+            App::createNewTracks(tracks, foundDetections, unassignedDetections);
 
             if (first_pass)
             {
@@ -786,7 +785,8 @@ void App::run()
                     Track *track = &((tracks)[trackIdx]);
 
                     // Don't draw tracks that are too new and/or with too low confidence
-                    if ((track->age < args.trackAgeThreshold && track->maxConfidence < args.trackConfidenceThreshold) ||
+                    // TODO: remove check for maxConfidence >= when HOG gives confidence
+                    if ((track->age < args.trackAgeThreshold && track->maxConfidence >= 0.0 && track->maxConfidence < args.trackConfidenceThreshold) ||
                         (track->age < args.trackAgeThreshold / 2))
                     {
                         continue;
@@ -1803,7 +1803,7 @@ void App::updateTrackConfidence(Track *track)
 /*
  * Updates the assigned tracks with the corresponding detections.
  */
-void App::updateAssignedTracks(vector<Track> &tracks, vector<Detection> &detections, vector<double> &confidenceScores, vector<int> &assignments)
+void App::updateAssignedTracks(vector<Track> &tracks, vector<Detection> &detections, vector<int> &assignments)
 {
     for (unsigned int trackIdx = 0; trackIdx < tracks.size(); trackIdx++)
     {
@@ -1838,7 +1838,7 @@ void App::updateAssignedTracks(vector<Track> &tracks, vector<Detection> &detecti
         // Update the track's age, visibility, and score history
         track->age++;
         track->totalVisibleCount++;
-//        track->scores.push_back(confidenceScores[detectionIdx]);
+        track->scores.push_back(detections[detectionIdx].confidence);
 
         // Update the track's confidence score based on the maximum detection
         // score in the past 'timeWindowSize' frames
@@ -1882,8 +1882,9 @@ void App::deleteLostTracks(vector<Track> &tracks)
 
         // Determine if the track is lost based on the visible fraction
         // and the confidence
+        // TODO: remove check for maxConfidence >= when HOG gives confidence
         if ((track->age <= args.trackAgeThreshold && visibility <= args.trackVisibilityThreshold) ||
-            (track->maxConfidence <= args.trackConfidenceThreshold))
+            (track->maxConfidence >= 0.0 && track->maxConfidence <= args.trackConfidenceThreshold))
         {
             trackIndicesToDelete.push_back(trackIdx);
         }
@@ -1900,7 +1901,7 @@ void App::deleteLostTracks(vector<Track> &tracks)
  * Creates new tracks from unassigned detections; assumes that any unassigned
  * detection is the start of a new track.
  */
-void App::createNewTracks(vector<Track> &tracks, vector<Detection> &detections, vector<unsigned int> &unassignedDetections, vector<double> &confidenceScores)
+void App::createNewTracks(vector<Track> &tracks, vector<Detection> &detections, vector<unsigned int> &unassignedDetections)
 {
     //cout << "Called createNewTracks with " << unassignedDetections.size() << " new detections." << endl;
 
@@ -1908,14 +1909,13 @@ void App::createNewTracks(vector<Track> &tracks, vector<Detection> &detections, 
     {
         unsigned detectionIdx = unassignedDetections[unassignedIdx];
 
-        //Track newTrack(detections[detectionIdx], confidenceScores[detectionIdx]);
-        Track newTrack(detections[detectionIdx].bbox, 0.0);
+        Track newTrack(detections[detectionIdx]);
 
         tracks.push_back(newTrack);
     }
 }
 
-Track::Track(Rect &bbox, double score)
+Track::Track(Detection &detection)
 {
     this->id = nextTrackId++;
 
@@ -1924,18 +1924,18 @@ Track::Track(Rect &bbox, double score)
     int b = rand() % 256;
     this->color = Scalar(r, g, b);
 
-    this->bboxes.push_back(bbox);
-    this->scores.push_back(score);
+    this->bboxes.push_back(detection.bbox);
+    this->scores.push_back(detection.confidence);
 
     this->motionModel = &constantVelocityMotionModel;
 
     this->age = 1;
     this->totalVisibleCount = 1;
 
-    this->maxConfidence = score;
-    this->avgConfidence = score;
+    this->maxConfidence = detection.confidence;
+    this->avgConfidence = detection.confidence;
 
-    this->predPosition = bbox;
+    this->predPosition = detection.bbox;
 }
 
 Point2d constantVelocityMotionModel(Track &track)
