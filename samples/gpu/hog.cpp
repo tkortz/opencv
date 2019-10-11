@@ -554,6 +554,11 @@ void App::run()
     std::vector<Track> tracks;
 
     bool first_pass = true;
+    std::vector<int> truePositives;  // TP_t: # assigned detections
+    std::vector<int> falseNegatives; // FN_t: # unmatched detections
+    std::vector<int> falsePositives; // FP_t: # unmatched tracks (hypotheses)
+    std::vector<int> groundTruths;   // GT_t: # objects in the scene
+    std::vector<int> numMatches;     // c_t:  # matches
 
     while (running)
     {
@@ -702,9 +707,12 @@ void App::run()
             App::updateUnassignedTracks(tracks, unassignedTracks);
 
             // Update trajectories for assigned detections/tracks
+            unsigned numAssigned = 0;
             for (unsigned trackIdx = 0; trackIdx < tracks.size(); trackIdx++)
             {
                 if (assignments[trackIdx] < 0) { continue; }
+
+                numAssigned++;
 
                 unsigned detectionIdx = assignments[trackIdx];
 
@@ -737,6 +745,15 @@ void App::run()
             // for unassigned detections
             App::deleteLostTracks(tracks);
             App::createNewTracks(tracks, foundDetections, unassignedDetections, confidences);
+
+            if (first_pass)
+            {
+                truePositives.push_back(numAssigned);
+                falseNegatives.push_back(unassignedDetections.size());
+                falsePositives.push_back(unassignedTracks.size());
+                groundTruths.push_back(foundDetections.size());
+                numMatches.push_back(numAssigned); // not necessarily the same as TP_t
+            }
 
             /*
             * end of tracking
@@ -842,7 +859,7 @@ void App::run()
             {
                 Trajectory *trajectory = &(traj_it->second);
 
-                // Write the trajectory's object ID,
+                // Write the trajectory's object ID
                 tracking_file << "object|" << trajectory->id << "|";
 
                 // and tracking info each frame
@@ -860,6 +877,20 @@ void App::run()
                 }
 
                 tracking_file << std::endl;
+            }
+
+            // Write per-frame tracking evaluation metrics to the output file
+            for (unsigned fnum = 0; fnum < truePositives.size(); fnum++)
+            {
+                // Write the frame number
+                tracking_file << "frame|" << fnum << "|";
+
+                // Write the metrics for the frame
+                tracking_file << "TP," << truePositives[fnum] << ";";
+                tracking_file << "FN," << falseNegatives[fnum] << ";";
+                tracking_file << "FP," << falsePositives[fnum] << ";";
+                tracking_file << "GT," << groundTruths[fnum] << ";";
+                tracking_file << "c," << numMatches[fnum] << std::endl;
             }
 
             tracking_file.close();
