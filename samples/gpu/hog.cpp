@@ -944,6 +944,8 @@ void App::run()
                     tracking_file << "," << trajectory->trackIdPerFrame[fnum];
                 }
 
+                tracking_file << "|";
+
                 // and fragmentations
                 tracking_file << "FM," << numFragmentationsPerTrack[trajectory->id];
 
