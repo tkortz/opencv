@@ -145,6 +145,8 @@ public:
     double trackVisibilityThreshold;
     double trackConfidenceThreshold;
 
+    int history;
+
     string bbox_filename;
 
     bool write_tracking;
@@ -248,6 +250,7 @@ static void printHelp()
          << "  [--write_video <bool>] # write video or not\n"
          << "  [--dst_video <path>] # output video path\n"
          << "  [--dst_video_fps <double>] # output video fps\n"
+         << "  [--history <int>] # age of history for tracking (sequential is 1)\n"
          << "  [--bbox_filename <string>] # filename of bounding box results for ground truth"
          << "  [--write_tracking <bool>] # writer tracking output or not"
          << "  [--tracking_filename <string>] # tracking output filename\n";
@@ -321,6 +324,9 @@ Args::Args()
     trackAgeThreshold = 4;//8;
     trackVisibilityThreshold = 0.3; //0.4;//0.6;
     trackConfidenceThreshold = 0.2;
+
+    // Age of prior results
+    history = 1;
 }
 
 
@@ -358,6 +364,12 @@ Args Args::read(int argc, char** argv)
         else if (string(argv[i]) == "--camera") { args.camera_id = atoi(argv[++i]); args.src_is_camera = true; }
         else if (string(argv[i]) == "--folder") { args.src = argv[++i]; args.src_is_folder = true;}
         else if (string(argv[i]) == "--svm") { args.svm = argv[++i]; args.svm_load = true;}
+        else if (string(argv[i]) == "--history") {
+            int history = atoi(argv[++i]);
+            if (history <= 0)
+                throw runtime_error((string("negative or zero minimum history: ") + argv[i]));
+            args.history = history;
+        }
         else if (string(argv[i]) == "--bbox_filename") args.bbox_filename = argv[++i];
         else if (string(argv[i]) == "--write_tracking") args.write_tracking = (string(argv[++i]) == "true");
         else if (string(argv[i]) == "--tracking_filename") args.tracking_filename = argv[++i];
@@ -488,6 +500,7 @@ void App::run()
     cout << "Bins number: " << args.nbins << endl;
     cout << "Hit threshold: " << hit_threshold << endl;
     cout << "Gamma correction: " << gamma_corr << endl;
+    cout << endl << "History age: " << args.history << endl;
     cout << endl;
 
     cout << "gpusvmDescriptorSize : " << gpu_hog->getDescriptorSize()
@@ -564,7 +577,12 @@ void App::run()
     }
 
     std::map<int, Trajectory> trajectoryMap;
+
     std::vector<std::vector<Track>> trackOutputBuffer;
+    for (unsigned i = 0; i < args.history; i++)
+    {
+        trackOutputBuffer.push_back(std::vector<Track>());
+    }
 
     bool first_pass = true;
     std::vector<int> truePositives;  // TP_t: # assigned detections
@@ -702,13 +720,16 @@ void App::run()
             std::vector<Track> tracks;
             if (this->frame_id == 0)
             {
-                trackOutputBuffer.clear();
+                for (unsigned buf_idx = 0; buf_idx < args.history; buf_idx++)
+                {
+                    trackOutputBuffer[buf_idx].clear();
+                }
 
                 nextTrackId = 0;
             }
-            else
+            else if (this->frame_id >= args.history)
             {
-                unsigned priorTrackIndex = this->frame_id - 1;
+                unsigned priorTrackIndex = (this->frame_id - args.history) % args.history;
                 std::vector<Track> priorTracks = trackOutputBuffer[priorTrackIndex];
 
                 for (unsigned tidx = 0; tidx < priorTracks.size(); tidx++)
@@ -772,7 +793,8 @@ void App::run()
             App::createNewTracks(tracks, foundDetections, unassignedDetections);
 
             // Store the tracking results
-            trackOutputBuffer.push_back(tracks);
+            unsigned currentTrackIndex = this->frame_id % args.history;
+            trackOutputBuffer[currentTrackIndex] = tracks;
 
             if (first_pass)
             {
