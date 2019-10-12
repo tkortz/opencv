@@ -703,6 +703,8 @@ void App::run()
             if (this->frame_id == 0)
             {
                 trackOutputBuffer.clear();
+
+                nextTrackId = 0;
             }
             else
             {
