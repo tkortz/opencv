@@ -56,9 +56,10 @@ public:
 class Detection
 {
 public:
-    Detection(int id, Rect &bbox, double confidence);
+    Detection(int id, int frame_id, Rect &bbox, double confidence);
 
     int id; // -1 if not known
+    int frame_id;
 
     Rect bbox;
 
@@ -81,8 +82,9 @@ public:
 
     std::vector<Rect> bboxes;
     std::vector<double> scores;
+    std::vector<int> frames; // a track might not be present in each frame (see history_distribution)
 
-    Point2d (*motionModel)(Track &track);
+    Point2d (*motionModel)(Track &track, int frame_id);
 
     unsigned int age;
     unsigned int totalVisibleCount;
@@ -96,7 +98,7 @@ public:
 // Assign IDs to tracks
 unsigned int nextTrackId = 0;
 
-Point2d constantVelocityMotionModel(Track &track);
+Point2d constantVelocityMotionModel(Track &track, int frame_id);
 
 class Args
 {
@@ -145,12 +147,15 @@ public:
     double trackVisibilityThreshold;
     double trackConfidenceThreshold;
 
-    int history;
+    vector<float> history_distribution;
 
     string bbox_filename;
 
     bool write_tracking;
     string tracking_filename;
+
+private:
+    void parseHistoryDistribution(char *dist_arg);
 };
 
 
@@ -175,12 +180,12 @@ public:
     string message() const;
 
     // Tracking functions
-    void predictNewLocationsOfTracks(vector<Track> &tracks);
+    void predictNewLocationsOfTracks(vector<Track> &tracks, int frame_id);
 
     void detectionToTrackAssignment(vector<Detection> &detections, vector<Track> &tracks, vector<int> &assignments, vector<unsigned int> &unassignedTracks, vector<unsigned int> &unassignedDetections, cv::Ptr<cv::cuda::HOG> gpu_hog, bool debug);
 
     void updateAssignedTracks(vector<Track> &tracks, vector<Detection> &detections, vector<int> &assignments);
-    void updateUnassignedTracks(vector<Track> &tracks, vector<unsigned int> &unassignedTracks);
+    void updateUnassignedTracks(vector<Track> &tracks, vector<unsigned int> &unassignedTracks, int frame_id);
     void deleteLostTracks(vector<Track> &tracks);
     void createNewTracks(vector<Track> &tracks, vector<Detection> &detections, vector<unsigned int> &unassignedDetections);
 
@@ -250,7 +255,7 @@ static void printHelp()
          << "  [--write_video <bool>] # write video or not\n"
          << "  [--dst_video <path>] # output video path\n"
          << "  [--dst_video_fps <double>] # output video fps\n"
-         << "  [--history <int>] # age of history for tracking (sequential is 1)\n"
+         << "  [--history_distribution <string>] # comma-separated distribution of age of history for tracking (e.g., '0.7,0.3' for 70% prior frame, 30% two prior)\n"
          << "  [--bbox_filename <string>] # filename of bounding box results for ground truth"
          << "  [--write_tracking <bool>] # writer tracking output or not"
          << "  [--tracking_filename <string>] # tracking output filename\n";
@@ -326,9 +331,42 @@ Args::Args()
     trackConfidenceThreshold = 0.2;
 
     // Age of prior results
-    history = 1;
+    history_distribution = std::vector<float>(1, 1.0); // default to using the previous frame
 }
 
+void Args::parseHistoryDistribution(char *dist_arg)
+{
+    vector<float> dist;
+
+    // Parse the comma-separate distribution information
+    string dist_str = string(dist_arg);
+    size_t prev_pos = 0;
+    size_t pos = 0;
+    do
+    {
+        pos = dist_str.find(",", prev_pos);
+
+        float val = stof(dist_str.substr(prev_pos, pos));
+        dist.push_back(val);
+
+        prev_pos = pos + 1;
+    }
+    while (pos != string::npos);
+
+    // Normalize it (sum should be 1.0)
+    float total = 0.0f;
+    for (unsigned i = 0; i < dist.size(); i++)
+    {
+        total += dist[i];
+    }
+
+    for (unsigned i = 0; i < dist.size(); i++)
+    {
+        dist[i] /= total;
+    }
+
+    this->history_distribution = dist;
+}
 
 Args Args::read(int argc, char** argv)
 {
@@ -364,11 +402,7 @@ Args Args::read(int argc, char** argv)
         else if (string(argv[i]) == "--camera") { args.camera_id = atoi(argv[++i]); args.src_is_camera = true; }
         else if (string(argv[i]) == "--folder") { args.src = argv[++i]; args.src_is_folder = true;}
         else if (string(argv[i]) == "--svm") { args.svm = argv[++i]; args.svm_load = true;}
-        else if (string(argv[i]) == "--history") {
-            int history = atoi(argv[++i]);
-            if (history <= 0)
-                throw runtime_error((string("negative or zero minimum history: ") + argv[i]));
-            args.history = history;
+        else if (string(argv[i]) == "--history_distribution") { args.parseHistoryDistribution(argv[++i]);
         }
         else if (string(argv[i]) == "--bbox_filename") args.bbox_filename = argv[++i];
         else if (string(argv[i]) == "--write_tracking") args.write_tracking = (string(argv[++i]) == "true");
@@ -500,7 +534,13 @@ void App::run()
     cout << "Bins number: " << args.nbins << endl;
     cout << "Hit threshold: " << hit_threshold << endl;
     cout << "Gamma correction: " << gamma_corr << endl;
-    cout << endl << "History age: " << args.history << endl;
+    cout << endl << "History age distribution: ";
+    for (unsigned i = 0; i < args.history_distribution.size(); i++)
+    {
+        if (i > 0) { cout << ", "; }
+        cout << i+1 << "=" << args.history_distribution[i];
+    }
+    cout << endl;
     cout << endl;
 
     cout << "gpusvmDescriptorSize : " << gpu_hog->getDescriptorSize()
@@ -579,10 +619,12 @@ void App::run()
     std::map<int, Trajectory> trajectoryMap;
 
     std::vector<std::vector<Track>> trackOutputBuffer;
-    for (unsigned i = 0; i < args.history; i++)
+    for (unsigned i = 0; i < args.history_distribution.size(); i++)
     {
         trackOutputBuffer.push_back(std::vector<Track>());
     }
+
+    std::vector<unsigned> historyAges;
 
     bool first_pass = true;
     std::vector<int> truePositives;  // TP_t: # assigned detections
@@ -666,7 +708,7 @@ void App::run()
                     int objectId = bbox[0];
                     Rect r(bbox[1], bbox[3], bbox[2] - bbox[1], bbox[4] - bbox[3]);
 
-                    Detection d(objectId, r, 1.0);
+                    Detection d(objectId, this->frame_id, r, 1.0);
                     foundDetections.push_back(d);
 
                     // Update the position of the trajectory, creating it if necessary
@@ -707,7 +749,7 @@ void App::run()
                 {
                     // Create a detection object with no known ID and unknown confidence
                     // TODO: actually pass confidence vector to detectMultiScale
-                    Detection d(-1, foundRects[rect_idx], -1.0);
+                    Detection d(-1, this->frame_id, foundRects[rect_idx], -1.0);
                     foundDetections.push_back(d);
                 }
             }
@@ -716,20 +758,40 @@ void App::run()
             *   Beginning of tracking
             * =========================== */
 
-            // Retrieve the prior track information
-            std::vector<Track> tracks;
+            // Reset the tracks at the beginning of the input
             if (this->frame_id == 0)
             {
-                for (unsigned buf_idx = 0; buf_idx < args.history; buf_idx++)
+                for (unsigned buf_idx = 0; buf_idx < trackOutputBuffer.size(); buf_idx++)
                 {
                     trackOutputBuffer[buf_idx].clear();
                 }
 
                 nextTrackId = 0;
+
+                historyAges.empty();
             }
-            else if (this->frame_id >= args.history)
+
+            // Choose which prior results to use
+            unsigned historyAge = 0; // invalid, must be at least 1
+            float cumulativeDist = 0.0f;
+            float r = ((float)rand()) / RAND_MAX;
+            for (unsigned i = 0; i < args.history_distribution.size(); i++)
             {
-                unsigned priorTrackIndex = (this->frame_id - args.history) % args.history;
+                cumulativeDist += args.history_distribution[i];
+                if (r < cumulativeDist)
+                {
+                    historyAge = i+1;
+                    break;
+                }
+            }
+            if (historyAge == 0) { historyAge = args.history_distribution.size(); }
+            historyAges.push_back(historyAge);
+
+            // Retrieve the prior track information
+            std::vector<Track> tracks;
+            if (this->frame_id >= historyAge)
+            {
+                unsigned priorTrackIndex = (this->frame_id - historyAge) % trackOutputBuffer.size();
                 std::vector<Track> priorTracks = trackOutputBuffer[priorTrackIndex];
 
                 for (unsigned tidx = 0; tidx < priorTracks.size(); tidx++)
@@ -739,7 +801,7 @@ void App::run()
             }
 
             // Predict the new locations of the tracks
-            App::predictNewLocationsOfTracks(tracks);
+            App::predictNewLocationsOfTracks(tracks, this->frame_id);
 
             // Use predicted track positions to map current detections to existing tracks
             std::vector<int> assignments;
@@ -750,7 +812,7 @@ void App::run()
 
             // Update the tracks (assigned and unassigned)
             App::updateAssignedTracks(tracks, foundDetections, assignments);
-            App::updateUnassignedTracks(tracks, unassignedTracks);
+            App::updateUnassignedTracks(tracks, unassignedTracks, this->frame_id);
 
             // Update trajectories for assigned detections/tracks
             unsigned numAssigned = 0;
@@ -793,7 +855,7 @@ void App::run()
             App::createNewTracks(tracks, foundDetections, unassignedDetections);
 
             // Store the tracking results
-            unsigned currentTrackIndex = this->frame_id % args.history;
+            unsigned currentTrackIndex = this->frame_id % trackOutputBuffer.size();
             trackOutputBuffer[currentTrackIndex] = tracks;
 
             if (first_pass)
@@ -838,7 +900,7 @@ void App::run()
                     // Draw the centroid of prior rectangles
                     for (unsigned int bboxIdx = 0; bboxIdx < track->bboxes.size() - 1; bboxIdx++)
                     {
-                        int centroid_alpha = (int)((float)bboxIdx / track->bboxes.size() * 255);
+                        int centroid_alpha = (int)((float)(track->frames[bboxIdx]) / this->frame_id * 255);
                         Scalar color = Scalar(track->color[0], track->color[1], track->color[2], centroid_alpha);
 
                         Rect *bbox = &(track->bboxes[bboxIdx]);
@@ -904,6 +966,20 @@ void App::run()
         {
             ofstream tracking_file;
             tracking_file.open(args.tracking_filename, ios::out | ios::app);
+
+            // Write selected history ages
+            tracking_file << "history|";
+            for (unsigned i = 0; i < historyAges.size(); i++)
+            {
+                if (i > 0)
+                {
+                    tracking_file << ",";
+                }
+
+                tracking_file << historyAges[i];
+            }
+
+            tracking_file << std::endl;
 
             // Derive trajectory-based metrics
             std::vector<int> idSwapsPerFrame = std::vector<int>(this->frame_id, 0);
@@ -1219,22 +1295,23 @@ void Trajectory::addTrackingInfo(int frame, Track *track)
     }
 }
 
-Detection::Detection(int id, Rect &bbox, double confidence)
+Detection::Detection(int id, int frame_id, Rect &bbox, double confidence)
 {
     this->id = id;
+    this->frame_id = frame_id;
     this->bbox = bbox;
     this->confidence = confidence;
 }
 
-void App::predictNewLocationsOfTracks(vector<Track> &tracks)
+void App::predictNewLocationsOfTracks(vector<Track> &tracks, int frame_id)
 {
     for (unsigned int i = 0; i < tracks.size(); i++)
     {
         // Get the last bounding box on this track
         Rect &bbox = tracks[i].bboxes.back();
 
-        // Predict tthe current location of the track
-        Point2d predictedCentroid = tracks[i].motionModel(tracks[i]);
+        // Predict the current location of the track
+        Point2d predictedCentroid = tracks[i].motionModel(tracks[i], frame_id);
 
         // Shift the bounding box so that its center is at the predicted
         // location
@@ -1874,6 +1951,7 @@ void App::updateAssignedTracks(vector<Track> &tracks, vector<Detection> &detecti
         centroid.x += (detectionBbox->width / 2) - (w / 2);
         centroid.y += (detectionBbox->height / 2) - (h / 2);
         track->bboxes.push_back(Rect(centroid, Size(w, h)));
+        track->frames.push_back(detections[detectionIdx].frame_id);
 
         // Update the track's age, visibility, and score history
         track->age++;
@@ -1889,7 +1967,7 @@ void App::updateAssignedTracks(vector<Track> &tracks, vector<Detection> &detecti
 /*
  * Updates the tracks that were not assigned detections this frame.
  */
-void App::updateUnassignedTracks(vector<Track> &tracks, vector<unsigned int> &unassignedTracks)
+void App::updateUnassignedTracks(vector<Track> &tracks, vector<unsigned int> &unassignedTracks, int frame_id)
 {
     for (unsigned int unassignedIdx = 0; unassignedIdx < unassignedTracks.size(); unassignedIdx++)
     {
@@ -1902,6 +1980,7 @@ void App::updateUnassignedTracks(vector<Track> &tracks, vector<unsigned int> &un
         track->age++;
         track->bboxes.push_back(track->predPosition);
         track->scores.push_back(0.0);
+        track->frames.push_back(frame_id);
 
         // Update the track's confidence based on the maximum detection
         // score in the past 'timeWindowSize' frames
@@ -1966,6 +2045,7 @@ Track::Track(Detection &detection)
 
     this->bboxes.push_back(detection.bbox);
     this->scores.push_back(detection.confidence);
+    this->frames.push_back(detection.frame_id);
 
     this->motionModel = &constantVelocityMotionModel;
 
@@ -1984,10 +2064,11 @@ Track::Track(const Track &t)
 
     this->color = t.color;
 
-    for (unsigned detction_id = 0; detction_id < t.bboxes.size(); detction_id++)
+    for (unsigned detection_id = 0; detection_id < t.bboxes.size(); detection_id++)
     {
-        this->bboxes.push_back(t.bboxes[detction_id]);
-        this->scores.push_back(t.scores[detction_id]);
+        this->bboxes.push_back(t.bboxes[detection_id]);
+        this->scores.push_back(t.scores[detection_id]);
+        this->frames.push_back(t.frames[detection_id]);
     }
 
     this->motionModel = t.motionModel;
@@ -2001,22 +2082,32 @@ Track::Track(const Track &t)
     this->predPosition = t.predPosition;
 }
 
-Point2d constantVelocityMotionModel(Track &track)
+Point2d constantVelocityMotionModel(Track &track, int frame_id)
 {
     // If the track has only a single detection, just return the same position
     if (track.age == 1)
     {
         // Translate the top-left corner of the box to the center
-        return Point2d(track.bboxes.back().x + track.bboxes.back().width / 2,
-                       track.bboxes.back().y + track.bboxes.back().height / 2);
+        Rect &bPrev = track.bboxes.back();
+        return Point2d(bPrev.x + bPrev.width / 2,
+                       bPrev.y + bPrev.height / 2);
     }
 
     // Otherwise, assume constant velocity between the past two detections
+    // (handle the case where the past two frame difference are not equal)
     double dx, dy;
-    dx = track.bboxes[track.bboxes.size()-1].x - track.bboxes[track.bboxes.size()-2].x;
-    dy = track.bboxes[track.bboxes.size()-1].y - track.bboxes[track.bboxes.size()-2].y;
-    return Point2d(track.bboxes.back().x + track.bboxes.back().width / 2 + dx,
-                   track.bboxes.back().y + track.bboxes.back().height / 2 + dy);
+    int fPrev1 = track.frames[track.frames.size() - 1];
+    int fPrev2 = track.frames[track.frames.size() - 2];
+    Rect &bPrev1 = track.bboxes[track.bboxes.size() - 1];
+    Rect &bPrev2 = track.bboxes[track.bboxes.size() - 2];
+    // std::cout << "fnow=" << frame_id << ", f1=" << fPrev1 << ", f2=" << fPrev2 << std::endl;
+    double frameDifferenceRatio = ((double)(frame_id - fPrev1)) / (fPrev1 - fPrev2);
+    dx = frameDifferenceRatio * (bPrev1.x - bPrev2.x);
+    dy = frameDifferenceRatio * (bPrev1.y - bPrev2.y);
+    double w = (bPrev1.width + bPrev2.width) / 2.0;
+    double h = (bPrev1.height + bPrev2.height) / 2.0;
+    return Point2d(bPrev1.x + w / 2 + dx,
+                   bPrev1.y + h / 2 + dy);
 }
 
 double computeBoundingBoxOverlap(Rect &predBbox, Rect &bbox)
