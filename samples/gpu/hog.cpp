@@ -73,6 +73,7 @@ class Track
 {
 public:
     Track(Detection &detection);
+    Track(const Track &t); // copy constructor
 
     unsigned int id;
 
@@ -563,7 +564,7 @@ void App::run()
     }
 
     std::map<int, Trajectory> trajectoryMap;
-    std::vector<Track> tracks;
+    std::vector<std::vector<Track>> trackOutputBuffer;
 
     bool first_pass = true;
     std::vector<int> truePositives;  // TP_t: # assigned detections
@@ -697,10 +698,17 @@ void App::run()
             *   Beginning of tracking
             * =========================== */
 
-            // Reset the tracks at the beginning of the input
-            if (this->frame_id == 0)
+            // Retrieve the prior track information
+            std::vector<Track> tracks;
+            if (this->frame_id > 0)
             {
-                tracks.clear();
+                unsigned priorTrackIndex = this->frame_id - 1;
+                std::vector<Track> priorTracks = trackOutputBuffer[priorTrackIndex];
+
+                for (unsigned tidx = 0; tidx < priorTracks.size(); tidx++)
+                {
+                    tracks.push_back(Track(priorTracks[tidx]));
+                }
             }
 
             // Predict the new locations of the tracks
@@ -756,6 +764,9 @@ void App::run()
             // for unassigned detections
             App::deleteLostTracks(tracks);
             App::createNewTracks(tracks, foundDetections, unassignedDetections);
+
+            // Store the tracking results
+            trackOutputBuffer.push_back(tracks);
 
             if (first_pass)
             {
@@ -1937,6 +1948,29 @@ Track::Track(Detection &detection)
     this->avgConfidence = detection.confidence;
 
     this->predPosition = detection.bbox;
+}
+
+Track::Track(const Track &t)
+{
+    this->id = t.id;
+
+    this->color = t.color;
+
+    for (unsigned detction_id = 0; detction_id < t.bboxes.size(); detction_id++)
+    {
+        this->bboxes.push_back(t.bboxes[detction_id]);
+        this->scores.push_back(t.scores[detction_id]);
+    }
+
+    this->motionModel = t.motionModel;
+
+    this->age = t.age;
+    this->totalVisibleCount = t.totalVisibleCount;
+
+    this->maxConfidence = t.maxConfidence;
+    this->avgConfidence = t.avgConfidence;
+
+    this->predPosition = t.predPosition;
 }
 
 Point2d constantVelocityMotionModel(Track &track)
