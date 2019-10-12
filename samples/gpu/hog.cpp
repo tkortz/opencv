@@ -700,7 +700,11 @@ void App::run()
 
             // Retrieve the prior track information
             std::vector<Track> tracks;
-            if (this->frame_id > 0)
+            if (this->frame_id == 0)
+            {
+                trackOutputBuffer.clear();
+            }
+            else
             {
                 unsigned priorTrackIndex = this->frame_id - 1;
                 std::vector<Track> priorTracks = trackOutputBuffer[priorTrackIndex];
