@@ -20,6 +20,8 @@ class Track;
 
 double computeBoundingBoxOverlap(Rect &predBbox, Rect &bbox);
 
+Point2d worldCoordsToScreenCoords(Vec3d &worldPos, Vec3d &cameraPos, Vec3d &cameraDir, int w, int h);
+
 /*
  * A trajectory corresponds to the ground-truth sequence of positions
  * of a tracked object.
@@ -34,6 +36,7 @@ public:
 
     vector<int> presentFrames;
     map<int, Rect> positionPerFrame;
+    map<int, Vec3d> worldPositionPerFrame;
 
     // Tracking information per frame, assumed to exist for a given key (frame ID)
     // only if isTrackedPerFrame[key] == true
@@ -45,7 +48,7 @@ public:
 
     int getFirstFrame();
 
-    void addPosition(int frame, Rect &bbox);
+    void addPosition(int frame, Rect &bbox, Vec3d &worldPos);
     void addTrackingInfo(int frame, Track *track);
 };
 
@@ -61,7 +64,9 @@ public:
     int id; // -1 if not known
     int frame_id;
 
-    Rect bbox;
+    Rect bbox; // in 2D image coordinates
+
+    Vec3d worldPosition; // in 3D world coordinates
 
     double confidence; // between 0.0 and 1.0; -1.0 if not calculated/known
 };
@@ -80,6 +85,7 @@ public:
 
     Scalar color;
 
+    std::vector<Vec3d> worldCoords;
     std::vector<Rect> bboxes;
     std::vector<double> scores;
     std::vector<int> frames; // a track might not be present in each frame (see history_distribution)
@@ -550,6 +556,7 @@ void App::run()
 
     // If a file of ground-truth bounding boxes has been supplied, pre-process it
     vector<vector<vector<int>>> per_frame_bboxes;
+    vector<vector<double>> per_frame_camera_poses; // x, y, yaw or x, y, z, pitch, yaw, roll
     if (!args.bbox_filename.empty())
     {
         ifstream bbox_file(args.bbox_filename);
@@ -566,9 +573,6 @@ void App::run()
                 continue;
             }
 
-            // Get the info from this bounding box into a vector
-            vector<int> bbox_info;
-
             size_t prev_pos = 0;
             size_t pos = 0;
 
@@ -576,6 +580,43 @@ void App::run()
             pos = line.find("|");
             prev_pos = pos + 1;
             int frame_num = stoi(line.substr(0, pos));
+
+            // Check if this is the first line read (assume they're in order by frame)
+            if (start_frame == 0)
+            {
+                start_frame = frame_num;
+                prev_frame = frame_num;
+            }
+
+            // Get the object ID
+            pos = line.find("|", prev_pos);
+            int objId = stoi(line.substr(prev_pos, pos));
+            prev_pos = pos + 1;
+
+            // If the ID is -1, this is the camera's pose
+            if (objId == -1)
+            {
+                vector<double> camera_pose;
+
+                do
+                {
+                    pos = line.find("|", prev_pos);
+
+                    int val = stod(line.substr(prev_pos, pos));
+                    camera_pose.push_back(val);
+
+                    prev_pos = pos + 1;
+                }
+                while (pos != string::npos);
+
+                per_frame_camera_poses.push_back(camera_pose);
+
+                continue;
+            }
+
+            // Otherwise, get the info from this bounding box into a vector
+            vector<int> bbox_info;
+            bbox_info.push_back(objId);
 
             do
             {
@@ -587,13 +628,6 @@ void App::run()
                 prev_pos = pos + 1;
             }
             while (pos != string::npos);
-
-            // Check if this is the first line read (assume they're in order by frame)
-            if (start_frame == 0)
-            {
-                start_frame = frame_num;
-                prev_frame = frame_num;
-            }
 
             // If this is the first bounding box we've seen from this frame, start a new vector
             // (there might have been multiple frames without any detections)
@@ -609,11 +643,8 @@ void App::run()
             prev_frame = frame_num;
         }
 
-        cout << "Found bounding boxes starting at frame " << start_frame;
-        cout << " and going through frame " << prev_frame << endl;
-
-        cout << "First BBOX for vehicle ID=" << per_frame_bboxes[0][0][0] << endl;
-        cout << "Last frame contained " << per_frame_bboxes[per_frame_bboxes.size() - 1].size() << " vehicles" << endl;
+        // Add the last frame's bounding boxes
+        per_frame_bboxes.push_back(current_frame_bboxes);
     }
 
     std::map<int, Trajectory> trajectoryMap;
@@ -709,6 +740,12 @@ void App::run()
                     Rect r(bbox[1], bbox[3], bbox[2] - bbox[1], bbox[4] - bbox[3]);
 
                     Detection d(objectId, this->frame_id, r, 1.0);
+                    double xPos = bbox[5];
+                    double yPos = bbox[6];
+                    double zPos = (bbox.size() >= 8) ? bbox[7] : 0.0; // assume 0 if not provided
+
+                    d.worldPosition = Vec3d(xPos, yPos, zPos);
+
                     foundDetections.push_back(d);
 
                     // Update the position of the trajectory, creating it if necessary
@@ -718,7 +755,7 @@ void App::run()
                         trajectoryMap[objectId] = t;
                     }
 
-                    trajectoryMap[objectId].addPosition(this->frame_id, r);
+                    trajectoryMap[objectId].addPosition(this->frame_id, r, d.worldPosition);
                 }
             }
             else
@@ -898,14 +935,38 @@ void App::run()
                     //                 0.5;
 
                     // Draw the centroid of prior rectangles
-                    for (unsigned int bboxIdx = 0; bboxIdx < track->bboxes.size() - 1; bboxIdx++)
+                    for (unsigned int pidx = 0; pidx < track->worldCoords.size() - 1; pidx++)
                     {
-                        int centroid_alpha = (int)((float)(track->frames[bboxIdx]) / this->frame_id * 255);
+                        if (track->scores[pidx] == 0.0)
+                        {
+                            continue;
+                        }
+
+                        int centroid_alpha = (int)((float)(track->frames[pidx]) / this->frame_id * 255);
                         Scalar color = Scalar(track->color[0], track->color[1], track->color[2], centroid_alpha);
 
-                        Rect *bbox = &(track->bboxes[bboxIdx]);
-                        Point2d centroid(bbox->x + bbox->width/2, bbox->y + bbox->height/2);
-                        rectangle(img_to_show, centroid, centroid, color, 2);
+                        Vec3d centroid = track->worldCoords[pidx];
+
+                        vector<double> &camera_pose = per_frame_camera_poses[this->frame_id];
+                        Vec3d cameraPos, cameraDir;
+                        if (camera_pose.size() == 3)
+                        {
+                            // x, y, and yaw are provided (assume z, pitch, and roll are 0)
+                            cameraPos = Vec3d(camera_pose[0], camera_pose[1], 0.0);
+                            cameraDir = Vec3d(0.0, camera_pose[2], 0.0);
+                        }
+                        else
+                        {
+                            // x, y, z, and pitch, yaw, roll
+                            cameraPos = Vec3d(camera_pose[0], camera_pose[1], camera_pose[2]);
+                            cameraDir = Vec3d(camera_pose[3], camera_pose[4], camera_pose[5]);
+
+                        }
+
+                        Point2d screenCoord = worldCoordsToScreenCoords(centroid, cameraPos, cameraDir, frame.cols, frame.rows);
+                        Point2d p1(screenCoord.x - 2, screenCoord.y - 2);
+                        Point2d p2(screenCoord.x + 2, screenCoord.y + 2);
+                        rectangle(img_to_show, p1, p2, color, 4);
                     }
 
                     // Draw the rectangle
@@ -1269,10 +1330,11 @@ int Trajectory::getFirstFrame()
     }
 }
 
-void Trajectory::addPosition(int frame, Rect &bbox)
+void Trajectory::addPosition(int frame, Rect &bbox, Vec3d &worldPos)
 {
     this->presentFrames.push_back(frame);
     this->positionPerFrame[frame] = bbox;
+    this->worldPositionPerFrame[frame] = worldPos;
 }
 
 void Trajectory::addTrackingInfo(int frame, Track *track)
@@ -1952,6 +2014,7 @@ void App::updateAssignedTracks(vector<Track> &tracks, vector<Detection> &detecti
         centroid.y += (detectionBbox->height / 2) - (h / 2);
         track->bboxes.push_back(Rect(centroid, Size(w, h)));
         track->frames.push_back(detections[detectionIdx].frame_id);
+        track->worldCoords.push_back(detections[detectionIdx].worldPosition);
 
         // Update the track's age, visibility, and score history
         track->age++;
@@ -1981,6 +2044,7 @@ void App::updateUnassignedTracks(vector<Track> &tracks, vector<unsigned int> &un
         track->bboxes.push_back(track->predPosition);
         track->scores.push_back(0.0);
         track->frames.push_back(frame_id);
+        track->worldCoords.push_back(Vec3d());
 
         // Update the track's confidence based on the maximum detection
         // score in the past 'timeWindowSize' frames
@@ -2046,6 +2110,7 @@ Track::Track(Detection &detection)
     this->bboxes.push_back(detection.bbox);
     this->scores.push_back(detection.confidence);
     this->frames.push_back(detection.frame_id);
+    this->worldCoords.push_back(detection.worldPosition);
 
     this->motionModel = &constantVelocityMotionModel;
 
@@ -2064,11 +2129,12 @@ Track::Track(const Track &t)
 
     this->color = t.color;
 
-    for (unsigned detection_id = 0; detection_id < t.bboxes.size(); detection_id++)
+    for (unsigned didx = 0; didx < t.bboxes.size(); didx++)
     {
-        this->bboxes.push_back(t.bboxes[detection_id]);
-        this->scores.push_back(t.scores[detection_id]);
-        this->frames.push_back(t.frames[detection_id]);
+        this->bboxes.push_back(t.bboxes[didx]);
+        this->scores.push_back(t.scores[didx]);
+        this->frames.push_back(t.frames[didx]);
+        this->worldCoords.push_back(t.worldCoords[didx]);
     }
 
     this->motionModel = t.motionModel;
@@ -2131,4 +2197,52 @@ double computeBoundingBoxOverlap(Rect &predBbox, Rect &bbox)
     // Finally, compute the overlap (in [0,1]) as intersection/union
     double overlap = intersectionArea / unionArea;
     return overlap;
+}
+
+Point2d worldCoordsToScreenCoords(Vec3d &worldPos, Vec3d &cameraPos, Vec3d &cameraDir, int w, int h)
+{
+    double cameraPitch = cameraDir[0];
+    double cameraYaw = cameraDir[1];
+    double cameraRoll = cameraDir[2];
+
+    // Transform worldPos from the world frame to the camera frame
+    double cp = cos(cameraPitch * CV_PI / 180.0);
+    double sp = sin(cameraPitch * CV_PI / 180.0);
+    double cy = cos(cameraYaw * CV_PI / 180.0);
+    double sy = sin(cameraYaw * CV_PI / 180.0);
+    double cr = cos(cameraRoll * CV_PI / 180.0);
+    double sr = sin(cameraRoll * CV_PI / 180.0);
+    double w2c_data[] = { cp * cy, cy * sp * sr - sy * cr, -cy * sp * cr - sy * sr, cameraPos[0],
+                          sy * cp, sy * sp * sr + cy * cr, -sy * sp * cr + cy * sr, cameraPos[1],
+                               sp,               -cp * sr,                 cp * cr, cameraPos[2],
+                                0,                      0,                       0,            1 };
+    Mat cameraToWorld = Mat(4, 4, CV_64F, w2c_data).clone();
+    Mat4d worldToCamera = cameraToWorld.inv();
+
+    double xCameraFrame = worldToCamera.at<double>(0,0) * worldPos[0] + worldToCamera.at<double>(0,1) * worldPos[1] + worldToCamera.at<double>(0,2) * worldPos[2] + worldToCamera.at<double>(0,3) * 1.0;
+    double yCameraFrame = worldToCamera.at<double>(1,0) * worldPos[0] + worldToCamera.at<double>(1,1) * worldPos[1] + worldToCamera.at<double>(1,2) * worldPos[2] + worldToCamera.at<double>(1,3) * 1.0;
+    double zCameraFrame = worldToCamera.at<double>(2,0) * worldPos[0] + worldToCamera.at<double>(2,1) * worldPos[1] + worldToCamera.at<double>(2,2) * worldPos[2] + worldToCamera.at<double>(2,3) * 1.0;
+
+    // The camera frame has x forward, y to the right, and z up;
+    // we want x to the right, y down, and z forward
+    double x = yCameraFrame;
+    double y = -zCameraFrame;
+    double z = xCameraFrame;
+
+    // Multiply the camera calibration matrix by these coordinates to handle angle, etc.
+    double calib_val = w / (2.0 * tan(90.0 * CV_PI / 360.0));
+    double camera_calibration_data[] = { calib_val,         0, w / 2.0,
+                                                 0, calib_val, h / 2.0,
+                                                 0,         0,     1.0 };
+    Mat cameraCalib = Mat(3, 3, CV_64F, camera_calibration_data).clone();
+
+    double xCalib = cameraCalib.at<double>(0,0) * x + cameraCalib.at<double>(0,1) * y + cameraCalib.at<double>(0,2) * z;
+    double yCalib = cameraCalib.at<double>(1,0) * x + cameraCalib.at<double>(1,1) * y + cameraCalib.at<double>(1,2) * z;
+    double zCalib = cameraCalib.at<double>(2,0) * x + cameraCalib.at<double>(2,1) * y + cameraCalib.at<double>(2,2) * z;
+
+    // Finally, divide by the z-coordinate to handle the distance to the camera plane
+    int xPixel = round(xCalib / zCalib);
+    int yPixel = round(yCalib / zCalib);
+
+    return Point2d(xPixel, yPixel);
 }
