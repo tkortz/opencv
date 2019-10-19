@@ -588,6 +588,14 @@ void App::run()
                 prev_frame = frame_num;
             }
 
+            // If this is the first line we've seen from this frame, start a new vector
+            // (there might have been multiple frames without any detections)
+            for (int i = prev_frame; i < frame_num; i++)
+            {
+                per_frame_bboxes.push_back(current_frame_bboxes);
+                current_frame_bboxes = vector<vector<int>>();
+            }
+
             // Get the object ID
             pos = line.find("|", prev_pos);
             int objId = stoi(line.substr(prev_pos, pos));
@@ -611,34 +619,27 @@ void App::run()
 
                 per_frame_camera_poses.push_back(camera_pose);
 
-                continue;
             }
-
-            // Otherwise, get the info from this bounding box into a vector
-            vector<int> bbox_info;
-            bbox_info.push_back(objId);
-
-            do
+            else
             {
-                pos = line.find("|", prev_pos);
+                // Otherwise, get the info from this bounding box into a vector
+                vector<int> bbox_info;
+                bbox_info.push_back(objId);
 
-                int val = stoi(line.substr(prev_pos, pos));
-                bbox_info.push_back(val);
+                do
+                {
+                    pos = line.find("|", prev_pos);
 
-                prev_pos = pos + 1;
+                    int val = stoi(line.substr(prev_pos, pos));
+                    bbox_info.push_back(val);
+
+                    prev_pos = pos + 1;
+                }
+                while (pos != string::npos);
+
+                // Add this bounding box to this frame's list
+                current_frame_bboxes.push_back(bbox_info);
             }
-            while (pos != string::npos);
-
-            // If this is the first bounding box we've seen from this frame, start a new vector
-            // (there might have been multiple frames without any detections)
-            for (int i = prev_frame; i < frame_num; i++)
-            {
-                per_frame_bboxes.push_back(current_frame_bboxes);
-                current_frame_bboxes = vector<vector<int>>();
-            }
-
-            // Add this bounding box to this frame's list
-            current_frame_bboxes.push_back(bbox_info);
 
             prev_frame = frame_num;
         }
