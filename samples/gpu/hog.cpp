@@ -1047,6 +1047,7 @@ void App::run()
             std::vector<int> idSwapsPerFrame = std::vector<int>(this->frame_id, 0);
             std::map<int, int> numFragmentationsPerTrack;
             int numMostlyTracked = 0;
+            int numPartiallyTracked = 0;
             int numMostlyLost = 0;
             double totalBboxOverlap = 0.0;
             std::map<int, Trajectory>::iterator traj_it;
@@ -1114,7 +1115,11 @@ void App::run()
                 {
                     numMostlyTracked++;
                 }
-                else if (trackedRatio <= 0.2)
+                else if (trackedRatio > 0.2)
+                {
+                    numPartiallyTracked++;
+                }
+                else
                 {
                     numMostlyLost++;
                 }
@@ -1178,25 +1183,30 @@ void App::run()
                 tracking_file << "IDSW," << idSwapsPerFrame[fnum] << std::endl;
             }
 
-            // Compute MOTA and MOTP for the scenario
+            // Compute MOTA, A-MOTA, and MOTP for the scenario
             double motaNumerator = 0.0;
+            double amotaNumerator = 0.0;
             double motaDenominator = 0.0;
             double motpNumerator = totalBboxOverlap;
             double motpDenominator = 0.0;
             for (unsigned fnum = 0; fnum < truePositives.size(); fnum++)
             {
                 motaNumerator += (falseNegatives[fnum] + falsePositives[fnum] + idSwapsPerFrame[fnum]);
+                amotaNumerator += (falseNegatives[fnum] + falsePositives[fnum]);
                 motaDenominator += groundTruths[fnum];
                 motpDenominator += numMatches[fnum];
             }
 
             double mota = 1 - (motaNumerator / motaDenominator);
+            double amota = 1 - (amotaNumerator / motaDenominator);
             double motp = motpNumerator / motpDenominator;
 
             // Write total scenario tracking evaluation metrics (MT, ML, MOTA, MOTP)
             tracking_file << "scenario|MT," << numMostlyTracked << ";";
+            tracking_file << "PT," << numPartiallyTracked << ";";
             tracking_file << "ML," << numMostlyLost << ";";
             tracking_file << "MOTA," << mota << ";";
+            tracking_file << "A-MOTA," << amota << ";";
             tracking_file << "MOTP," << motp << std::endl;
 
             tracking_file.close();
