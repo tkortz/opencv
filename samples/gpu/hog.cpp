@@ -23,7 +23,7 @@ class Tracker;
 class Trajectory;
 
 void parseBboxFile(string bbox_filename, vector<vector<vector<double>>> &per_frame_bboxes, vector<vector<double>> &per_frame_camera_poses);
-void parseDetections(vector<vector<vector<double>>> &perFrameBboxes, int frameId, vector<Detection> &detections, std::map<int, Trajectory> trajectoryMap);
+void parseDetections(vector<vector<vector<double>>> &perFrameBboxes, int frameId, vector<Detection> &detections, std::map<int, Trajectory> &trajectoryMap);
 
 Point2d constantVelocityMotionModel(Track &track, int frame_id);
 
@@ -2271,7 +2271,7 @@ void parseBboxFile(string bbox_filename, vector<vector<vector<double>>> &per_fra
     per_frame_bboxes.push_back(current_frame_bboxes);
 }
 
-void parseDetections(vector<vector<vector<double>>> &perFrameBboxes, int frameId, vector<Detection> &detections, std::map<int, Trajectory> trajectoryMap)
+void parseDetections(vector<vector<vector<double>>> &perFrameBboxes, int frameId, vector<Detection> &detections, std::map<int, Trajectory> &trajectoryMap)
 {
     if (perFrameBboxes.empty())
     {
