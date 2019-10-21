@@ -569,7 +569,7 @@ void App::run()
          << endl;
 
     // If a file of ground-truth bounding boxes has been supplied, pre-process it
-    vector<vector<vector<int>>> per_frame_bboxes;
+    vector<vector<vector<double>>> per_frame_bboxes;
     vector<vector<double>> per_frame_camera_poses; // x, y, yaw or x, y, z, pitch, yaw, roll
     if (!args.bbox_filename.empty())
     {
@@ -577,7 +577,7 @@ void App::run()
 
         int prev_frame = 0;
         int start_frame = 0;
-        vector<vector<int>> current_frame_bboxes;
+        vector<vector<double>> current_frame_bboxes;
 
         string line = "";
         while (getline(bbox_file, line))
@@ -607,7 +607,7 @@ void App::run()
             for (int i = prev_frame; i < frame_num; i++)
             {
                 per_frame_bboxes.push_back(current_frame_bboxes);
-                current_frame_bboxes = vector<vector<int>>();
+                current_frame_bboxes = vector<vector<double>>();
             }
 
             // Get the object ID
@@ -624,7 +624,7 @@ void App::run()
                 {
                     pos = line.find("|", prev_pos);
 
-                    int val = stod(line.substr(prev_pos, pos));
+                    double val = stod(line.substr(prev_pos, pos));
                     camera_pose.push_back(val);
 
                     prev_pos = pos + 1;
@@ -637,14 +637,14 @@ void App::run()
             else
             {
                 // Otherwise, get the info from this bounding box into a vector
-                vector<int> bbox_info;
+                vector<double> bbox_info;
                 bbox_info.push_back(objId);
 
                 do
                 {
                     pos = line.find("|", prev_pos);
 
-                    int val = stoi(line.substr(prev_pos, pos));
+                    double val = stod(line.substr(prev_pos, pos));
                     bbox_info.push_back(val);
 
                     prev_pos = pos + 1;
@@ -747,11 +747,11 @@ void App::run()
             // If a ground-truth file was provided, use that instead of HOG
             if (!per_frame_bboxes.empty())
             {
-                vector<vector<int>> bounding_boxes = per_frame_bboxes[this->frame_id];
+                vector<vector<double>> bounding_boxes = per_frame_bboxes[this->frame_id];
 
                 for (unsigned bb_idx = 0; bb_idx < bounding_boxes.size(); bb_idx++)
                 {
-                    vector<int> bbox = bounding_boxes[bb_idx];
+                    vector<double> bbox = bounding_boxes[bb_idx];
 
                     int objectId = bbox[0];
                     Rect r(bbox[1], bbox[3], bbox[2] - bbox[1], bbox[4] - bbox[3]);
@@ -977,13 +977,10 @@ void App::run()
                             // x, y, z, and pitch, yaw, roll
                             cameraPos = Vec3d(camera_pose[0], camera_pose[1], camera_pose[2]);
                             cameraDir = Vec3d(camera_pose[3], camera_pose[4], camera_pose[5]);
-
                         }
 
                         Point2d screenCoord = worldCoordsToScreenCoords(centroid, cameraPos, cameraDir, frame.cols, frame.rows);
-                        Point2d p1(screenCoord.x - 2, screenCoord.y - 2);
-                        Point2d p2(screenCoord.x + 2, screenCoord.y + 2);
-                        rectangle(img_to_show, p1, p2, color, 4);
+                        circle(img_to_show, screenCoord, 4, color, CV_FILLED);
                     }
 
                     // Draw the rectangle
