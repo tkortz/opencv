@@ -17,8 +17,13 @@ using namespace cv;
 bool help_showed = false;
 
 class Args;
+class Detection;
 class Track;
 class Tracker;
+class Trajectory;
+
+void parseBboxFile(string bbox_filename, vector<vector<vector<double>>> &per_frame_bboxes, vector<vector<double>> &per_frame_camera_poses);
+void parseDetections(vector<vector<vector<double>>> &perFrameBboxes, int frameId, vector<Detection> &detections, std::map<int, Trajectory> trajectoryMap);
 
 Point2d constantVelocityMotionModel(Track &track, int frame_id);
 
@@ -154,10 +159,12 @@ public:
 
     vector<float> history_distribution;
 
-    string bbox_filename;
+    string pedestrian_bbox_filename;
+    string vehicle_bbox_filename;
 
     bool write_tracking;
-    string tracking_filename;
+    string pedestrian_tracking_filepath;
+    string vehicle_tracking_filepath;
 
 private:
     void parseHistoryDistribution(char *dist_arg);
@@ -183,6 +190,12 @@ public:
     void updateUnassignedTracks(vector<Track> &tracks, vector<unsigned int> &unassignedTracks, int frame_id);
     void deleteLostTracks(vector<Track> &tracks);
     void createNewTracks(vector<Track> &tracks, vector<Detection> &detections, vector<unsigned int> &unassignedDetections);
+
+    vector<int> truePositives;  // TP_t: # assigned detections
+    vector<int> falseNegatives; // FN_t: # unmatched detections
+    vector<int> falsePositives; // FP_t: # unmatched tracks (hypotheses)
+    vector<int> groundTruths;   // GT_t: # objects in the scene
+    vector<int> numMatches;     // c_t:  # matches
 
 private:
     Tracker();
@@ -211,6 +224,18 @@ public:
     void run();
 
     void handleKey(char key);
+
+    void performTrackingStep(Tracker *tracker,
+                             vector<Detection> &foundDetections,
+                             vector<Track> &tracks,
+                             std::map<int, Trajectory> &trajectoryMap,
+                             cv::Ptr<cv::cuda::HOG> gpu_hog,
+                             bool shouldStoreMetrics);
+
+    void writeTrackingOutputToFile(Tracker *tracker,
+                                   vector<unsigned> &historyAges,
+                                   std::map<int, Trajectory> &trajectoryMap,
+                                   string filepath);
 
     void hogWorkBegin();
     void hogWorkEnd();
@@ -276,7 +301,8 @@ static void printHelp()
          << "  [--dst_video <path>] # output video path\n"
          << "  [--dst_video_fps <double>] # output video fps\n"
          << "  [--history_distribution <string>] # comma-separated distribution of age of history for tracking (e.g., '0.7,0.3' for 70% prior frame, 30% two prior)\n"
-         << "  [--bbox_filename <string>] # filename of bounding box results for ground truth"
+         << "  [--pedestrian_bbox_filename <string>] # filename of pedestrian bounding box results for ground truth"
+         << "  [--vehicle_bbox_filename <string>] # filename of vehicle bounding box results for ground truth"
          << "  [--write_tracking <bool>] # writer tracking output or not"
          << "  [--tracking_filename <string>] # tracking output filename\n";
     help_showed = true;
@@ -424,9 +450,11 @@ Args Args::read(int argc, char** argv)
         else if (string(argv[i]) == "--svm") { args.svm = argv[++i]; args.svm_load = true;}
         else if (string(argv[i]) == "--history_distribution") { args.parseHistoryDistribution(argv[++i]);
         }
-        else if (string(argv[i]) == "--bbox_filename") args.bbox_filename = argv[++i];
+        else if (string(argv[i]) == "--pedestrian_bbox_filename") args.pedestrian_bbox_filename = argv[++i];
+        else if (string(argv[i]) == "--vehicle_bbox_filename") args.vehicle_bbox_filename = argv[++i];
         else if (string(argv[i]) == "--write_tracking") args.write_tracking = (string(argv[++i]) == "true");
-        else if (string(argv[i]) == "--tracking_filename") args.tracking_filename = argv[++i];
+        else if (string(argv[i]) == "--pedestrian_tracking_filepath") args.pedestrian_tracking_filepath = argv[++i];
+        else if (string(argv[i]) == "--vehicle_tracking_filepath") args.vehicle_tracking_filepath = argv[++i];
         else if (args.src.empty()) args.src = argv[i];
         else throw runtime_error((string("unknown key: ") + argv[i]));
     }
@@ -569,115 +597,33 @@ void App::run()
          << endl;
 
     // If a file of ground-truth bounding boxes has been supplied, pre-process it
-    vector<vector<vector<double>>> per_frame_bboxes;
+    vector<vector<vector<double>>> pedestrian_per_frame_bboxes;
     vector<vector<double>> per_frame_camera_poses; // x, y, yaw or x, y, z, pitch, yaw, roll
-    if (!args.bbox_filename.empty())
+    if (!args.pedestrian_bbox_filename.empty())
     {
-        ifstream bbox_file(args.bbox_filename);
-
-        int prev_frame = 0;
-        int start_frame = 0;
-        vector<vector<double>> current_frame_bboxes;
-
-        string line = "";
-        while (getline(bbox_file, line))
-        {
-            if (line.find("|") == string::npos)
-            {
-                continue;
-            }
-
-            size_t prev_pos = 0;
-            size_t pos = 0;
-
-            // Get the frame number
-            pos = line.find("|");
-            prev_pos = pos + 1;
-            int frame_num = stoi(line.substr(0, pos));
-
-            // Check if this is the first line read (assume they're in order by frame)
-            if (start_frame == 0)
-            {
-                start_frame = frame_num;
-                prev_frame = frame_num;
-            }
-
-            // If this is the first line we've seen from this frame, start a new vector
-            // (there might have been multiple frames without any detections)
-            for (int i = prev_frame; i < frame_num; i++)
-            {
-                per_frame_bboxes.push_back(current_frame_bboxes);
-                current_frame_bboxes = vector<vector<double>>();
-            }
-
-            // Get the object ID
-            pos = line.find("|", prev_pos);
-            int objId = stoi(line.substr(prev_pos, pos));
-            prev_pos = pos + 1;
-
-            // If the ID is -1, this is the camera's pose
-            if (objId == -1)
-            {
-                vector<double> camera_pose;
-
-                do
-                {
-                    pos = line.find("|", prev_pos);
-
-                    double val = stod(line.substr(prev_pos, pos));
-                    camera_pose.push_back(val);
-
-                    prev_pos = pos + 1;
-                }
-                while (pos != string::npos);
-
-                per_frame_camera_poses.push_back(camera_pose);
-
-            }
-            else
-            {
-                // Otherwise, get the info from this bounding box into a vector
-                vector<double> bbox_info;
-                bbox_info.push_back(objId);
-
-                do
-                {
-                    pos = line.find("|", prev_pos);
-
-                    double val = stod(line.substr(prev_pos, pos));
-                    bbox_info.push_back(val);
-
-                    prev_pos = pos + 1;
-                }
-                while (pos != string::npos);
-
-                // Add this bounding box to this frame's list
-                current_frame_bboxes.push_back(bbox_info);
-            }
-
-            prev_frame = frame_num;
-        }
-
-        // Add the last frame's bounding boxes
-        per_frame_bboxes.push_back(current_frame_bboxes);
+        parseBboxFile(args.pedestrian_bbox_filename, pedestrian_per_frame_bboxes, per_frame_camera_poses);
     }
 
-    std::map<int, Trajectory> trajectoryMap;
+    vector<vector<vector<double>>> vehicle_per_frame_bboxes;
+    if (!args.vehicle_bbox_filename.empty())
+    {
+        parseBboxFile(args.vehicle_bbox_filename, vehicle_per_frame_bboxes, per_frame_camera_poses);
+    }
 
-    std::vector<std::vector<Track>> trackOutputBuffer;
+    std::map<int, Trajectory> pedestrianTrajectoryMap;
+    std::map<int, Trajectory> vehicleTrajectoryMap;
+
+    std::vector<std::vector<Track>> pedestrianTrackOutputBuffer;
+    std::vector<std::vector<Track>> vehicleTrackOutputBuffer;
     for (unsigned i = 0; i < args.history_distribution.size(); i++)
     {
-        trackOutputBuffer.push_back(std::vector<Track>());
+        pedestrianTrackOutputBuffer.push_back(std::vector<Track>());
+        vehicleTrackOutputBuffer.push_back(std::vector<Track>());
     }
 
     std::vector<unsigned> historyAges;
 
-    bool first_pass = true;
-    std::vector<int> truePositives;  // TP_t: # assigned detections
-    std::vector<int> falseNegatives; // FN_t: # unmatched detections
-    std::vector<int> falsePositives; // FP_t: # unmatched tracks (hypotheses)
-    std::vector<int> groundTruths;   // GT_t: # objects in the scene
-    std::vector<int> numMatches;     // c_t:  # matches
+    bool is_first_pass = true;
 
     while (running)
     {
@@ -723,7 +669,8 @@ void App::run()
         Mat img_aux, img, img_to_show;
         cuda::GpuMat gpu_img;
 
-        Tracker tracker(this->args);
+        Tracker pedestrianTracker(this->args);
+        Tracker vehicleTracker(this->args);
 
         this->frame_id = 0;
 
@@ -742,38 +689,14 @@ void App::run()
             else img = img_aux;
             img_to_show = img;
 
-            vector<Detection> foundDetections;
+            vector<Detection> pedestrianDetections;
+            vector<Detection> vehicleDetections;
 
             // If a ground-truth file was provided, use that instead of HOG
-            if (!per_frame_bboxes.empty())
+            if (!pedestrian_per_frame_bboxes.empty() || !vehicle_per_frame_bboxes.empty())
             {
-                vector<vector<double>> bounding_boxes = per_frame_bboxes[this->frame_id];
-
-                for (unsigned bb_idx = 0; bb_idx < bounding_boxes.size(); bb_idx++)
-                {
-                    vector<double> bbox = bounding_boxes[bb_idx];
-
-                    int objectId = bbox[0];
-                    Rect r(bbox[1], bbox[3], bbox[2] - bbox[1], bbox[4] - bbox[3]);
-
-                    Detection d(objectId, this->frame_id, r, 1.0);
-                    double xPos = bbox[5];
-                    double yPos = bbox[6];
-                    double zPos = (bbox.size() >= 8) ? bbox[7] : 0.0; // assume 0 if not provided
-
-                    d.worldPosition = Vec3d(xPos, yPos, zPos);
-
-                    foundDetections.push_back(d);
-
-                    // Update the position of the trajectory, creating it if necessary
-                    if (trajectoryMap.find(objectId) == trajectoryMap.end())
-                    {
-                        Trajectory t(objectId);
-                        trajectoryMap[objectId] = t;
-                    }
-
-                    trajectoryMap[objectId].addPosition(this->frame_id, r, d.worldPosition);
-                }
+                parseDetections(pedestrian_per_frame_bboxes, this->frame_id, pedestrianDetections, pedestrianTrajectoryMap);
+                parseDetections(vehicle_per_frame_bboxes, this->frame_id, vehicleDetections, vehicleTrajectoryMap);
             }
             else
             {
@@ -804,7 +727,7 @@ void App::run()
                     // Create a detection object with no known ID and unknown confidence
                     // TODO: actually pass confidence vector to detectMultiScale
                     Detection d(-1, this->frame_id, foundRects[rect_idx], -1.0);
-                    foundDetections.push_back(d);
+                    pedestrianDetections.push_back(d);
                 }
             }
 
@@ -815,12 +738,14 @@ void App::run()
             // Reset the tracks at the beginning of the input
             if (this->frame_id == 0)
             {
-                for (unsigned buf_idx = 0; buf_idx < trackOutputBuffer.size(); buf_idx++)
+                for (unsigned buf_idx = 0; buf_idx < args.history_distribution.size(); buf_idx++)
                 {
-                    trackOutputBuffer[buf_idx].clear();
+                    pedestrianTrackOutputBuffer[buf_idx].clear();
+                    vehicleTrackOutputBuffer[buf_idx].clear();
                 }
 
-                tracker.reset();
+                pedestrianTracker.reset();
+                vehicleTracker.reset();
 
                 historyAges.empty();
             }
@@ -842,102 +767,75 @@ void App::run()
             historyAges.push_back(historyAge);
 
             // Retrieve the prior track information
-            std::vector<Track> tracks;
+            std::vector<Track> pedestrianTracks;
+            std::vector<Track> vehicleTracks;
             if (this->frame_id >= historyAge)
             {
-                unsigned priorTrackIndex = (this->frame_id - historyAge) % trackOutputBuffer.size();
-                std::vector<Track> priorTracks = trackOutputBuffer[priorTrackIndex];
+                unsigned priorTrackIndex = (this->frame_id - historyAge) % args.history_distribution.size();
+                std::vector<Track> priorPedestrianTracks = pedestrianTrackOutputBuffer[priorTrackIndex];
+                std::vector<Track> priorVehicleTracks = vehicleTrackOutputBuffer[priorTrackIndex];
 
-                for (unsigned tidx = 0; tidx < priorTracks.size(); tidx++)
+                for (unsigned tidx = 0; tidx < priorPedestrianTracks.size(); tidx++)
                 {
-                    tracks.push_back(Track(priorTracks[tidx]));
+                    pedestrianTracks.push_back(Track(priorPedestrianTracks[tidx]));
+                }
+                for (unsigned tidx = 0; tidx < priorVehicleTracks.size(); tidx++)
+                {
+                    vehicleTracks.push_back(Track(priorVehicleTracks[tidx]));
                 }
             }
 
-            // Predict the new locations of the tracks
-            tracker.predictNewLocationsOfTracks(tracks, this->frame_id);
+            performTrackingStep(&pedestrianTracker, pedestrianDetections, pedestrianTracks,
+                                pedestrianTrajectoryMap, gpu_hog, is_first_pass);
+            performTrackingStep(&vehicleTracker, vehicleDetections, vehicleTracks,
+                                vehicleTrajectoryMap, gpu_hog, is_first_pass);
 
-            // Use predicted track positions to map current detections to existing tracks
-            std::vector<int> assignments;
-            std::vector<unsigned int> unassignedTracks, unassignedDetections;
-            tracker.detectionToTrackAssignment(foundDetections, tracks, assignments,
-                                               unassignedTracks, unassignedDetections, gpu_hog,
-                                               false, this->frame_id);
-
-            // Update the tracks (assigned and unassigned)
-            tracker.updateAssignedTracks(tracks, foundDetections, assignments);
-            tracker.updateUnassignedTracks(tracks, unassignedTracks, this->frame_id);
-
-            // Update trajectories for assigned detections/tracks
-            unsigned numAssigned = 0;
-            for (unsigned trackIdx = 0; trackIdx < tracks.size(); trackIdx++)
-            {
-                if (assignments[trackIdx] < 0) { continue; }
-
-                numAssigned++;
-
-                unsigned detectionIdx = assignments[trackIdx];
-
-                Track *track = &(tracks[trackIdx]);
-                Detection *detection = &(foundDetections[detectionIdx]);
-
-                // Ignore detections for which no ground truth information exists
-                if (detection->id < 0) { continue; }
-
-                Trajectory *trajectory = &(trajectoryMap[detection->id]);
-                trajectory->addTrackingInfo(this->frame_id, track);
-            }
-
-            // Update trajectories for unassigned detections - note that this
-            // will miss the first position/frame associated with each track,
-            // because they are created just after
-            for (unsigned udix = 0; udix < unassignedDetections.size(); udix++)
-            {
-                unsigned detectionIdx = unassignedDetections[udix];
-                Detection *detection = &(foundDetections[detectionIdx]);
-
-                // Ignore detections for which no ground truth information exists
-                if (detection->id < 0) { continue; }
-
-                Trajectory *trajectory = &(trajectoryMap[detection->id]);
-                trajectory->addTrackingInfo(this->frame_id, NULL);
-            }
-
-            // Delete any tracks that are lost enough, and create new tracks
-            // for unassigned detections
-            tracker.deleteLostTracks(tracks);
-            tracker.createNewTracks(tracks, foundDetections, unassignedDetections);
 
             // Store the tracking results
-            unsigned currentTrackIndex = this->frame_id % trackOutputBuffer.size();
-            trackOutputBuffer[currentTrackIndex] = tracks;
+            unsigned currentTrackIndex = this->frame_id % args.history_distribution.size();
+            pedestrianTrackOutputBuffer[currentTrackIndex] = pedestrianTracks;
+            vehicleTrackOutputBuffer[currentTrackIndex] = vehicleTracks;
 
-            if (first_pass)
-            {
-                truePositives.push_back(numAssigned);
-                falseNegatives.push_back(unassignedDetections.size());
-                falsePositives.push_back(unassignedTracks.size());
-                groundTruths.push_back(foundDetections.size());
-                numMatches.push_back(numAssigned); // not necessarily the same as TP_t
-            }
 
             /*
             * end of tracking
             * =========================== */
 
             // Draw positive classified windows
-            // for (size_t i = 0; i < found.size(); i++)
-            // {
-            //     Rect r = found[i];
-            //     rectangle(img_to_show, r.tl(), r.br(), Scalar(0, 255, 0), 3);
+            for (size_t i = 0; i < pedestrianDetections.size(); i++)
+            {
+                Rect r = pedestrianDetections[i].bbox;
+                rectangle(img_to_show, r.tl(), r.br(), Scalar(0, 0, 255), 3);
+            }
+
+            for (size_t i = 0; i < vehicleDetections.size(); i++)
+            {
+                Rect r = vehicleDetections[i].bbox;
+                rectangle(img_to_show, r.tl(), r.br(), Scalar(0, 255, 0), 3);
+            }
+
+
+
+
+
+
+
             // }
 
             // If tracking was successful, draw rectangles for tracking
-            if (tracks.size() > 0)
+            if (pedestrianTracks.size() + vehicleTracks.size() > 0)
             {
-                for (unsigned int trackIdx = 0; trackIdx < tracks.size(); trackIdx++)
+                for (unsigned int trackIdx = 0; trackIdx < pedestrianTracks.size() + vehicleTracks.size(); trackIdx++)
                 {
-                    Track *track = &((tracks)[trackIdx]);
+                    Track *track;
+                    if (trackIdx < pedestrianTracks.size())
+                    {
+                        track = &((pedestrianTracks)[trackIdx]);
+                    }
+                    else
+                    {
+                        track = &((vehicleTracks)[trackIdx - pedestrianTracks.size()]);
+                    }
 
                     // Don't draw tracks that are too new and/or with too low confidence
                     // TODO: remove check for maxConfidence >= when HOG gives confidence
@@ -1037,195 +935,21 @@ void App::run()
             this->frame_id++;
         }
 
-        if (first_pass && args.write_tracking && !args.tracking_filename.empty())
+
+        if (is_first_pass && args.write_tracking)
         {
-            ofstream tracking_file;
-            tracking_file.open(args.tracking_filename, ios::out | ios::app);
-
-            // Write selected history ages
-            tracking_file << "history|";
-            for (unsigned i = 0; i < historyAges.size(); i++)
+            if (!args.pedestrian_tracking_filepath.empty())
             {
-                if (i > 0)
-                {
-                    tracking_file << ",";
-                }
-
-                tracking_file << historyAges[i];
+                writeTrackingOutputToFile(&pedestrianTracker, historyAges, pedestrianTrajectoryMap, args.pedestrian_tracking_filepath);
             }
 
-            tracking_file << std::endl;
-
-            // Derive trajectory-based metrics
-            std::vector<int> idSwapsPerFrame = std::vector<int>(this->frame_id, 0);
-            std::map<int, int> numFragmentationsPerTrack;
-            int numMostlyTracked = 0;
-            int numPartiallyTracked = 0;
-            int numMostlyLost = 0;
-            double totalBboxOverlap = 0.0;
-            std::map<int, Trajectory>::iterator traj_it;
-            for (traj_it = trajectoryMap.begin(); traj_it != trajectoryMap.end(); ++traj_it)
+            if (!args.vehicle_tracking_filepath.empty())
             {
-                Trajectory *trajectory = &(traj_it->second);
-
-                numFragmentationsPerTrack[trajectory->id] = 0;
-
-                // An ID switch (added to IDSW) occurs when a ground-truth object is matched to
-                // some track j and the last known assignment was track k != j.
-                // A fragmentation is counted each time a trajectory changes its status
-                // from tracked to untracked and tracking of that same trajectory is resumed
-                // at a later frame.
-                bool isNew = true;
-                bool prevTracked = false;
-                int prevTrackId = -1;
-                int numTrackedFrames = 0;
-                for (unsigned pfid = 0; pfid < trajectory->presentFrames.size(); pfid++)
-                {
-                    int fnum = trajectory->presentFrames[pfid];
-
-                    // Check for ID swaps
-                    if (trajectory->isTrackedPerFrame[fnum])
-                    {
-                        int trackId = trajectory->trackIdPerFrame[fnum];
-                        if (isNew)
-                        {
-                            prevTrackId = trackId;
-                        }
-                        else if (trackId != prevTrackId)
-                        {
-                            idSwapsPerFrame[fnum]++;
-                            prevTrackId = trackId;
-                        }
-                    }
-
-                    // Count the number of frames tracked
-                    if (trajectory->isTrackedPerFrame[fnum])
-                    {
-                        numTrackedFrames++;
-                    }
-
-                    // Check for fragmentations
-                    if (!isNew && !prevTracked && trajectory->isTrackedPerFrame[fnum])
-                    {
-                        numFragmentationsPerTrack[trajectory->id]++;
-                    }
-
-                    // Add the bounding box overlap
-                    if (trajectory->isTrackedPerFrame[fnum])
-                    {
-                        totalBboxOverlap += trajectory->bboxOverlapPerFrame[fnum];
-                    }
-
-                    prevTracked = trajectory->isTrackedPerFrame[fnum];
-                    isNew = pfid == 0;
-                }
-
-                // A trajectory is mostly tracked if it is tracked at least 80%
-                // of its lifetime, and mostly lost if it is tracked at most 20%
-                // of its lifetime
-                double trackedRatio = ((double)numTrackedFrames) / trajectory->presentFrames.size();
-                if (trackedRatio >= 0.8)
-                {
-                    numMostlyTracked++;
-                }
-                else if (trackedRatio > 0.2)
-                {
-                    numPartiallyTracked++;
-                }
-                else
-                {
-                    numMostlyLost++;
-                }
+                writeTrackingOutputToFile(&vehicleTracker, historyAges, vehicleTrajectoryMap, args.vehicle_tracking_filepath);
             }
-
-            // Write the tracking information to the output file
-            for (traj_it = trajectoryMap.begin(); traj_it != trajectoryMap.end(); ++traj_it)
-            {
-                Trajectory *trajectory = &(traj_it->second);
-
-                // Write the trajectory's object ID,
-                tracking_file << "object|" << trajectory->id << "|";
-
-                // tracking info each frame,
-                for (int pfid = 0; pfid < trajectory->presentFrames.size(); pfid++)
-                {
-                    if (pfid > 0)
-                    {
-                        tracking_file << ";";
-                    }
-
-                    int fnum = trajectory->presentFrames[pfid];
-
-                    tracking_file << fnum << "," << trajectory->isTrackedPerFrame[fnum];
-                    tracking_file << "," << trajectory->trackIdPerFrame[fnum];
-
-                    if (trajectory->isTrackedPerFrame[fnum])
-                    {
-                        Rect &predBbox = trajectory->predPosPerFrame[fnum];
-                        tracking_file << ",PREDBBOX[" << predBbox.x << "^" << predBbox.y << "^";
-                        tracking_file << predBbox.width << "^" << predBbox.height << "]";
-
-                        Rect &trBbox = trajectory->trackPosPerFrame[fnum];
-                        tracking_file << ",TRBBOX[" << trBbox.x << "^" << trBbox.y << "^";
-                        tracking_file << trBbox.width << "^" << trBbox.height << "]";
-
-                        tracking_file << ",d[" << trajectory->bboxOverlapPerFrame[fnum] << "]";
-                    }
-                }
-
-                tracking_file << "|";
-
-                // and fragmentations
-                tracking_file << "FM," << numFragmentationsPerTrack[trajectory->id];
-
-                tracking_file << std::endl;
-            }
-
-            // Write per-frame tracking evaluation metrics to the output file
-            for (unsigned fnum = 0; fnum < truePositives.size(); fnum++)
-            {
-                // Write the frame number
-                tracking_file << "frame|" << fnum << "|";
-
-                // Write the metrics for the frame
-                tracking_file << "TP," << truePositives[fnum] << ";";
-                tracking_file << "FN," << falseNegatives[fnum] << ";";
-                tracking_file << "FP," << falsePositives[fnum] << ";";
-                tracking_file << "GT," << groundTruths[fnum] << ";";
-                tracking_file << "c," << numMatches[fnum] << ";";
-                tracking_file << "IDSW," << idSwapsPerFrame[fnum] << std::endl;
-            }
-
-            // Compute MOTA, A-MOTA, and MOTP for the scenario
-            double motaNumerator = 0.0;
-            double amotaNumerator = 0.0;
-            double motaDenominator = 0.0;
-            double motpNumerator = totalBboxOverlap;
-            double motpDenominator = 0.0;
-            for (unsigned fnum = 0; fnum < truePositives.size(); fnum++)
-            {
-                motaNumerator += (falseNegatives[fnum] + falsePositives[fnum] + idSwapsPerFrame[fnum]);
-                amotaNumerator += (falseNegatives[fnum] + falsePositives[fnum]);
-                motaDenominator += groundTruths[fnum];
-                motpDenominator += numMatches[fnum];
-            }
-
-            double mota = 1 - (motaNumerator / motaDenominator);
-            double amota = 1 - (amotaNumerator / motaDenominator);
-            double motp = motpNumerator / motpDenominator;
-
-            // Write total scenario tracking evaluation metrics (MT, ML, MOTA, MOTP)
-            tracking_file << "scenario|MT," << numMostlyTracked << ";";
-            tracking_file << "PT," << numPartiallyTracked << ";";
-            tracking_file << "ML," << numMostlyLost << ";";
-            tracking_file << "MOTA," << mota << ";";
-            tracking_file << "A-MOTA," << amota << ";";
-            tracking_file << "MOTP," << motp << std::endl;
-
-            tracking_file.close();
         }
 
-        first_pass = false;
+        is_first_pass = false;
     }
 }
 
@@ -1289,6 +1013,273 @@ void App::handleKey(char key)
         cout << "Gamma correction: " << gamma_corr << endl;
         break;
     }
+}
+
+void App::performTrackingStep(Tracker *tracker,
+                              vector<Detection> &foundDetections,
+                              vector<Track> &tracks,
+                              std::map<int, Trajectory> &trajectoryMap,
+                              cv::Ptr<cv::cuda::HOG> gpu_hog,
+                              bool shouldStoreMetrics)
+{
+    // Predict the new locations of the tracks
+    tracker->predictNewLocationsOfTracks(tracks, this->frame_id);
+
+    // Use predicted track positions to map current detections to existing tracks
+    std::vector<int> assignments;
+    std::vector<unsigned int> unassignedTracks, unassignedDetections;
+    tracker->detectionToTrackAssignment(foundDetections, tracks, assignments,
+                                        unassignedTracks, unassignedDetections, gpu_hog,
+                                        false, this->frame_id);
+
+    // Update the tracks (assigned and unassigned)
+    tracker->updateAssignedTracks(tracks, foundDetections, assignments);
+    tracker->updateUnassignedTracks(tracks, unassignedTracks, this->frame_id);
+
+    // Update trajectories for assigned detections/tracks
+    unsigned numAssigned = 0;
+    for (unsigned trackIdx = 0; trackIdx < tracks.size(); trackIdx++)
+    {
+        if (assignments[trackIdx] < 0) { continue; }
+
+        numAssigned++;
+
+        unsigned detectionIdx = assignments[trackIdx];
+
+        Track *track = &(tracks[trackIdx]);
+        Detection *detection = &(foundDetections[detectionIdx]);
+
+        // Ignore detections for which no ground truth information exists
+        if (detection->id < 0) { continue; }
+
+        Trajectory *trajectory = &(trajectoryMap[detection->id]);
+        trajectory->addTrackingInfo(this->frame_id, track);
+    }
+
+    // Update trajectories for unassigned detections - note that this
+    // will miss the first position/frame associated with each track,
+    // because they are created just after
+    for (unsigned udix = 0; udix < unassignedDetections.size(); udix++)
+    {
+        unsigned detectionIdx = unassignedDetections[udix];
+        Detection *detection = &(foundDetections[detectionIdx]);
+
+        // Ignore detections for which no ground truth information exists
+        if (detection->id < 0) { continue; }
+
+        Trajectory *trajectory = &(trajectoryMap[detection->id]);
+        trajectory->addTrackingInfo(this->frame_id, NULL);
+    }
+
+    // Delete any tracks that are lost enough, and create new tracks
+    // for unassigned detections
+    tracker->deleteLostTracks(tracks);
+    tracker->createNewTracks(tracks, foundDetections, unassignedDetections);
+
+    if (shouldStoreMetrics)
+    {
+        tracker->truePositives.push_back(numAssigned);
+        tracker->falseNegatives.push_back(unassignedDetections.size());
+        tracker->falsePositives.push_back(unassignedTracks.size());
+        tracker->groundTruths.push_back(foundDetections.size());
+        tracker->numMatches.push_back(numAssigned); // not necessarily the same as TP_t
+    }
+}
+
+void App::writeTrackingOutputToFile(Tracker *tracker,
+                                    vector<unsigned> &historyAges,
+                                    std::map<int, Trajectory> &trajectoryMap,
+                                    string filepath)
+{
+    ofstream tracking_file;
+    tracking_file.open(filepath, ios::out | ios::app);
+
+    // Write selected history ages
+    tracking_file << "history|";
+    for (unsigned i = 0; i < historyAges.size(); i++)
+    {
+        if (i > 0)
+        {
+            tracking_file << ",";
+        }
+
+        tracking_file << historyAges[i];
+    }
+
+    tracking_file << std::endl;
+
+    // Derive trajectory-based metrics
+    std::vector<int> idSwapsPerFrame = std::vector<int>(this->frame_id, 0);
+    std::map<int, int> numFragmentationsPerTrack;
+    int numMostlyTracked = 0;
+    int numPartiallyTracked = 0;
+    int numMostlyLost = 0;
+    double totalBboxOverlap = 0.0;
+    std::map<int, Trajectory>::iterator traj_it;
+    for (traj_it = trajectoryMap.begin(); traj_it != trajectoryMap.end(); ++traj_it)
+    {
+        Trajectory *trajectory = &(traj_it->second);
+
+        numFragmentationsPerTrack[trajectory->id] = 0;
+
+        // An ID switch (added to IDSW) occurs when a ground-truth object is matched to
+        // some track j and the last known assignment was track k != j.
+        // A fragmentation is counted each time a trajectory changes its status
+        // from tracked to untracked and tracking of that same trajectory is resumed
+        // at a later frame.
+        bool isNew = true;
+        bool prevTracked = false;
+        int prevTrackId = -1;
+        int numTrackedFrames = 0;
+        for (unsigned pfid = 0; pfid < trajectory->presentFrames.size(); pfid++)
+        {
+            int fnum = trajectory->presentFrames[pfid];
+
+            // Check for ID swaps
+            if (trajectory->isTrackedPerFrame[fnum])
+            {
+                int trackId = trajectory->trackIdPerFrame[fnum];
+                if (isNew)
+                {
+                    prevTrackId = trackId;
+                }
+                else if (trackId != prevTrackId)
+                {
+                    std::cout << "[frame " << fnum << "] target " << trajectory->id << " switched from track " << prevTrackId << " to track " << trackId << std::endl;
+                    idSwapsPerFrame[fnum]++;
+                    prevTrackId = trackId;
+                }
+            }
+
+            // Count the number of frames tracked
+            if (trajectory->isTrackedPerFrame[fnum])
+            {
+                numTrackedFrames++;
+            }
+
+            // Check for fragmentations
+            if (!isNew && !prevTracked && trajectory->isTrackedPerFrame[fnum])
+            {
+                numFragmentationsPerTrack[trajectory->id]++;
+            }
+
+            // Add the bounding box overlap
+            if (trajectory->isTrackedPerFrame[fnum])
+            {
+                totalBboxOverlap += trajectory->bboxOverlapPerFrame[fnum];
+            }
+
+            prevTracked = trajectory->isTrackedPerFrame[fnum];
+            isNew = pfid == 0;
+        }
+
+        // A trajectory is mostly tracked if it is tracked at least 80%
+        // of its lifetime, and mostly lost if it is tracked at most 20%
+        // of its lifetime
+        double trackedRatio = ((double)numTrackedFrames) / trajectory->presentFrames.size();
+        if (trackedRatio >= 0.8)
+        {
+            numMostlyTracked++;
+        }
+        else if (trackedRatio > 0.2)
+        {
+            numPartiallyTracked++;
+        }
+        else
+        {
+            numMostlyLost++;
+        }
+    }
+
+    // Write the tracking information to the output file
+    for (traj_it = trajectoryMap.begin(); traj_it != trajectoryMap.end(); ++traj_it)
+    {
+        Trajectory *trajectory = &(traj_it->second);
+
+        // Write the trajectory's object ID,
+        tracking_file << "object|" << trajectory->id << "|";
+
+        // tracking info each frame,
+        for (int pfid = 0; pfid < trajectory->presentFrames.size(); pfid++)
+        {
+            if (pfid > 0)
+            {
+                tracking_file << ";";
+            }
+
+            int fnum = trajectory->presentFrames[pfid];
+
+            tracking_file << fnum << "," << trajectory->isTrackedPerFrame[fnum];
+            tracking_file << "," << trajectory->trackIdPerFrame[fnum];
+
+            // Rect &pos = trajectory->positionPerFrame[fnum];
+            // tracking_file << ",POS[" << pos.x << "^" << pos.y << "^";
+            // tracking_file << pos.width << "^" << pos.height << "]";
+
+            // if (trajectory->isTrackedPerFrame[fnum])
+            // {
+            //     Rect &predBbox = trajectory->predPosPerFrame[fnum];
+            //     tracking_file << ",PREDBBOX[" << predBbox.x << "^" << predBbox.y << "^";
+            //     tracking_file << predBbox.width << "^" << predBbox.height << "]";
+
+            //     Rect &trBbox = trajectory->trackPosPerFrame[fnum];
+            //     tracking_file << ",TRBBOX[" << trBbox.x << "^" << trBbox.y << "^";
+            //     tracking_file << trBbox.width << "^" << trBbox.height << "]";
+
+            //     tracking_file << ",d[" << trajectory->bboxOverlapPerFrame[fnum] << "]";
+            // }
+        }
+
+        tracking_file << "|";
+
+        // and fragmentations
+        tracking_file << "FM," << numFragmentationsPerTrack[trajectory->id];
+
+        tracking_file << std::endl;
+    }
+
+    // Write per-frame tracking evaluation metrics to the output file
+    for (unsigned fnum = 0; fnum < tracker->truePositives.size(); fnum++)
+    {
+        // Write the frame number
+        tracking_file << "frame|" << fnum << "|";
+
+        // Write the metrics for the frame
+        tracking_file << "TP," << tracker->truePositives[fnum] << ";";
+        tracking_file << "FN," << tracker->falseNegatives[fnum] << ";";
+        tracking_file << "FP," << tracker->falsePositives[fnum] << ";";
+        tracking_file << "GT," << tracker->groundTruths[fnum] << ";";
+        tracking_file << "c," << tracker->numMatches[fnum] << ";";
+        tracking_file << "IDSW," << idSwapsPerFrame[fnum] << std::endl;
+    }
+
+    // Compute MOTA, A-MOTA, and MOTP for the scenario
+    double motaNumerator = 0.0;
+    double amotaNumerator = 0.0;
+    double motaDenominator = 0.0;
+    double motpNumerator = totalBboxOverlap;
+    double motpDenominator = 0.0;
+    for (unsigned fnum = 0; fnum < tracker->truePositives.size(); fnum++)
+    {
+        motaNumerator += (tracker->falseNegatives[fnum] + tracker->falsePositives[fnum] + idSwapsPerFrame[fnum]);
+        amotaNumerator += (tracker->falseNegatives[fnum] + tracker->falsePositives[fnum]);
+        motaDenominator += tracker->groundTruths[fnum];
+        motpDenominator += tracker->numMatches[fnum];
+    }
+
+    double mota = 1 - (motaNumerator / motaDenominator);
+    double amota = 1 - (amotaNumerator / motaDenominator);
+    double motp = motpNumerator / motpDenominator;
+
+    // Write total scenario tracking evaluation metrics (MT, ML, MOTA, MOTP)
+    tracking_file << "scenario|MT," << numMostlyTracked << ";";
+    tracking_file << "PT," << numPartiallyTracked << ";";
+    tracking_file << "ML," << numMostlyLost << ";";
+    tracking_file << "MOTA," << mota << ";";
+    tracking_file << "A-MOTA," << amota << ";";
+    tracking_file << "MOTP," << motp << std::endl;
+
+    tracking_file.close();
 }
 
 
@@ -2186,6 +2177,134 @@ Track::Track(const Track &t)
     this->avgConfidence = t.avgConfidence;
 
     this->predPosition = t.predPosition;
+}
+
+void parseBboxFile(string bbox_filename, vector<vector<vector<double>>> &per_frame_bboxes, vector<vector<double>> &per_frame_camera_poses)
+{
+    bool shouldParseCameraPoses = per_frame_camera_poses.empty();
+
+    ifstream bbox_file(bbox_filename);
+
+    int prev_frame = 0;
+    int start_frame = 0;
+    vector<vector<double>> current_frame_bboxes;
+
+    string line = "";
+    while (getline(bbox_file, line))
+    {
+        if (line.find("|") == string::npos)
+        {
+            continue;
+        }
+
+        size_t prev_pos = 0;
+        size_t pos = 0;
+
+        // Get the frame number
+        pos = line.find("|");
+        prev_pos = pos + 1;
+        int frame_num = stoi(line.substr(0, pos));
+
+        // Check if this is the first line read (assume they're in order by frame)
+        if (start_frame == 0)
+        {
+            start_frame = frame_num;
+            prev_frame = frame_num;
+        }
+
+        // If this is the first line we've seen from this frame, start a new vector
+        // (there might have been multiple frames without any detections)
+        for (int i = prev_frame; i < frame_num; i++)
+        {
+            per_frame_bboxes.push_back(current_frame_bboxes);
+            current_frame_bboxes = vector<vector<double>>();
+        }
+
+        // Get the object ID
+        pos = line.find("|", prev_pos);
+        int objId = stoi(line.substr(prev_pos, pos));
+        prev_pos = pos + 1;
+
+        // If the ID is -1, this is the camera's pose
+        if (shouldParseCameraPoses && objId == -1)
+        {
+            vector<double> camera_pose;
+
+            do
+            {
+                pos = line.find("|", prev_pos);
+
+                double val = stod(line.substr(prev_pos, pos));
+                camera_pose.push_back(val);
+
+                prev_pos = pos + 1;
+            }
+            while (pos != string::npos);
+
+            per_frame_camera_poses.push_back(camera_pose);
+        }
+        else if (objId != -1)
+        {
+            // Otherwise, get the info from this bounding box into a vector
+            vector<double> bbox_info;
+            bbox_info.push_back(objId);
+
+            do
+            {
+                pos = line.find("|", prev_pos);
+
+                double val = stod(line.substr(prev_pos, pos));
+                bbox_info.push_back(val);
+
+                prev_pos = pos + 1;
+            }
+            while (pos != string::npos);
+
+            // Add this bounding box to this frame's list
+            current_frame_bboxes.push_back(bbox_info);
+        }
+
+        prev_frame = frame_num;
+    }
+
+    // Add the last frame's bounding boxes
+    per_frame_bboxes.push_back(current_frame_bboxes);
+}
+
+void parseDetections(vector<vector<vector<double>>> &perFrameBboxes, int frameId, vector<Detection> &detections, std::map<int, Trajectory> trajectoryMap)
+{
+    if (perFrameBboxes.empty())
+    {
+        return;
+    }
+
+    vector<vector<double>> bounding_boxes = perFrameBboxes[frameId];
+
+    for (unsigned bb_idx = 0; bb_idx < bounding_boxes.size(); bb_idx++)
+    {
+        vector<double> bbox = bounding_boxes[bb_idx];
+
+        int objectId = bbox[0];
+        Rect r(bbox[1], bbox[3], bbox[2] - bbox[1], bbox[4] - bbox[3]);
+
+        Detection d(objectId, frameId, r, 1.0);
+
+        double xPos = bbox[5];
+        double yPos = bbox[6];
+        double zPos = (bbox.size() >= 8) ? bbox[7] : 0.0; // assume 0 if not provided
+        d.worldPosition = Vec3d(xPos, yPos, zPos);
+
+        detections.push_back(d);
+
+        // Update the position of the trajectory, creating it if necessary
+        if (trajectoryMap.find(objectId) == trajectoryMap.end())
+        {
+            Trajectory t(objectId);
+            trajectoryMap[objectId] = t;
+        }
+
+        trajectoryMap[objectId].addPosition(frameId, r, d.worldPosition);
+    }
 }
 
 Point2d constantVelocityMotionModel(Track &track, int frame_id)
