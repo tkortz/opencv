@@ -16,7 +16,11 @@ using namespace cv;
 
 bool help_showed = false;
 
+class Args;
 class Track;
+class Tracker;
+
+Point2d constantVelocityMotionModel(Track &track, int frame_id);
 
 double computeBoundingBoxOverlap(Rect &predBbox, Rect &bbox);
 
@@ -78,7 +82,7 @@ public:
 class Track
 {
 public:
-    Track(Detection &detection);
+    Track(Detection &detection, Tracker *tracker);
     Track(const Track &t); // copy constructor
 
     unsigned int id;
@@ -100,11 +104,6 @@ public:
 
     Rect predPosition;
 };
-
-// Assign IDs to tracks
-unsigned int nextTrackId = 0;
-
-Point2d constantVelocityMotionModel(Track &track, int frame_id);
 
 class Args
 {
@@ -164,6 +163,46 @@ private:
     void parseHistoryDistribution(char *dist_arg);
 };
 
+/*
+ * A tracker to track targets using tracking-by-detection.
+ */
+class Tracker
+{
+public:
+    Tracker(const Args& s);
+
+    void reset();
+
+    unsigned int getNextTrackId();
+
+    void predictNewLocationsOfTracks(vector<Track> &tracks, int frame_id);
+
+    void detectionToTrackAssignment(vector<Detection> &detections, vector<Track> &tracks, vector<int> &assignments, vector<unsigned int> &unassignedTracks, vector<unsigned int> &unassignedDetections, cv::Ptr<cv::cuda::HOG> gpu_hog, bool debug, int frameId);
+
+    void updateAssignedTracks(vector<Track> &tracks, vector<Detection> &detections, vector<int> &assignments);
+    void updateUnassignedTracks(vector<Track> &tracks, vector<unsigned int> &unassignedTracks, int frame_id);
+    void deleteLostTracks(vector<Track> &tracks);
+    void createNewTracks(vector<Track> &tracks, vector<Detection> &detections, vector<unsigned int> &unassignedDetections);
+
+private:
+    Tracker();
+
+    Args args;
+    unsigned int nextTrackId;
+
+    void calculateCostMatrix(vector<Track> &tracks, vector<Detection> &detections, vector<vector<double>> &costMatrix);
+    void classifyAssignments(vector<unsigned int> &assignmentPerRow, unsigned int numTracks, unsigned int numDetections,
+                            vector<int> &assignments, vector<unsigned int> &unassignedTracks, vector<unsigned int> &unassignedDetections);
+    void solveAssignmentProblem(vector<vector<double>> &costMatrix, unsigned int numTracks, unsigned int numDetections,
+                                vector<int> &assignments, vector<unsigned int> &unassignedTracks, vector<unsigned int> &unassignedDetections,
+                                bool debug, int frame_id);
+    void updateTrackConfidence(Track *track);
+
+    inline bool equalsZero(double val)
+    {
+        return (val < 0.0) ? (val > -0.00000001) : (val < 0.00000001);
+    }
+};
 
 class App
 {
@@ -184,31 +223,6 @@ public:
     string frameIndex(int) const;
 
     string message() const;
-
-    // Tracking functions
-    void predictNewLocationsOfTracks(vector<Track> &tracks, int frame_id);
-
-    void detectionToTrackAssignment(vector<Detection> &detections, vector<Track> &tracks, vector<int> &assignments, vector<unsigned int> &unassignedTracks, vector<unsigned int> &unassignedDetections, cv::Ptr<cv::cuda::HOG> gpu_hog, bool debug);
-
-    void updateAssignedTracks(vector<Track> &tracks, vector<Detection> &detections, vector<int> &assignments);
-    void updateUnassignedTracks(vector<Track> &tracks, vector<unsigned int> &unassignedTracks, int frame_id);
-    void deleteLostTracks(vector<Track> &tracks);
-    void createNewTracks(vector<Track> &tracks, vector<Detection> &detections, vector<unsigned int> &unassignedDetections);
-
-    // Helper functions
-    inline bool equalsZero(double val)
-    {
-        // return val == 0.0;
-        return (val < 0.0) ? (val > -0.00000001) : (val < 0.00000001);
-    }
-
-    void calculateCostMatrix(vector<Track> &tracks, vector<Detection> &detections, vector<vector<double>> &costMatrix);
-    void classifyAssignments(vector<unsigned int> &assignmentPerRow, unsigned int numTracks, unsigned int numDetections,
-                            vector<int> &assignments, vector<unsigned int> &unassignedTracks, vector<unsigned int> &unassignedDetections);
-    void solveAssignmentProblem(vector<vector<double>> &costMatrix, unsigned int numTracks, unsigned int numDetections,
-                                vector<int> &assignments, vector<unsigned int> &unassignedTracks, vector<unsigned int> &unassignedDetections,
-                                bool debug);
-    void updateTrackConfidence(Track *track);
 
 private:
     App operator=(App&);
@@ -709,6 +723,8 @@ void App::run()
         Mat img_aux, img, img_to_show;
         cuda::GpuMat gpu_img;
 
+        Tracker tracker(this->args);
+
         this->frame_id = 0;
 
         // Iterate over all frames
@@ -804,7 +820,7 @@ void App::run()
                     trackOutputBuffer[buf_idx].clear();
                 }
 
-                nextTrackId = 0;
+                tracker.reset();
 
                 historyAges.empty();
             }
@@ -839,18 +855,18 @@ void App::run()
             }
 
             // Predict the new locations of the tracks
-            App::predictNewLocationsOfTracks(tracks, this->frame_id);
+            tracker.predictNewLocationsOfTracks(tracks, this->frame_id);
 
             // Use predicted track positions to map current detections to existing tracks
             std::vector<int> assignments;
             std::vector<unsigned int> unassignedTracks, unassignedDetections;
-            App::detectionToTrackAssignment(foundDetections, tracks, assignments,
-                                            unassignedTracks, unassignedDetections, gpu_hog,
-                                            false);
+            tracker.detectionToTrackAssignment(foundDetections, tracks, assignments,
+                                               unassignedTracks, unassignedDetections, gpu_hog,
+                                               false, this->frame_id);
 
             // Update the tracks (assigned and unassigned)
-            App::updateAssignedTracks(tracks, foundDetections, assignments);
-            App::updateUnassignedTracks(tracks, unassignedTracks, this->frame_id);
+            tracker.updateAssignedTracks(tracks, foundDetections, assignments);
+            tracker.updateUnassignedTracks(tracks, unassignedTracks, this->frame_id);
 
             // Update trajectories for assigned detections/tracks
             unsigned numAssigned = 0;
@@ -889,8 +905,8 @@ void App::run()
 
             // Delete any tracks that are lost enough, and create new tracks
             // for unassigned detections
-            App::deleteLostTracks(tracks);
-            App::createNewTracks(tracks, foundDetections, unassignedDetections);
+            tracker.deleteLostTracks(tracks);
+            tracker.createNewTracks(tracks, foundDetections, unassignedDetections);
 
             // Store the tracking results
             unsigned currentTrackIndex = this->frame_id % trackOutputBuffer.size();
@@ -1376,7 +1392,23 @@ Detection::Detection(int id, int frame_id, Rect &bbox, double confidence)
     this->confidence = confidence;
 }
 
-void App::predictNewLocationsOfTracks(vector<Track> &tracks, int frame_id)
+Tracker::Tracker(const Args& args)
+{
+    this->args = args;
+    this->nextTrackId = 0;
+}
+
+unsigned int Tracker::getNextTrackId()
+{
+    return this->nextTrackId++;
+}
+
+void Tracker::reset()
+{
+    this->nextTrackId = 0;
+}
+
+void Tracker::predictNewLocationsOfTracks(vector<Track> &tracks, int frame_id)
 {
     for (unsigned int i = 0; i < tracks.size(); i++)
     {
@@ -1394,7 +1426,7 @@ void App::predictNewLocationsOfTracks(vector<Track> &tracks, int frame_id)
     }
 }
 
-void App::calculateCostMatrix(vector<Track> &tracks, vector<Detection> &detections, vector<vector<double>> &costMatrix)
+void Tracker::calculateCostMatrix(vector<Track> &tracks, vector<Detection> &detections, vector<vector<double>> &costMatrix)
 {
     // Iterate over each track-detection pair
     for (unsigned int i = 0; i < tracks.size(); i++)
@@ -1414,7 +1446,7 @@ void App::calculateCostMatrix(vector<Track> &tracks, vector<Detection> &detectio
     }
 }
 
-void App::classifyAssignments(vector<unsigned int> &assignmentPerRow, unsigned int numTracks, unsigned int numDetections,
+void Tracker::classifyAssignments(vector<unsigned int> &assignmentPerRow, unsigned int numTracks, unsigned int numDetections,
                               vector<int> &assignments, vector<unsigned int> &unassignedTracks, vector<unsigned int> &unassignedDetections)
 {
     std::vector<bool> isDetectionAssigned(numDetections, false);
@@ -1442,17 +1474,17 @@ void App::classifyAssignments(vector<unsigned int> &assignmentPerRow, unsigned i
     }
 }
 
-void App::solveAssignmentProblem(vector<vector<double>> &costMatrix, unsigned int numTracks, unsigned int numDetections,
-                                 vector<int> &assignments, vector<unsigned int> &unassignedTracks, vector<unsigned int> &unassignedDetections,
-                                 bool debug)
+void Tracker::solveAssignmentProblem(vector<vector<double>> &costMatrix, unsigned int numTracks, unsigned int numDetections,
+                                     vector<int> &assignments, vector<unsigned int> &unassignedTracks, vector<unsigned int> &unassignedDetections,
+                                     bool debug, int frameId)
 {
     double hugeNumber = 10000000.0;
 
-    bool is_problematic = this->frame_id == 0;
+    bool is_problematic = frameId == 0;
 
     if (debug)
     {
-        std::cout << "Frame number: " << this->frame_id << std::endl;
+        std::cout << "Frame number: " << frameId << std::endl;
 
         if (is_problematic)
         {
@@ -1483,7 +1515,7 @@ void App::solveAssignmentProblem(vector<vector<double>> &costMatrix, unsigned in
         {
             for (unsigned int j = 0; j < numTracks - numDetections; j++)
             {
-                costMatrix[i].push_back(args.costOfNonAssignment * 2);
+                costMatrix[i].push_back(this->args.costOfNonAssignment * 2);
             }
         }
     }
@@ -1517,7 +1549,7 @@ void App::solveAssignmentProblem(vector<vector<double>> &costMatrix, unsigned in
 
             for (unsigned int j = 0; j < numDetections; j++)
             {
-                costMatrix[numTracks + i].push_back(args.costOfNonAssignment * 2);
+                costMatrix[numTracks + i].push_back(this->args.costOfNonAssignment * 2);
             }
         }
     }
@@ -1547,7 +1579,7 @@ void App::solveAssignmentProblem(vector<vector<double>> &costMatrix, unsigned in
 
     if (n == 0)
     {
-        App::classifyAssignments(assignmentPerRow, numTracks, numDetections, assignments, unassignedTracks, unassignedDetections);
+        this->classifyAssignments(assignmentPerRow, numTracks, numDetections, assignments, unassignedTracks, unassignedDetections);
 
         std::cout << "No assignment of detections to tracks to do." << std::endl;
 
@@ -1675,7 +1707,7 @@ void App::solveAssignmentProblem(vector<vector<double>> &costMatrix, unsigned in
                 std::vector<unsigned int> zeroIdxs;
                 for (unsigned int colIdx = 0; colIdx < n; colIdx++)
                 {
-                    if (App::equalsZero(costMatrix[rowIdx][colIdx]))// and !isColAssigned[colIdx])
+                    if (this->equalsZero(costMatrix[rowIdx][colIdx]))// and !isColAssigned[colIdx])
                     {
                         zeroIdxs.push_back(colIdx);
                     }
@@ -1707,7 +1739,7 @@ void App::solveAssignmentProblem(vector<vector<double>> &costMatrix, unsigned in
                 std::vector<unsigned int> zeroIdxs;
                 for (unsigned int rowIdx = 0; rowIdx < n; rowIdx++)
                 {
-                    if (App::equalsZero(costMatrix[rowIdx][colIdx]))// and !isRowAssigned[rowIdx])
+                    if (this->equalsZero(costMatrix[rowIdx][colIdx]))// and !isRowAssigned[rowIdx])
                     {
                         zeroIdxs.push_back(rowIdx);
                     }
@@ -1754,7 +1786,7 @@ void App::solveAssignmentProblem(vector<vector<double>> &costMatrix, unsigned in
                     for (unsigned int colIdx = 0; colIdx < n; colIdx++)
                     {
                         //if (costMatrix[rowIdx][colIdx] == 0.0 and !isColAssigned[colIdx])
-                        if (App::equalsZero(costMatrix[rowIdx][colIdx]))
+                        if (this->equalsZero(costMatrix[rowIdx][colIdx]))
                         {
                             zeroIdxs.push_back(colIdx);
                         }
@@ -1828,7 +1860,7 @@ void App::solveAssignmentProblem(vector<vector<double>> &costMatrix, unsigned in
 
                 for (unsigned int colIdx = 0; colIdx < n; colIdx++)
                 {
-                    if (App::equalsZero(costMatrix[rowIdx][colIdx]) &&
+                    if (this->equalsZero(costMatrix[rowIdx][colIdx]) &&
                         !isColMarked[colIdx])
                     {
                         isColMarked[colIdx] = true;
@@ -1950,30 +1982,30 @@ void App::solveAssignmentProblem(vector<vector<double>> &costMatrix, unsigned in
         }
     }
 
-    App::classifyAssignments(assignmentPerRow, numTracks, numDetections,
-                             assignments, unassignedTracks, unassignedDetections);
+    this->classifyAssignments(assignmentPerRow, numTracks, numDetections,
+                              assignments, unassignedTracks, unassignedDetections);
 }
 
-void App::detectionToTrackAssignment(vector<Detection> &detections, vector<Track> &tracks, vector<int> &assignments, vector<unsigned int> &unassignedTracks, vector<unsigned int> &unassignedDetections, cv::Ptr<cv::cuda::HOG> gpu_hog, bool debug)
+void Tracker::detectionToTrackAssignment(vector<Detection> &detections, vector<Track> &tracks, vector<int> &assignments, vector<unsigned int> &unassignedTracks, vector<unsigned int> &unassignedDetections, cv::Ptr<cv::cuda::HOG> gpu_hog, bool debug, int frameId)
 {
     // Compute the cost (based on overlap ratio) of assigning each detection to
     // each track - store results in #tracks x #detections matrix
     vector<vector<double>> costMatrix; // per track, then per detection
-    App::calculateCostMatrix(tracks, detections, costMatrix);
+    this->calculateCostMatrix(tracks, detections, costMatrix);
 
     // TODO: add gating cost
 
     // Solve assignment, taking into account the cost of not assigning
     // any detections to a given track
     if (debug) { cout << "Solving assignment problem" << endl; }
-    App::solveAssignmentProblem(costMatrix, tracks.size(), detections.size(),
-                                assignments, unassignedTracks, unassignedDetections, debug);
+    this->solveAssignmentProblem(costMatrix, tracks.size(), detections.size(),
+                                assignments, unassignedTracks, unassignedDetections, debug, frameId);
     if (debug) { cout << "Done solving assignment problem" << endl; }
 }
 
-void App::updateTrackConfidence(Track *track)
+void Tracker::updateTrackConfidence(Track *track)
 {
-    unsigned int numScoresToUse = (track->scores.size() < args.timeWindowSize) ? track->scores.size() : args.timeWindowSize;
+    unsigned int numScoresToUse = (track->scores.size() < this->args.timeWindowSize) ? track->scores.size() : this->args.timeWindowSize;
     double maxScore = 0.0, sumScores = 0.0;
     for (unsigned int scoreIdx = track->scores.size() - numScoresToUse; scoreIdx < track->scores.size(); scoreIdx++)
     {
@@ -1993,7 +2025,7 @@ void App::updateTrackConfidence(Track *track)
 /*
  * Updates the assigned tracks with the corresponding detections.
  */
-void App::updateAssignedTracks(vector<Track> &tracks, vector<Detection> &detections, vector<int> &assignments)
+void Tracker::updateAssignedTracks(vector<Track> &tracks, vector<Detection> &detections, vector<int> &assignments)
 {
     for (unsigned int trackIdx = 0; trackIdx < tracks.size(); trackIdx++)
     {
@@ -2034,14 +2066,14 @@ void App::updateAssignedTracks(vector<Track> &tracks, vector<Detection> &detecti
 
         // Update the track's confidence score based on the maximum detection
         // score in the past 'timeWindowSize' frames
-        App::updateTrackConfidence(track);
+        this->updateTrackConfidence(track);
     }
 }
 
 /*
  * Updates the tracks that were not assigned detections this frame.
  */
-void App::updateUnassignedTracks(vector<Track> &tracks, vector<unsigned int> &unassignedTracks, int frame_id)
+void Tracker::updateUnassignedTracks(vector<Track> &tracks, vector<unsigned int> &unassignedTracks, int frame_id)
 {
     for (unsigned int unassignedIdx = 0; unassignedIdx < unassignedTracks.size(); unassignedIdx++)
     {
@@ -2059,11 +2091,11 @@ void App::updateUnassignedTracks(vector<Track> &tracks, vector<unsigned int> &un
 
         // Update the track's confidence based on the maximum detection
         // score in the past 'timeWindowSize' frames
-        App::updateTrackConfidence(track);
+        this->updateTrackConfidence(track);
     }
 }
 
-void App::deleteLostTracks(vector<Track> &tracks)
+void Tracker::deleteLostTracks(vector<Track> &tracks)
 {
     vector<unsigned int> trackIndicesToDelete;
 
@@ -2077,8 +2109,8 @@ void App::deleteLostTracks(vector<Track> &tracks)
         // Determine if the track is lost based on the visible fraction
         // and the confidence
         // TODO: remove check for maxConfidence >= when HOG gives confidence
-        if ((track->age <= args.trackAgeThreshold && visibility <= args.trackVisibilityThreshold) ||
-            (track->maxConfidence >= 0.0 && track->maxConfidence <= args.trackConfidenceThreshold))
+        if ((track->age <= this->args.trackAgeThreshold && visibility <= this->args.trackVisibilityThreshold) ||
+            (track->maxConfidence >= 0.0 && track->maxConfidence <= this->args.trackConfidenceThreshold))
         {
             trackIndicesToDelete.push_back(trackIdx);
         }
@@ -2095,7 +2127,7 @@ void App::deleteLostTracks(vector<Track> &tracks)
  * Creates new tracks from unassigned detections; assumes that any unassigned
  * detection is the start of a new track.
  */
-void App::createNewTracks(vector<Track> &tracks, vector<Detection> &detections, vector<unsigned int> &unassignedDetections)
+void Tracker::createNewTracks(vector<Track> &tracks, vector<Detection> &detections, vector<unsigned int> &unassignedDetections)
 {
     //cout << "Called createNewTracks with " << unassignedDetections.size() << " new detections." << endl;
 
@@ -2103,15 +2135,15 @@ void App::createNewTracks(vector<Track> &tracks, vector<Detection> &detections, 
     {
         unsigned detectionIdx = unassignedDetections[unassignedIdx];
 
-        Track newTrack(detections[detectionIdx]);
+        Track newTrack(detections[detectionIdx], this);
 
         tracks.push_back(newTrack);
     }
 }
 
-Track::Track(Detection &detection)
+Track::Track(Detection &detection, Tracker *tracker)
 {
-    this->id = nextTrackId++;
+    this->id = tracker->getNextTrackId();
 
     int r = rand() % 256;
     int g = rand() % 256;
