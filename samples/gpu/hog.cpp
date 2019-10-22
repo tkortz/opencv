@@ -816,7 +816,7 @@ void App::run()
             for (size_t i = 0; i < pedestrianDetections.size(); i++)
             {
                 Rect r = pedestrianDetections[i].bbox;
-                rectangle(img_to_show, r.tl(), r.br(), Scalar(0, 0, 255), 3);
+                rectangle(img_to_show, r.tl(), r.br(), Scalar(255, 0, 0), 3);
             }
 
             for (size_t i = 0; i < vehicleDetections.size(); i++)
@@ -889,7 +889,12 @@ void App::run()
                         }
 
                         Point2d screenCoord = worldCoordsToScreenCoords(centroid, cameraPos, cameraDir, frame.cols, frame.rows);
-                        circle(img_to_show, screenCoord, 4, color, CV_FILLED);
+
+                        if (screenCoord.x >= 0 && screenCoord.x <= frame.cols &&
+                            screenCoord.y >= 0 && screenCoord.y <= frame.rows)
+                        {
+                            circle(img_to_show, screenCoord, 4, color, CV_FILLED);
+                        }
                     }
 
                     // Draw the rectangle
@@ -1999,7 +2004,10 @@ void Tracker::detectionToTrackAssignment(vector<Detection> &detections, vector<T
     if (debug) { cout << "Solving assignment problem" << endl; }
     this->solveAssignmentProblem(costMatrix, tracks.size(), detections.size(),
                                 assignments, unassignedTracks, unassignedDetections, debug, frameId);
-    if (debug) { cout << "Done solving assignment problem" << endl; }
+    if (debug) {
+        cout << "Done solving assignment problem: " << unassignedTracks.size() << " of " << tracks.size() << " tracks unassigned, ";
+        cout << unassignedDetections.size() << " of " << detections.size() << " detections unassigned." << endl;
+    }
 }
 
 void Tracker::updateTrackConfidence(Track *track)
@@ -2038,7 +2046,7 @@ void Tracker::updateAssignedTracks(vector<Track> &tracks, vector<Detection> &det
         // Stabilize the bounding box by taking the average of the size
         // of recent (up to) 4 boxes on the track
         unsigned int numPriorBboxes = (track->bboxes.size() < 4) ? track->bboxes.size() : 4;
-        unsigned int w, h;
+        int w, h;
 
         unsigned int wsum = 0, hsum = 0;
         for (unsigned int bboxIdx = track->bboxes.size() - numPriorBboxes; bboxIdx < track->bboxes.size(); bboxIdx++)
@@ -2398,6 +2406,12 @@ Point2d worldCoordsToScreenCoords(Vec3d &worldPos, Vec3d &cameraPos, Vec3d &came
     double x = yCameraFrame;
     double y = -zCameraFrame;
     double z = xCameraFrame;
+
+    // Filter out positions behind the camera
+    if (z < 0)
+    {
+        return Point2d(-1, -1);
+    }
 
     // Multiply the camera calibration matrix by these coordinates to handle angle, etc.
     double calib_val = w / (2.0 * tan(90.0 * CV_PI / 360.0));
