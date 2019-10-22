@@ -159,7 +159,9 @@ public:
 
     vector<float> history_distribution;
 
+    bool track_pedestrians;
     string pedestrian_bbox_filename;
+    bool track_vehicles;
     string vehicle_bbox_filename;
 
     bool write_tracking;
@@ -376,6 +378,9 @@ Args::Args()
     trackVisibilityThreshold = 0.3; //0.4;//0.6;
     trackConfidenceThreshold = 0.2;
 
+    track_pedestrians = false;
+    track_vehicles = false;
+
     // Age of prior results
     history_distribution = std::vector<float>(1, 1.0); // default to using the previous frame
 }
@@ -450,8 +455,8 @@ Args Args::read(int argc, char** argv)
         else if (string(argv[i]) == "--svm") { args.svm = argv[++i]; args.svm_load = true;}
         else if (string(argv[i]) == "--history_distribution") { args.parseHistoryDistribution(argv[++i]);
         }
-        else if (string(argv[i]) == "--pedestrian_bbox_filename") args.pedestrian_bbox_filename = argv[++i];
-        else if (string(argv[i]) == "--vehicle_bbox_filename") args.vehicle_bbox_filename = argv[++i];
+        else if (string(argv[i]) == "--pedestrian_bbox_filename") { args.pedestrian_bbox_filename = argv[++i]; args.track_pedestrians = true; }
+        else if (string(argv[i]) == "--vehicle_bbox_filename") { args.vehicle_bbox_filename = argv[++i]; args.track_vehicles = true; }
         else if (string(argv[i]) == "--write_tracking") args.write_tracking = (string(argv[++i]) == "true");
         else if (string(argv[i]) == "--pedestrian_tracking_filepath") args.pedestrian_tracking_filepath = argv[++i];
         else if (string(argv[i]) == "--vehicle_tracking_filepath") args.vehicle_tracking_filepath = argv[++i];
@@ -785,10 +790,16 @@ void App::run()
                 }
             }
 
-            performTrackingStep(&pedestrianTracker, pedestrianDetections, pedestrianTracks,
-                                pedestrianTrajectoryMap, gpu_hog, is_first_pass);
-            performTrackingStep(&vehicleTracker, vehicleDetections, vehicleTracks,
-                                vehicleTrajectoryMap, gpu_hog, is_first_pass);
+            if (args.track_pedestrians)
+            {
+                performTrackingStep(&pedestrianTracker, pedestrianDetections, pedestrianTracks,
+                                    pedestrianTrajectoryMap, gpu_hog, is_first_pass);
+            }
+            if (args.track_vehicles)
+            {
+                performTrackingStep(&vehicleTracker, vehicleDetections, vehicleTracks,
+                                    vehicleTrajectoryMap, gpu_hog, is_first_pass);
+            }
 
 
             // Store the tracking results
