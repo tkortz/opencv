@@ -157,6 +157,7 @@ public:
     double trackVisibilityThreshold;
     double trackConfidenceThreshold;
 
+    string history_distribution_string;
     vector<float> history_distribution;
 
     bool track_pedestrians;
@@ -387,6 +388,8 @@ Args::Args()
 
 void Args::parseHistoryDistribution(char *dist_arg)
 {
+    this->history_distribution_string = dist_arg;
+
     vector<float> dist;
 
     // Parse the comma-separate distribution information
@@ -915,7 +918,13 @@ void App::run()
             putText(img_to_show, "FPS HOG: " + hogWorkFps(), Point(5, 65), FONT_HERSHEY_SIMPLEX, 1., Scalar(255, 100, 0), 2);
             putText(img_to_show, "FPS total: " + workFps(), Point(5, 105), FONT_HERSHEY_SIMPLEX, 1., Scalar(255, 100, 0), 2);
             putText(img_to_show, "Frame: " + frameIndex(this->frame_id), Point(5, 145), FONT_HERSHEY_SIMPLEX, 1., Scalar(255, 100, 0), 2);
+            if (!args.history_distribution_string.empty())
+            {
+                putText(img_to_show, "History distribution: " + args.history_distribution_string, Point(5, 185), FONT_HERSHEY_SIMPLEX, 1., Scalar(255, 100, 0), 2);
+            }
             imshow("opencv_gpu_hog", img_to_show);
+
+            // cout << "About to read in the next video frame" << endl;
 
             if (args.src_is_video || args.src_is_camera) vc >> frame;
             if (args.src_is_folder) {
