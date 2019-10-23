@@ -1139,6 +1139,7 @@ void App::writeTrackingOutputToFile(Tracker *tracker,
     int numMostlyTracked = 0;
     int numPartiallyTracked = 0;
     int numMostlyLost = 0;
+    std::vector<double> bboxOverlapPerFrame = std::vector<double>(this->frame_id, 0);
     double totalBboxOverlap = 0.0;
     std::map<int, Trajectory>::iterator traj_it;
     for (traj_it = trajectoryMap.begin(); traj_it != trajectoryMap.end(); ++traj_it)
@@ -1191,6 +1192,7 @@ void App::writeTrackingOutputToFile(Tracker *tracker,
             // Add the bounding box overlap
             if (trajectory->isTrackedPerFrame[fnum])
             {
+                bboxOverlapPerFrame[fnum] += trajectory->bboxOverlapPerFrame[fnum];
                 totalBboxOverlap += trajectory->bboxOverlapPerFrame[fnum];
             }
 
@@ -1275,7 +1277,8 @@ void App::writeTrackingOutputToFile(Tracker *tracker,
         tracking_file << "FP," << tracker->falsePositives[fnum] << ";";
         tracking_file << "GT," << tracker->groundTruths[fnum] << ";";
         tracking_file << "c," << tracker->numMatches[fnum] << ";";
-        tracking_file << "IDSW," << idSwapsPerFrame[fnum] << std::endl;
+        tracking_file << "IDSW," << idSwapsPerFrame[fnum] << ";";
+        tracking_file << "sum_di," << bboxOverlapPerFrame[fnum] << std::endl;
     }
 
     // Compute MOTA, A-MOTA, and MOTP for the scenario
