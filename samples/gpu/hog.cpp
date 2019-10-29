@@ -1050,6 +1050,31 @@ void App::performTrackingStep(Tracker *tracker,
     // Predict the new locations of the tracks
     tracker->predictNewLocationsOfTracks(tracks, this->frame_id);
 
+    // Filter out tracks with predictions that are out of the window
+    std::vector<unsigned int> filteredTracks;
+    for (unsigned i = 0; i < tracks.size(); i++)
+    {
+        Track &t = tracks[i];
+
+        Rect &r = t.predPosition;
+
+        // Check if the track's predicted position is in the window
+        if (t.predPosition.br().x < 0 ||
+            t.predPosition.tl().x >= 1280 || // TAMERT HACK HACK HACK HACK
+            t.predPosition.br().y < 0 ||
+            t.predPosition.tl().y >= 720)
+        {
+            filteredTracks.push_back(i);
+        }
+    }
+
+    // Remove the filtered tracks (maybe not the most efficient implementation)
+    for (int i = filteredTracks.size() - 1; i >= 0; i--)
+    {
+        cout << "Filtering out track that left scene with ID: " << tracks[filteredTracks[i]].id << endl;
+        tracks.erase(tracks.begin() + filteredTracks[i]);
+    }
+
     // Use predicted track positions to map current detections to existing tracks
     std::vector<int> assignments;
     std::vector<unsigned int> unassignedTracks, unassignedDetections;
