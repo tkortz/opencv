@@ -22,7 +22,7 @@ class Track;
 class Tracker;
 class Trajectory;
 
-void parseBboxFile(string bbox_filename, vector<vector<vector<double>>> &per_frame_bboxes, vector<vector<double>> &per_frame_camera_poses);
+void parseBboxFile(string bbox_filename, vector<vector<vector<double>>> &per_frame_bboxes, vector<vector<double>> &per_frame_camera_poses, vector<unsigned> &per_frame_history_choices);
 void parseDetections(vector<vector<vector<double>>> &perFrameBboxes, int frameId, vector<Detection> &detections, std::map<int, Trajectory> &trajectoryMap);
 
 Point2d constantVelocityMotionModel(Track &track, int frame_id);
@@ -273,6 +273,9 @@ private:
     double work_fps;
 
     unsigned frame_id;
+
+    bool use_provided_history;
+    vector<unsigned> provided_history_choices;
 };
 
 static void printHelp()
@@ -497,6 +500,9 @@ App::App(const Args& s)
 
     gamma_corr = args.gamma_corr;
 
+    use_provided_history = false;
+    provided_history_choices = vector<unsigned>();
+
     // cout << "Scale: " << scale << endl;
     // if (args.resize_src)
     //     cout << "Resized source: (" << args.width << ", " << args.height << ")\n";
@@ -609,13 +615,23 @@ void App::run()
     vector<vector<double>> per_frame_camera_poses; // x, y, yaw or x, y, z, pitch, yaw, roll
     if (!args.pedestrian_bbox_filename.empty())
     {
-        parseBboxFile(args.pedestrian_bbox_filename, pedestrian_per_frame_bboxes, per_frame_camera_poses);
+        parseBboxFile(args.pedestrian_bbox_filename, pedestrian_per_frame_bboxes, per_frame_camera_poses, this->provided_history_choices);
+
+        if (!this->provided_history_choices.empty())
+        {
+            this->use_provided_history = true;
+        }
     }
 
     vector<vector<vector<double>>> vehicle_per_frame_bboxes;
     if (!args.vehicle_bbox_filename.empty())
     {
-        parseBboxFile(args.vehicle_bbox_filename, vehicle_per_frame_bboxes, per_frame_camera_poses);
+        parseBboxFile(args.vehicle_bbox_filename, vehicle_per_frame_bboxes, per_frame_camera_poses, this->provided_history_choices);
+
+        if (!this->provided_history_choices.empty())
+        {
+            this->use_provided_history = true;
+        }
     }
 
     std::map<int, Trajectory> pedestrianTrajectoryMap;
@@ -760,18 +776,25 @@ void App::run()
 
             // Choose which prior results to use
             unsigned historyAge = 0; // invalid, must be at least 1
-            float cumulativeDist = 0.0f;
-            float r = ((float)rand()) / RAND_MAX;
-            for (unsigned i = 0; i < args.history_distribution.size(); i++)
+            if (this->use_provided_history)
             {
-                cumulativeDist += args.history_distribution[i];
-                if (r < cumulativeDist)
-                {
-                    historyAge = i+1;
-                    break;
-                }
+                historyAge = this->provided_history_choices[this->frame_id];
             }
-            if (historyAge == 0) { historyAge = args.history_distribution.size(); }
+            else
+            {
+                float cumulativeDist = 0.0f;
+                float r = ((float)rand()) / RAND_MAX;
+                for (unsigned i = 0; i < args.history_distribution.size(); i++)
+                {
+                    cumulativeDist += args.history_distribution[i];
+                    if (r < cumulativeDist)
+                    {
+                        historyAge = i+1;
+                        break;
+                    }
+                }
+                if (historyAge == 0) { historyAge = args.history_distribution.size(); }
+            }
             historyAges.push_back(historyAge);
 
             // Retrieve the prior track information
@@ -2235,7 +2258,7 @@ Track::Track(const Track &t)
     this->predPosition = t.predPosition;
 }
 
-void parseBboxFile(string bbox_filename, vector<vector<vector<double>>> &per_frame_bboxes, vector<vector<double>> &per_frame_camera_poses)
+void parseBboxFile(string bbox_filename, vector<vector<vector<double>>> &per_frame_bboxes, vector<vector<double>> &per_frame_camera_poses, vector<unsigned> &per_frame_history_choices)
 {
     bool shouldParseCameraPoses = per_frame_camera_poses.empty();
 
@@ -2255,6 +2278,26 @@ void parseBboxFile(string bbox_filename, vector<vector<vector<double>>> &per_fra
 
         size_t prev_pos = 0;
         size_t pos = 0;
+
+        // Check if the history choices have already been made (good for replaying)
+        if (per_frame_history_choices.empty() && line.find("history") != string::npos)
+        {
+            pos = line.find("|");
+            prev_pos = pos + 1;
+
+            do
+            {
+                pos = line.find(",", prev_pos);
+
+                int val = stoul(line.substr(prev_pos, pos));
+                per_frame_history_choices.push_back(val);
+
+                prev_pos = pos + 1;
+            }
+            while (pos != string::npos);
+
+            continue;
+        }
 
         // Get the frame number
         pos = line.find("|");
