@@ -22,7 +22,7 @@ class Track;
 class Tracker;
 class Trajectory;
 
-void parseBboxFile(string bbox_filename, vector<vector<vector<double>>> &per_frame_bboxes, vector<vector<double>> &per_frame_camera_poses, vector<unsigned> &per_frame_history_choices);
+void parseBboxFile(string bbox_filename, vector<vector<vector<double>>> &per_frame_bboxes, vector<vector<double>> &per_frame_camera_poses, vector<unsigned> &per_frame_history_choices, unsigned num_frames);
 void parseDetections(vector<vector<vector<double>>> &perFrameBboxes, int frameId, vector<Detection> &detections, std::map<int, Trajectory> &trajectoryMap);
 
 Point2d constantVelocityMotionModel(Track &track, int frame_id);
@@ -170,6 +170,9 @@ public:
     string pedestrian_tracking_filepath;
     string vehicle_tracking_filepath;
 
+    int num_tracking_iters;
+    int num_tracking_frames;
+
 private:
     void parseHistoryDistribution(char *dist_arg);
 };
@@ -312,7 +315,9 @@ static void printHelp()
          << "  [--pedestrian_bbox_filename <string>] # filename of pedestrian bounding box results for ground truth"
          << "  [--vehicle_bbox_filename <string>] # filename of vehicle bounding box results for ground truth"
          << "  [--write_tracking <bool>] # writer tracking output or not"
-         << "  [--tracking_filename <string>] # tracking output filename\n";
+         << "  [--tracking_filename <string>] # tracking output filename\n"
+         << "  [--num_tracking_iters <int>] # number of times to repeat the tracking experiment"
+         << "  [--num_tracking_frames <int>] # number of frames of the video to track\n";
     help_showed = true;
 }
 
@@ -386,6 +391,9 @@ Args::Args()
 
     track_pedestrians = false;
     track_vehicles = false;
+
+    num_tracking_iters = 1;
+    num_tracking_frames = 100;
 
     // Age of prior results
     history_distribution = std::vector<float>(1, 1.0); // default to using the previous frame
@@ -468,6 +476,8 @@ Args Args::read(int argc, char** argv)
         else if (string(argv[i]) == "--write_tracking") args.write_tracking = (string(argv[++i]) == "true");
         else if (string(argv[i]) == "--pedestrian_tracking_filepath") args.pedestrian_tracking_filepath = argv[++i];
         else if (string(argv[i]) == "--vehicle_tracking_filepath") args.vehicle_tracking_filepath = argv[++i];
+        else if (string(argv[i]) == "--num_tracking_iters") args.num_tracking_iters = atoi(argv[++i]);
+        else if (string(argv[i]) == "--num_tracking_frames") args.num_tracking_frames = atoi(argv[++i]);
         else if (args.src.empty()) args.src = argv[i];
         else throw runtime_error((string("unknown key: ") + argv[i]));
     }
@@ -620,7 +630,7 @@ void App::run()
     vector<vector<double>> per_frame_camera_poses; // x, y, yaw or x, y, z, pitch, yaw, roll
     if (!args.pedestrian_bbox_filename.empty())
     {
-        parseBboxFile(args.pedestrian_bbox_filename, pedestrian_per_frame_bboxes, per_frame_camera_poses, this->provided_history_choices);
+        parseBboxFile(args.pedestrian_bbox_filename, pedestrian_per_frame_bboxes, per_frame_camera_poses, this->provided_history_choices, args.num_tracking_frames);
 
         if (!this->provided_history_choices.empty())
         {
@@ -631,7 +641,7 @@ void App::run()
     vector<vector<vector<double>>> vehicle_per_frame_bboxes;
     if (!args.vehicle_bbox_filename.empty())
     {
-        parseBboxFile(args.vehicle_bbox_filename, vehicle_per_frame_bboxes, per_frame_camera_poses, this->provided_history_choices);
+        parseBboxFile(args.vehicle_bbox_filename, vehicle_per_frame_bboxes, per_frame_camera_poses, this->provided_history_choices, args.num_tracking_frames);
 
         if (!this->provided_history_choices.empty())
         {
@@ -639,28 +649,30 @@ void App::run()
         }
     }
 
-    std::map<int, Trajectory> pedestrianTrajectoryMap;
-    std::map<int, Trajectory> vehicleTrajectoryMap;
+    int iteration = 0;
 
-    std::vector<std::vector<Track>> pedestrianTrackOutputBuffer;
-    std::vector<std::vector<Track>> vehicleTrackOutputBuffer;
-    for (unsigned i = 0; i < args.history_distribution.size(); i++)
+    while (running && iteration < args.num_tracking_iters)
     {
-        pedestrianTrackOutputBuffer.push_back(std::vector<Track>());
-        vehicleTrackOutputBuffer.push_back(std::vector<Track>());
-    }
 
-    std::vector<unsigned> historyAges;
-    std::vector<double> pedestrianBboxOverlapPerFrame;
-    std::vector<double> vehicleBboxOverlapPerFrame;
-
-    bool is_first_pass = true;
-
-    while (running)
-    {
         VideoCapture vc;
         Mat frame;
         vector<String> filenames;
+
+        std::map<int, Trajectory> pedestrianTrajectoryMap;
+        std::map<int, Trajectory> vehicleTrajectoryMap;
+
+        std::vector<std::vector<Track>> pedestrianTrackOutputBuffer;
+        std::vector<std::vector<Track>> vehicleTrackOutputBuffer;
+        for (unsigned i = 0; i < args.history_distribution.size(); i++)
+        {
+            pedestrianTrackOutputBuffer.push_back(std::vector<Track>());
+            vehicleTrackOutputBuffer.push_back(std::vector<Track>());
+        }
+
+        // Store results for outputting later
+        std::vector<unsigned> historyAges;
+        std::vector<double> pedestrianBboxOverlapPerFrame;
+        std::vector<double> vehicleBboxOverlapPerFrame;
 
         unsigned int count = 1;
 
@@ -706,7 +718,7 @@ void App::run()
         this->frame_id = 0;
 
         // Iterate over all frames
-        while (running && !frame.empty())
+        while (running && !frame.empty() && this->frame_id < args.num_tracking_frames)
         {
             workBegin();
 
@@ -829,7 +841,7 @@ void App::run()
             if (args.track_pedestrians)
             {
                 performTrackingStep(&pedestrianTracker, pedestrianDetections, pedestrianTracks,
-                                    pedestrianTrajectoryMap, gpu_hog, is_first_pass);
+                                    pedestrianTrajectoryMap, gpu_hog, true /* store metrics */);
 
                 double bboxOverlap = 0.0;
                 for (unsigned tidx = 0; tidx < pedestrianTracks.size(); tidx++)
@@ -841,7 +853,7 @@ void App::run()
             if (args.track_vehicles)
             {
                 performTrackingStep(&vehicleTracker, vehicleDetections, vehicleTracks,
-                                    vehicleTrajectoryMap, gpu_hog, is_first_pass);
+                                    vehicleTrajectoryMap, gpu_hog, true /* store metrics */);
 
                 double bboxOverlap = 0.0;
                 for (unsigned tidx = 0; tidx < vehicleTracks.size(); tidx++)
@@ -1007,7 +1019,7 @@ void App::run()
         }
 
 
-        if (is_first_pass && args.write_tracking)
+        if (args.write_tracking)
         {
             if (!args.pedestrian_tracking_filepath.empty())
             {
@@ -1020,7 +1032,7 @@ void App::run()
             }
         }
 
-        is_first_pass = false;
+        iteration++;
     }
 }
 
@@ -2284,7 +2296,7 @@ Track::Track(const Track &t)
     this->bboxOverlap = t.bboxOverlap;
 }
 
-void parseBboxFile(string bbox_filename, vector<vector<vector<double>>> &per_frame_bboxes, vector<vector<double>> &per_frame_camera_poses, vector<unsigned> &per_frame_history_choices)
+void parseBboxFile(string bbox_filename, vector<vector<vector<double>>> &per_frame_bboxes, vector<vector<double>> &per_frame_camera_poses, vector<unsigned> &per_frame_history_choices, unsigned num_frames)
 {
     bool shouldParseCameraPoses = per_frame_camera_poses.empty();
 
@@ -2392,8 +2404,11 @@ void parseBboxFile(string bbox_filename, vector<vector<vector<double>>> &per_fra
         prev_frame = frame_num;
     }
 
-    // Add the last frame's bounding boxes
-    per_frame_bboxes.push_back(current_frame_bboxes);
+    for (int i = prev_frame; i < num_frames; i++)
+    {
+        per_frame_bboxes.push_back(current_frame_bboxes);
+        current_frame_bboxes = vector<vector<double>>();
+    }
 }
 
 void parseDetections(vector<vector<vector<double>>> &perFrameBboxes, int frameId, vector<Detection> &detections, std::map<int, Trajectory> &trajectoryMap)
