@@ -379,7 +379,7 @@ Args::Args()
 
     // Configuration options for tracking
     costOfNonAssignment = 10.0;
-    timeWindowSize = 8;//16
+    timeWindowSize = 16;//16
     trackAgeThreshold = 4;//8;
     trackVisibilityThreshold = 0.3; //0.4;//0.6;
     trackConfidenceThreshold = 0.2;
@@ -580,8 +580,11 @@ void App::run()
     }
 
     gr_threshold = gpu_hog->getGroupThreshold();
+    cpu_hog.nlevels = 15;
+    gpu_hog->setNumLevels(15);
     nlevels = gpu_hog->getNumLevels();
     scale = gpu_hog->getScaleFactor();
+    gpu_hog->setHitThreshold(0.45);
     hit_threshold = gpu_hog->getHitThreshold();
     gamma_corr = gpu_hog->getGammaCorrection();
 
@@ -594,8 +597,8 @@ void App::run()
     cout << "Win stride: (" << args.win_stride_width << ", " << args.win_stride_height << ")\n";
     cout << "Block size: (" << cpu_hog.blockSize.width << ", " << cpu_hog.blockSize.height << ")\n";
     cout << "Block stride: (" << cpu_hog.blockStride.width << ", " << cpu_hog.blockStride.height << ")\n";
-    cout << "Cell size: (" << args.cell_width << ", " << args.cell_width << ")\n";
-    cout << "Bins number: " << args.nbins << endl;
+    cout << "Cell size: (" << cpu_hog.cellSize.width << ", " << cpu_hog.cellSize.height << ")\n";
+    cout << "Bins number: " << cpu_hog.nbins << endl;
     cout << "Hit threshold: " << hit_threshold << endl;
     cout << "Gamma correction: " << gamma_corr << endl;
     cout << endl << "History age distribution: ";
@@ -1067,12 +1070,12 @@ void App::handleKey(char key)
         cout << "Group threshold: " << gr_threshold << endl;
         break;
     case '4':
-        hit_threshold+=0.25;
+        hit_threshold+=0.05;
         cout << "Hit threshold: " << hit_threshold << endl;
         break;
     case 'r':
     case 'R':
-        hit_threshold = max(0.0, hit_threshold - 0.25);
+        hit_threshold = max(0.0, hit_threshold - 0.05);
         cout << "Hit threshold: " << hit_threshold << endl;
         break;
     case 'c':
