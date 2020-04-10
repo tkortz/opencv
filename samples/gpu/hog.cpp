@@ -108,6 +108,7 @@ public:
     double avgConfidence;
 
     Rect predPosition;
+    double bboxOverlap;
 };
 
 class Args
@@ -237,6 +238,7 @@ public:
 
     void writeTrackingOutputToFile(Tracker *tracker,
                                    vector<unsigned> &historyAges,
+                                   vector<double> &bboxOverlapPerFrame,
                                    std::map<int, Trajectory> &trajectoryMap,
                                    string filepath);
 
@@ -646,6 +648,8 @@ void App::run()
     }
 
     std::vector<unsigned> historyAges;
+    std::vector<double> pedestrianBboxOverlapPerFrame;
+    std::vector<double> vehicleBboxOverlapPerFrame;
 
     bool is_first_pass = true;
 
@@ -768,6 +772,9 @@ void App::run()
                     vehicleTrackOutputBuffer[buf_idx].clear();
                 }
 
+                pedestrianBboxOverlapPerFrame.clear();
+                vehicleBboxOverlapPerFrame.clear();
+
                 pedestrianTracker.reset();
                 vehicleTracker.reset();
 
@@ -820,13 +827,26 @@ void App::run()
             {
                 performTrackingStep(&pedestrianTracker, pedestrianDetections, pedestrianTracks,
                                     pedestrianTrajectoryMap, gpu_hog, is_first_pass);
+
+                double bboxOverlap = 0.0;
+                for (unsigned tidx = 0; tidx < pedestrianTracks.size(); tidx++)
+                {
+                    bboxOverlap += pedestrianTracks[tidx].bboxOverlap;
+                }
+                pedestrianBboxOverlapPerFrame.push_back(bboxOverlap);
             }
             if (args.track_vehicles)
             {
                 performTrackingStep(&vehicleTracker, vehicleDetections, vehicleTracks,
                                     vehicleTrajectoryMap, gpu_hog, is_first_pass);
-            }
 
+                double bboxOverlap = 0.0;
+                for (unsigned tidx = 0; tidx < vehicleTracks.size(); tidx++)
+                {
+                    bboxOverlap += vehicleTracks[tidx].bboxOverlap;
+                }
+                vehicleBboxOverlapPerFrame.push_back(bboxOverlap);
+            }
 
             // Store the tracking results
             unsigned currentTrackIndex = this->frame_id % args.history_distribution.size();
@@ -988,12 +1008,12 @@ void App::run()
         {
             if (!args.pedestrian_tracking_filepath.empty())
             {
-                writeTrackingOutputToFile(&pedestrianTracker, historyAges, pedestrianTrajectoryMap, args.pedestrian_tracking_filepath);
+                writeTrackingOutputToFile(&pedestrianTracker, historyAges, pedestrianBboxOverlapPerFrame, pedestrianTrajectoryMap, args.pedestrian_tracking_filepath);
             }
 
             if (!args.vehicle_tracking_filepath.empty())
             {
-                writeTrackingOutputToFile(&vehicleTracker, historyAges, vehicleTrajectoryMap, args.vehicle_tracking_filepath);
+                writeTrackingOutputToFile(&vehicleTracker, historyAges, vehicleBboxOverlapPerFrame, vehicleTrajectoryMap, args.vehicle_tracking_filepath);
             }
         }
 
@@ -1161,6 +1181,7 @@ void App::performTrackingStep(Tracker *tracker,
 
 void App::writeTrackingOutputToFile(Tracker *tracker,
                                     vector<unsigned> &historyAges,
+                                    vector<double> &bboxOverlapPerFrame,
                                     std::map<int, Trajectory> &trajectoryMap,
                                     string filepath)
 {
@@ -1187,8 +1208,6 @@ void App::writeTrackingOutputToFile(Tracker *tracker,
     int numMostlyTracked = 0;
     int numPartiallyTracked = 0;
     int numMostlyLost = 0;
-    std::vector<double> bboxOverlapPerFrame = std::vector<double>(this->frame_id, 0);
-    double totalBboxOverlap = 0.0;
     std::map<int, Trajectory>::iterator traj_it;
     for (traj_it = trajectoryMap.begin(); traj_it != trajectoryMap.end(); ++traj_it)
     {
@@ -1235,13 +1254,6 @@ void App::writeTrackingOutputToFile(Tracker *tracker,
             if (!isNew && !prevTracked && trajectory->isTrackedPerFrame[fnum])
             {
                 numFragmentationsPerTrack[trajectory->id]++;
-            }
-
-            // Add the bounding box overlap
-            if (trajectory->isTrackedPerFrame[fnum])
-            {
-                bboxOverlapPerFrame[fnum] += trajectory->bboxOverlapPerFrame[fnum];
-                totalBboxOverlap += trajectory->bboxOverlapPerFrame[fnum];
             }
 
             prevTracked = trajectory->isTrackedPerFrame[fnum];
@@ -1314,6 +1326,7 @@ void App::writeTrackingOutputToFile(Tracker *tracker,
     }
 
     // Write per-frame tracking evaluation metrics to the output file
+    double totalBboxOverlap = 0.0;
     for (unsigned fnum = 0; fnum < tracker->truePositives.size(); fnum++)
     {
         // Write the frame number
@@ -1327,6 +1340,8 @@ void App::writeTrackingOutputToFile(Tracker *tracker,
         tracking_file << "c," << tracker->numMatches[fnum] << ";";
         tracking_file << "IDSW," << idSwapsPerFrame[fnum] << ";";
         tracking_file << "sum_di," << bboxOverlapPerFrame[fnum] << std::endl;
+
+        totalBboxOverlap += bboxOverlapPerFrame[fnum];
     }
 
     // Compute MOTA, A-MOTA, and MOTP for the scenario
@@ -2126,6 +2141,9 @@ void Tracker::updateAssignedTracks(vector<Track> &tracks, vector<Detection> &det
         track->frames.push_back(detections[detectionIdx].frame_id);
         track->worldCoords.push_back(detections[detectionIdx].worldPosition);
 
+        // Update the metrics stored for the track
+        track->bboxOverlap = computeBoundingBoxOverlap(*detectionBbox, track->predPosition);
+
         // Update the track's age, visibility, and score history
         track->age++;
         track->totalVisibleCount++;
@@ -2155,6 +2173,9 @@ void Tracker::updateUnassignedTracks(vector<Track> &tracks, vector<unsigned int>
         track->scores.push_back(0.0);
         track->frames.push_back(frame_id);
         track->worldCoords.push_back(Vec3d());
+
+        // Update the stored metrics for the track
+        track->bboxOverlap = 0.0;
 
         // Update the track's confidence based on the maximum detection
         // score in the past 'timeWindowSize' frames
@@ -2231,6 +2252,7 @@ Track::Track(Detection &detection, Tracker *tracker)
     this->avgConfidence = detection.confidence;
 
     this->predPosition = detection.bbox;
+    this->bboxOverlap = 1.0;
 }
 
 Track::Track(const Track &t)
@@ -2256,6 +2278,7 @@ Track::Track(const Track &t)
     this->avgConfidence = t.avgConfidence;
 
     this->predPosition = t.predPosition;
+    this->bboxOverlap = t.bboxOverlap;
 }
 
 void parseBboxFile(string bbox_filename, vector<vector<vector<double>>> &per_frame_bboxes, vector<vector<double>> &per_frame_camera_poses, vector<unsigned> &per_frame_history_choices)
