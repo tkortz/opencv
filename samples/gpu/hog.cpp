@@ -921,40 +921,57 @@ void App::run()
                     //                 ((track->avgConfidence / 3.0 > 1.0) ? track->avgConfidence / 3.0 : 1.0) :
                     //                 0.5;
 
-                    // Draw the centroid of prior rectangles
-                    for (unsigned int pidx = 0; pidx < track->worldCoords.size() - 1; pidx++)
+                    // Draw the centroids of prior positions; if the camera poses are known,
+                    // convert track positions from world coords to screen coords, otherwise
+                    // just use the bounding box centers directly in screen space
+                    if (per_frame_camera_poses.size() > 0)
                     {
-                        if (track->scores[pidx] == 0.0)
+                        for (unsigned int pidx = 0; pidx < track->worldCoords.size() - 1; pidx++)
                         {
-                            continue;
+                            if (track->scores[pidx] == 0.0)
+                            {
+                                continue;
+                            }
+
+                            int centroid_alpha = (int)((float)(track->frames[pidx]) / this->frame_id * 255);
+                            Scalar color = Scalar(track->color[0], track->color[1], track->color[2], centroid_alpha);
+
+                            Vec3d centroid = track->worldCoords[pidx];
+
+                            vector<double> &camera_pose = per_frame_camera_poses[this->frame_id];
+                            Vec3d cameraPos, cameraDir;
+                            if (camera_pose.size() == 3)
+                            {
+                                // x, y, and yaw are provided (assume z, pitch, and roll are 0)
+                                cameraPos = Vec3d(camera_pose[0], camera_pose[1], 0.0);
+                                cameraDir = Vec3d(0.0, camera_pose[2], 0.0);
+                            }
+                            else
+                            {
+                                // x, y, z, and pitch, yaw, roll
+                                cameraPos = Vec3d(camera_pose[0], camera_pose[1], camera_pose[2]);
+                                cameraDir = Vec3d(camera_pose[3], camera_pose[4], camera_pose[5]);
+                            }
+
+                            Point2d screenCoord = worldCoordsToScreenCoords(centroid, cameraPos, cameraDir, frame.cols, frame.rows);
+
+                            if (screenCoord.x >= 0 && screenCoord.x <= frame.cols &&
+                                screenCoord.y >= 0 && screenCoord.y <= frame.rows)
+                            {
+                                circle(img_to_show, screenCoord, 4, color, CV_FILLED);
+                            }
                         }
-
-                        int centroid_alpha = (int)((float)(track->frames[pidx]) / this->frame_id * 255);
-                        Scalar color = Scalar(track->color[0], track->color[1], track->color[2], centroid_alpha);
-
-                        Vec3d centroid = track->worldCoords[pidx];
-
-                        vector<double> &camera_pose = per_frame_camera_poses[this->frame_id];
-                        Vec3d cameraPos, cameraDir;
-                        if (camera_pose.size() == 3)
+                    }
+                    else
+                    {
+                        for (unsigned int bboxIdx = 0; bboxIdx < track->bboxes.size() - 1; bboxIdx++)
                         {
-                            // x, y, and yaw are provided (assume z, pitch, and roll are 0)
-                            cameraPos = Vec3d(camera_pose[0], camera_pose[1], 0.0);
-                            cameraDir = Vec3d(0.0, camera_pose[2], 0.0);
-                        }
-                        else
-                        {
-                            // x, y, z, and pitch, yaw, roll
-                            cameraPos = Vec3d(camera_pose[0], camera_pose[1], camera_pose[2]);
-                            cameraDir = Vec3d(camera_pose[3], camera_pose[4], camera_pose[5]);
-                        }
+                            int centroid_alpha = (int)((float)(track->frames[bboxIdx]) / this->frame_id * 255);
+                            Scalar color = Scalar(track->color[0], track->color[1], track->color[2], centroid_alpha);
 
-                        Point2d screenCoord = worldCoordsToScreenCoords(centroid, cameraPos, cameraDir, frame.cols, frame.rows);
-
-                        if (screenCoord.x >= 0 && screenCoord.x <= frame.cols &&
-                            screenCoord.y >= 0 && screenCoord.y <= frame.rows)
-                        {
-                            circle(img_to_show, screenCoord, 4, color, CV_FILLED);
+                            Rect *bbox = &(track->bboxes[bboxIdx]);
+                            Point2d centroid(bbox->x + bbox->width/2, bbox->y + bbox->height/2);
+                            circle(img_to_show, centroid, 2, color, CV_FILLED);
                         }
                     }
 
@@ -2302,8 +2319,8 @@ void parseBboxFile(string bbox_filename, vector<vector<vector<double>>> &per_fra
 
     ifstream bbox_file(bbox_filename);
 
-    int prev_frame = 0;
-    int start_frame = 0;
+    int prev_frame = -1;
+    int start_frame = -1;
     vector<vector<double>> current_frame_bboxes;
 
     string line = "";
@@ -2342,11 +2359,17 @@ void parseBboxFile(string bbox_filename, vector<vector<vector<double>>> &per_fra
         prev_pos = pos + 1;
         int frame_num = stoi(line.substr(0, pos));
 
+        // Check if it is ground-truth data or a real detection
+        size_t num_seps = std::count(line.begin(), line.end(), '|');
+        bool is_ground_truth = num_seps > 4;
+
         // Check if this is the first line read (assume they're in order by frame)
-        if (start_frame == 0)
+        if (start_frame == -1)
         {
-            start_frame = frame_num;
-            prev_frame = frame_num;
+            // If it's a real detection, start at 0, otherwise use
+            // the frame number provided
+            start_frame = is_ground_truth ? frame_num : 0;
+            prev_frame = start_frame;
         }
 
         // If this is the first line we've seen from this frame, start a new vector
@@ -2357,10 +2380,22 @@ void parseBboxFile(string bbox_filename, vector<vector<vector<double>>> &per_fra
             current_frame_bboxes = vector<vector<double>>();
         }
 
-        // Get the object ID
-        pos = line.find("|", prev_pos);
-        int objId = stoi(line.substr(prev_pos, pos));
-        prev_pos = pos + 1;
+        // The number of separators determines whether this file contains
+        // ground truth or the output of external detections;
+        // if external detections, there are no object IDs
+        int objId;
+        if (!is_ground_truth)
+        {
+            // External detections
+            objId = -2; // unknown
+        }
+        else
+        {
+            // Ground truth, go ahead and get the object ID
+            pos = line.find("|", prev_pos);
+            objId = stoi(line.substr(prev_pos, pos));
+            prev_pos = pos + 1;
+        }
 
         // If the ID is -1, this is the camera's pose
         if (shouldParseCameraPoses && objId == -1)
@@ -2404,7 +2439,8 @@ void parseBboxFile(string bbox_filename, vector<vector<vector<double>>> &per_fra
         prev_frame = frame_num;
     }
 
-    for (int i = prev_frame; i < num_frames; i++)
+    // Add the last frame's bounding boxes (and any that were missed)
+    for (int i = prev_frame; i < start_frame + num_frames; i++)
     {
         per_frame_bboxes.push_back(current_frame_bboxes);
         current_frame_bboxes = vector<vector<double>>();
@@ -2429,21 +2465,30 @@ void parseDetections(vector<vector<vector<double>>> &perFrameBboxes, int frameId
 
         Detection d(objectId, frameId, r, 1.0);
 
-        double xPos = bbox[5];
-        double yPos = bbox[6];
-        double zPos = (bbox.size() >= 8) ? bbox[7] : 0.0; // assume 0 if not provided
-        d.worldPosition = Vec3d(xPos, yPos, zPos);
+        Vec3d worldPos;
+        if (bbox.size() > 5)
+        {
+            double xPos = bbox[5];
+            double yPos = bbox[6];
+            double zPos = (bbox.size() >= 8) ? bbox[7] : 0.0; // assume 0 if not provided
+            worldPos = Vec3d(xPos, yPos, zPos);
+        }
+        d.worldPosition = worldPos;
 
         detections.push_back(d);
 
-        // Update the position of the trajectory, creating it if necessary
-        if (trajectoryMap.find(objectId) == trajectoryMap.end())
+        // If the detection is ground-truth information, update the position
+        // of the trajectory, creating it if necessary
+        if (objectId >= 0)
         {
-            Trajectory t(objectId);
-            trajectoryMap[objectId] = t;
-        }
+            if (trajectoryMap.find(objectId) == trajectoryMap.end())
+            {
+                Trajectory t(objectId);
+                trajectoryMap[objectId] = t;
+            }
 
-        trajectoryMap[objectId].addPosition(frameId, r, d.worldPosition);
+            trajectoryMap[objectId].addPosition(frameId, r, d.worldPosition);
+        }
     }
 }
 
