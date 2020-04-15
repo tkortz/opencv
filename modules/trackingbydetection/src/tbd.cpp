@@ -53,13 +53,15 @@ TbdArgs::TbdArgs(double costOfNonAssignment,
                  unsigned int timeWindowSize,
                  unsigned int trackAgeThreshold,
                  double trackVisibilityThreshold,
-                 double trackConfidenceThreshold)
+                 double trackConfidenceThreshold,
+                 bool shouldStoreMetrics)
 {
     this->costOfNonAssignment = costOfNonAssignment;
     this->timeWindowSize = timeWindowSize;
     this->trackAgeThreshold = trackAgeThreshold;
     this->trackVisibilityThreshold = trackVisibilityThreshold;
     this->trackConfidenceThreshold = trackConfidenceThreshold;
+    this->shouldStoreMetrics = shouldStoreMetrics;
 }
 
 Track::Track(Detection &detection, Tracker *tracker)
@@ -203,6 +205,84 @@ void Tracker::reset()
     this->groundTruths.clear();
     this->numMatches.clear();
     this->bboxOverlap.clear();
+}
+
+void Tracker::performTrackingStep(vector<Detection> &foundDetections,
+                                  std::map<int, Trajectory> &trajectoryMap,
+                                  int frame_id)
+{
+    // Predict the new locations of the tracks
+    this->predictNewLocationsOfTracks(frame_id);
+
+    // Filter out tracks with predictions that are out of the window
+    this->filterTracksOutOfBounds(0, 1280, 0, 720);
+
+    // Use predicted track positions to map current detections to existing tracks
+    std::vector<int> assignments;
+    std::vector<unsigned int> unassignedTracks, unassignedDetections;
+    this->detectionToTrackAssignment(foundDetections, assignments,
+                                     unassignedTracks, unassignedDetections,
+                                     false, frame_id);
+
+    // Update the tracks (assigned and unassigned)
+    this->updateAssignedTracks(foundDetections, assignments);
+    this->updateUnassignedTracks(unassignedTracks, frame_id);
+
+    // Update trajectories for assigned detections/tracks
+    unsigned numAssigned = 0;
+    for (unsigned trackIdx = 0; trackIdx < tracks.size(); trackIdx++)
+    {
+        if (assignments[trackIdx] < 0) { continue; }
+
+        numAssigned++;
+
+        unsigned detectionIdx = assignments[trackIdx];
+
+        Track *track = &(tracks[trackIdx]);
+        Detection *detection = &(foundDetections[detectionIdx]);
+
+        // Ignore detections for which no ground truth information exists
+        if (detection->id < 0) { continue; }
+
+        Trajectory *trajectory = &(trajectoryMap[detection->id]);
+        trajectory->addTrackingInfo(frame_id, track);
+    }
+
+    // Update trajectories for unassigned detections - note that this
+    // will miss the first position/frame associated with each track,
+    // because they are created just after
+    for (unsigned udix = 0; udix < unassignedDetections.size(); udix++)
+    {
+        unsigned detectionIdx = unassignedDetections[udix];
+        Detection *detection = &(foundDetections[detectionIdx]);
+
+        // Ignore detections for which no ground truth information exists
+        if (detection->id < 0) { continue; }
+
+        Trajectory *trajectory = &(trajectoryMap[detection->id]);
+        trajectory->addTrackingInfo(frame_id, NULL);
+    }
+
+    // Delete any tracks that are lost enough, and create new tracks
+    // for unassigned detections
+    this->deleteLostTracks();
+    this->createNewTracks(foundDetections, unassignedDetections);
+
+    if (this->args->shouldStoreMetrics)
+    {
+        this->truePositives.push_back(numAssigned);
+        this->falseNegatives.push_back(unassignedDetections.size());
+        this->falsePositives.push_back(unassignedTracks.size());
+        this->groundTruths.push_back(foundDetections.size());
+        this->numMatches.push_back(numAssigned); // not necessarily the same as TP_t
+
+        double bboxOverlap = 0.0;
+        for (unsigned tidx = 0; tidx < tracks.size(); tidx++)
+        {
+            bboxOverlap += tracks[tidx].bboxOverlap;
+        }
+        this->bboxOverlap.push_back(bboxOverlap);
+    }
 }
 
 void Tracker::predictNewLocationsOfTracks(int frame_id)

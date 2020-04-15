@@ -99,11 +99,6 @@ public:
 
     void handleKey(char key);
 
-    void performTrackingStep(Tracker *tracker,
-                             vector<Detection> &foundDetections,
-                             std::map<int, Trajectory> &trajectoryMap,
-                             bool shouldStoreMetrics);
-
     void writeTrackingOutputToFile(Tracker *tracker,
                                    vector<unsigned> &historyAges,
                                    std::map<int, Trajectory> &trajectoryMap,
@@ -577,7 +572,8 @@ void App::run()
                              this->args.timeWindowSize,
                              this->args.trackAgeThreshold,
                              this->args.trackVisibilityThreshold,
-                             this->args.trackConfidenceThreshold);
+                             this->args.trackConfidenceThreshold,
+                             true /* shouldStoreMetrics */);
         Tracker pedestrianTracker(&tbdArgs);
         Tracker vehicleTracker(&tbdArgs);
 
@@ -706,13 +702,15 @@ void App::run()
 
             if (args.track_pedestrians)
             {
-                performTrackingStep(&pedestrianTracker, pedestrianDetections,
-                                    pedestrianTrajectoryMap, true /* store metrics */);
+                pedestrianTracker.performTrackingStep(pedestrianDetections,
+                                                      pedestrianTrajectoryMap,
+                                                      this->frame_id);
             }
             if (args.track_vehicles)
             {
-                performTrackingStep(&vehicleTracker, vehicleDetections,
-                                    vehicleTrajectoryMap, true /* store metrics */);
+                vehicleTracker.performTrackingStep(vehicleDetections,
+                                                   vehicleTrajectoryMap,
+                                                   this->frame_id);
             }
 
             // Store the tracking results
@@ -957,86 +955,6 @@ void App::handleKey(char key)
         gamma_corr = !gamma_corr;
         cout << "Gamma correction: " << gamma_corr << endl;
         break;
-    }
-}
-
-void App::performTrackingStep(Tracker *tracker,
-                              vector<Detection> &foundDetections,
-                              std::map<int, Trajectory> &trajectoryMap,
-                              bool shouldStoreMetrics)
-{
-    // Predict the new locations of the tracks
-    tracker->predictNewLocationsOfTracks(this->frame_id);
-
-    // Filter out tracks with predictions that are out of the window
-    tracker->filterTracksOutOfBounds(0, 1280, 0, 720);
-
-    // Use predicted track positions to map current detections to existing tracks
-    std::vector<int> assignments;
-    std::vector<unsigned int> unassignedTracks, unassignedDetections;
-    tracker->detectionToTrackAssignment(foundDetections, assignments,
-                                        unassignedTracks, unassignedDetections,
-                                        false, this->frame_id);
-
-    // Update the tracks (assigned and unassigned)
-    tracker->updateAssignedTracks(foundDetections, assignments);
-    tracker->updateUnassignedTracks(unassignedTracks, this->frame_id);
-
-    // Update trajectories for assigned detections/tracks
-    unsigned numAssigned = 0;
-    vector<Track> tracks = tracker->getTracks();
-    for (unsigned trackIdx = 0; trackIdx < tracks.size(); trackIdx++)
-    {
-        if (assignments[trackIdx] < 0) { continue; }
-
-        numAssigned++;
-
-        unsigned detectionIdx = assignments[trackIdx];
-
-        Track *track = &(tracks[trackIdx]);
-        Detection *detection = &(foundDetections[detectionIdx]);
-
-        // Ignore detections for which no ground truth information exists
-        if (detection->id < 0) { continue; }
-
-        Trajectory *trajectory = &(trajectoryMap[detection->id]);
-        trajectory->addTrackingInfo(this->frame_id, track);
-    }
-
-    // Update trajectories for unassigned detections - note that this
-    // will miss the first position/frame associated with each track,
-    // because they are created just after
-    for (unsigned udix = 0; udix < unassignedDetections.size(); udix++)
-    {
-        unsigned detectionIdx = unassignedDetections[udix];
-        Detection *detection = &(foundDetections[detectionIdx]);
-
-        // Ignore detections for which no ground truth information exists
-        if (detection->id < 0) { continue; }
-
-        Trajectory *trajectory = &(trajectoryMap[detection->id]);
-        trajectory->addTrackingInfo(this->frame_id, NULL);
-    }
-
-    // Delete any tracks that are lost enough, and create new tracks
-    // for unassigned detections
-    tracker->deleteLostTracks();
-    tracker->createNewTracks(foundDetections, unassignedDetections);
-
-    if (shouldStoreMetrics)
-    {
-        tracker->truePositives.push_back(numAssigned);
-        tracker->falseNegatives.push_back(unassignedDetections.size());
-        tracker->falsePositives.push_back(unassignedTracks.size());
-        tracker->groundTruths.push_back(foundDetections.size());
-        tracker->numMatches.push_back(numAssigned); // not necessarily the same as TP_t
-
-        double bboxOverlap = 0.0;
-        for (unsigned tidx = 0; tidx < tracks.size(); tidx++)
-        {
-            bboxOverlap += tracks[tidx].bboxOverlap;
-        }
-        tracker->bboxOverlap.push_back(bboxOverlap);
     }
 }
 

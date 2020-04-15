@@ -29,13 +29,15 @@ public:
             unsigned int timeWindowSize,
             unsigned int trackAgeThreshold,
             double trackVisibilityThreshold,
-            double trackConfidenceThreshold);
+            double trackConfidenceThreshold,
+            bool shouldStoreMetrics);
 
     double costOfNonAssignment;
     unsigned int timeWindowSize;
     unsigned int trackAgeThreshold;
     double trackVisibilityThreshold;
     double trackConfidenceThreshold;
+    bool shouldStoreMetrics;
 };
 
 /*
@@ -133,16 +135,14 @@ public:
     void setTracks(vector<Track> &tracks);
     vector<Track>& getTracks();
 
-    void predictNewLocationsOfTracks(int frame_id);
-    void filterTracksOutOfBounds(int xmin, int xmax, int ymin, int ymax);
+    // Perform a single tracking step given a set of detections
+    void performTrackingStep(vector<Detection> &foundDetections,
+                             map<int, Trajectory> &trajectoryMap,
+                             int frame_id);
 
-    void detectionToTrackAssignment(vector<Detection> &detections, vector<int> &assignments, vector<unsigned int> &unassignedTracks, vector<unsigned int> &unassignedDetections, bool debug, int frameId);
+    const TbdArgs *args;
 
-    void updateAssignedTracks(vector<Detection> &detections, vector<int> &assignments);
-    void updateUnassignedTracks(vector<unsigned int> &unassignedTracks, int frame_id);
-    void deleteLostTracks();
-    void createNewTracks(vector<Detection> &detections, vector<unsigned int> &unassignedDetections);
-
+    // Metrics
     vector<int> truePositives;  // TP_t: # assigned detections
     vector<int> falseNegatives; // FN_t: # unmatched detections
     vector<int> falsePositives; // FP_t: # unmatched tracks (hypotheses)
@@ -153,17 +153,28 @@ public:
 private:
     Tracker();
 
-    const TbdArgs *args;
     unsigned int nextTrackId;
 
     vector<Track> tracks;
 
+    // Predict new locations of tracks
+    void predictNewLocationsOfTracks(int frame_id);
+    void filterTracksOutOfBounds(int xmin, int xmax, int ymin, int ymax);
+
+    // Match predictions to new detections (using Munkres' Algorithm)
+    void detectionToTrackAssignment(vector<Detection> &detections, vector<int> &assignments, vector<unsigned int> &unassignedTracks, vector<unsigned int> &unassignedDetections, bool debug, int frameId);
     void calculateCostMatrix(vector<Detection> &detections, vector<vector<double>> &costMatrix);
     void classifyAssignments(vector<unsigned int> &assignmentPerRow, unsigned int numTracks, unsigned int numDetections,
                             vector<int> &assignments, vector<unsigned int> &unassignedTracks, vector<unsigned int> &unassignedDetections);
     void solveAssignmentProblem(vector<vector<double>> &costMatrix, unsigned int numTracks, unsigned int numDetections,
                                 vector<int> &assignments, vector<unsigned int> &unassignedTracks, vector<unsigned int> &unassignedDetections,
                                 bool debug, int frame_id);
+
+    // Update tracks
+    void updateAssignedTracks(vector<Detection> &detections, vector<int> &assignments);
+    void updateUnassignedTracks(vector<unsigned int> &unassignedTracks, int frame_id);
+    void deleteLostTracks();
+    void createNewTracks(vector<Detection> &detections, vector<unsigned int> &unassignedDetections);
     void updateTrackConfidence(Track *track);
 
     inline bool equalsZero(double val)
