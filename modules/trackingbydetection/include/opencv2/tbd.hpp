@@ -130,20 +130,25 @@ public:
 
     unsigned int getNextTrackId();
 
-    void predictNewLocationsOfTracks(vector<Track> &tracks, int frame_id);
+    void setTracks(vector<Track> &tracks);
+    vector<Track>& getTracks();
 
-    void detectionToTrackAssignment(vector<Detection> &detections, vector<Track> &tracks, vector<int> &assignments, vector<unsigned int> &unassignedTracks, vector<unsigned int> &unassignedDetections, bool debug, int frameId);
+    void predictNewLocationsOfTracks(int frame_id);
+    void filterTracksOutOfBounds(int xmin, int xmax, int ymin, int ymax);
 
-    void updateAssignedTracks(vector<Track> &tracks, vector<Detection> &detections, vector<int> &assignments);
-    void updateUnassignedTracks(vector<Track> &tracks, vector<unsigned int> &unassignedTracks, int frame_id);
-    void deleteLostTracks(vector<Track> &tracks);
-    void createNewTracks(vector<Track> &tracks, vector<Detection> &detections, vector<unsigned int> &unassignedDetections);
+    void detectionToTrackAssignment(vector<Detection> &detections, vector<int> &assignments, vector<unsigned int> &unassignedTracks, vector<unsigned int> &unassignedDetections, bool debug, int frameId);
+
+    void updateAssignedTracks(vector<Detection> &detections, vector<int> &assignments);
+    void updateUnassignedTracks(vector<unsigned int> &unassignedTracks, int frame_id);
+    void deleteLostTracks();
+    void createNewTracks(vector<Detection> &detections, vector<unsigned int> &unassignedDetections);
 
     vector<int> truePositives;  // TP_t: # assigned detections
     vector<int> falseNegatives; // FN_t: # unmatched detections
     vector<int> falsePositives; // FP_t: # unmatched tracks (hypotheses)
     vector<int> groundTruths;   // GT_t: # objects in the scene
     vector<int> numMatches;     // c_t:  # matches
+    vector<double> bboxOverlap; // sum_i d_it: bbox overlap total for frame t
 
 private:
     Tracker();
@@ -151,7 +156,9 @@ private:
     const TbdArgs *args;
     unsigned int nextTrackId;
 
-    void calculateCostMatrix(vector<Track> &tracks, vector<Detection> &detections, vector<vector<double>> &costMatrix);
+    vector<Track> tracks;
+
+    void calculateCostMatrix(vector<Detection> &detections, vector<vector<double>> &costMatrix);
     void classifyAssignments(vector<unsigned int> &assignmentPerRow, unsigned int numTracks, unsigned int numDetections,
                             vector<int> &assignments, vector<unsigned int> &unassignedTracks, vector<unsigned int> &unassignedDetections);
     void solveAssignmentProblem(vector<vector<double>> &costMatrix, unsigned int numTracks, unsigned int numDetections,

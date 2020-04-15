@@ -101,14 +101,11 @@ public:
 
     void performTrackingStep(Tracker *tracker,
                              vector<Detection> &foundDetections,
-                             vector<Track> &tracks,
                              std::map<int, Trajectory> &trajectoryMap,
-                             cv::Ptr<cv::cuda::HOG> gpu_hog,
                              bool shouldStoreMetrics);
 
     void writeTrackingOutputToFile(Tracker *tracker,
                                    vector<unsigned> &historyAges,
-                                   vector<double> &bboxOverlapPerFrame,
                                    std::map<int, Trajectory> &trajectoryMap,
                                    string filepath);
 
@@ -537,8 +534,6 @@ void App::run()
 
         // Store results for outputting later
         std::vector<unsigned> historyAges;
-        std::vector<double> pedestrianBboxOverlapPerFrame;
-        std::vector<double> vehicleBboxOverlapPerFrame;
 
         unsigned int count = 1;
 
@@ -658,9 +653,6 @@ void App::run()
                     vehicleTrackOutputBuffer[buf_idx].clear();
                 }
 
-                pedestrianBboxOverlapPerFrame.clear();
-                vehicleBboxOverlapPerFrame.clear();
-
                 pedestrianTracker.reset();
                 vehicleTracker.reset();
 
@@ -709,32 +701,23 @@ void App::run()
                 }
             }
 
+            pedestrianTracker.setTracks(pedestrianTracks);
+            vehicleTracker.setTracks(vehicleTracks);
+
             if (args.track_pedestrians)
             {
-                performTrackingStep(&pedestrianTracker, pedestrianDetections, pedestrianTracks,
-                                    pedestrianTrajectoryMap, gpu_hog, true /* store metrics */);
-
-                double bboxOverlap = 0.0;
-                for (unsigned tidx = 0; tidx < pedestrianTracks.size(); tidx++)
-                {
-                    bboxOverlap += pedestrianTracks[tidx].bboxOverlap;
-                }
-                pedestrianBboxOverlapPerFrame.push_back(bboxOverlap);
+                performTrackingStep(&pedestrianTracker, pedestrianDetections,
+                                    pedestrianTrajectoryMap, true /* store metrics */);
             }
             if (args.track_vehicles)
             {
-                performTrackingStep(&vehicleTracker, vehicleDetections, vehicleTracks,
-                                    vehicleTrajectoryMap, gpu_hog, true /* store metrics */);
-
-                double bboxOverlap = 0.0;
-                for (unsigned tidx = 0; tidx < vehicleTracks.size(); tidx++)
-                {
-                    bboxOverlap += vehicleTracks[tidx].bboxOverlap;
-                }
-                vehicleBboxOverlapPerFrame.push_back(bboxOverlap);
+                performTrackingStep(&vehicleTracker, vehicleDetections,
+                                    vehicleTrajectoryMap, true /* store metrics */);
             }
 
             // Store the tracking results
+            pedestrianTracks = pedestrianTracker.getTracks();
+            vehicleTracks = vehicleTracker.getTracks();
             unsigned currentTrackIndex = this->frame_id % args.history_distribution.size();
             pedestrianTrackOutputBuffer[currentTrackIndex] = pedestrianTracks;
             vehicleTrackOutputBuffer[currentTrackIndex] = vehicleTracks;
@@ -902,12 +885,12 @@ void App::run()
         {
             if (!args.pedestrian_tracking_filepath.empty())
             {
-                writeTrackingOutputToFile(&pedestrianTracker, historyAges, pedestrianBboxOverlapPerFrame, pedestrianTrajectoryMap, args.pedestrian_tracking_filepath);
+                writeTrackingOutputToFile(&pedestrianTracker, historyAges, pedestrianTrajectoryMap, args.pedestrian_tracking_filepath);
             }
 
             if (!args.vehicle_tracking_filepath.empty())
             {
-                writeTrackingOutputToFile(&vehicleTracker, historyAges, vehicleBboxOverlapPerFrame, vehicleTrajectoryMap, args.vehicle_tracking_filepath);
+                writeTrackingOutputToFile(&vehicleTracker, historyAges, vehicleTrajectoryMap, args.vehicle_tracking_filepath);
             }
         }
 
@@ -979,52 +962,29 @@ void App::handleKey(char key)
 
 void App::performTrackingStep(Tracker *tracker,
                               vector<Detection> &foundDetections,
-                              vector<Track> &tracks,
                               std::map<int, Trajectory> &trajectoryMap,
-                              cv::Ptr<cv::cuda::HOG> gpu_hog,
                               bool shouldStoreMetrics)
 {
     // Predict the new locations of the tracks
-    tracker->predictNewLocationsOfTracks(tracks, this->frame_id);
+    tracker->predictNewLocationsOfTracks(this->frame_id);
 
     // Filter out tracks with predictions that are out of the window
-    std::vector<unsigned int> filteredTracks;
-    for (unsigned i = 0; i < tracks.size(); i++)
-    {
-        Track &t = tracks[i];
-
-        Rect &r = t.predPosition;
-
-        // Check if the track's predicted position is in the window
-        if (t.predPosition.br().x < 0 ||
-            t.predPosition.tl().x >= 1280 || // TAMERT HACK HACK HACK HACK
-            t.predPosition.br().y < 0 ||
-            t.predPosition.tl().y >= 720)
-        {
-            filteredTracks.push_back(i);
-        }
-    }
-
-    // Remove the filtered tracks (maybe not the most efficient implementation)
-    for (int i = filteredTracks.size() - 1; i >= 0; i--)
-    {
-        cout << "Filtering out track that left scene with ID: " << tracks[filteredTracks[i]].id << endl;
-        tracks.erase(tracks.begin() + filteredTracks[i]);
-    }
+    tracker->filterTracksOutOfBounds(0, 1280, 0, 720);
 
     // Use predicted track positions to map current detections to existing tracks
     std::vector<int> assignments;
     std::vector<unsigned int> unassignedTracks, unassignedDetections;
-    tracker->detectionToTrackAssignment(foundDetections, tracks, assignments,
+    tracker->detectionToTrackAssignment(foundDetections, assignments,
                                         unassignedTracks, unassignedDetections,
                                         false, this->frame_id);
 
     // Update the tracks (assigned and unassigned)
-    tracker->updateAssignedTracks(tracks, foundDetections, assignments);
-    tracker->updateUnassignedTracks(tracks, unassignedTracks, this->frame_id);
+    tracker->updateAssignedTracks(foundDetections, assignments);
+    tracker->updateUnassignedTracks(unassignedTracks, this->frame_id);
 
     // Update trajectories for assigned detections/tracks
     unsigned numAssigned = 0;
+    vector<Track> tracks = tracker->getTracks();
     for (unsigned trackIdx = 0; trackIdx < tracks.size(); trackIdx++)
     {
         if (assignments[trackIdx] < 0) { continue; }
@@ -1060,8 +1020,8 @@ void App::performTrackingStep(Tracker *tracker,
 
     // Delete any tracks that are lost enough, and create new tracks
     // for unassigned detections
-    tracker->deleteLostTracks(tracks);
-    tracker->createNewTracks(tracks, foundDetections, unassignedDetections);
+    tracker->deleteLostTracks();
+    tracker->createNewTracks(foundDetections, unassignedDetections);
 
     if (shouldStoreMetrics)
     {
@@ -1070,12 +1030,18 @@ void App::performTrackingStep(Tracker *tracker,
         tracker->falsePositives.push_back(unassignedTracks.size());
         tracker->groundTruths.push_back(foundDetections.size());
         tracker->numMatches.push_back(numAssigned); // not necessarily the same as TP_t
+
+        double bboxOverlap = 0.0;
+        for (unsigned tidx = 0; tidx < tracks.size(); tidx++)
+        {
+            bboxOverlap += tracks[tidx].bboxOverlap;
+        }
+        tracker->bboxOverlap.push_back(bboxOverlap);
     }
 }
 
 void App::writeTrackingOutputToFile(Tracker *tracker,
                                     vector<unsigned> &historyAges,
-                                    vector<double> &bboxOverlapPerFrame,
                                     std::map<int, Trajectory> &trajectoryMap,
                                     string filepath)
 {
@@ -1192,23 +1158,6 @@ void App::writeTrackingOutputToFile(Tracker *tracker,
 
             tracking_file << fnum << "," << trajectory->isTrackedPerFrame[fnum];
             tracking_file << "," << trajectory->trackIdPerFrame[fnum];
-
-            // Rect &pos = trajectory->positionPerFrame[fnum];
-            // tracking_file << ",POS[" << pos.x << "^" << pos.y << "^";
-            // tracking_file << pos.width << "^" << pos.height << "]";
-
-            // if (trajectory->isTrackedPerFrame[fnum])
-            // {
-            //     Rect &predBbox = trajectory->predPosPerFrame[fnum];
-            //     tracking_file << ",PREDBBOX[" << predBbox.x << "^" << predBbox.y << "^";
-            //     tracking_file << predBbox.width << "^" << predBbox.height << "]";
-
-            //     Rect &trBbox = trajectory->trackPosPerFrame[fnum];
-            //     tracking_file << ",TRBBOX[" << trBbox.x << "^" << trBbox.y << "^";
-            //     tracking_file << trBbox.width << "^" << trBbox.height << "]";
-
-            //     tracking_file << ",d[" << trajectory->bboxOverlapPerFrame[fnum] << "]";
-            // }
         }
 
         tracking_file << "|";
@@ -1233,9 +1182,9 @@ void App::writeTrackingOutputToFile(Tracker *tracker,
         tracking_file << "GT," << tracker->groundTruths[fnum] << ";";
         tracking_file << "c," << tracker->numMatches[fnum] << ";";
         tracking_file << "IDSW," << idSwapsPerFrame[fnum] << ";";
-        tracking_file << "sum_di," << bboxOverlapPerFrame[fnum] << std::endl;
+        tracking_file << "sum_di," << tracker->bboxOverlap[fnum] << std::endl;
 
-        totalBboxOverlap += bboxOverlapPerFrame[fnum];
+        totalBboxOverlap += tracker->bboxOverlap[fnum];
     }
 
     // Compute MOTA, A-MOTA, and MOTP for the scenario

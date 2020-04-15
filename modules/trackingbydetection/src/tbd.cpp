@@ -182,12 +182,30 @@ unsigned int Tracker::getNextTrackId()
     return this->nextTrackId++;
 }
 
+void Tracker::setTracks(vector<Track> &tracks)
+{
+    this->tracks = tracks;
+}
+
+vector<Track>& Tracker::getTracks()
+{
+    return this->tracks;
+}
+
 void Tracker::reset()
 {
     this->nextTrackId = 0;
+    this->tracks.clear();
+
+    this->truePositives.clear();
+    this->falseNegatives.clear();
+    this->falsePositives.clear();
+    this->groundTruths.clear();
+    this->numMatches.clear();
+    this->bboxOverlap.clear();
 }
 
-void Tracker::predictNewLocationsOfTracks(vector<Track> &tracks, int frame_id)
+void Tracker::predictNewLocationsOfTracks(int frame_id)
 {
     for (unsigned int i = 0; i < tracks.size(); i++)
     {
@@ -205,7 +223,34 @@ void Tracker::predictNewLocationsOfTracks(vector<Track> &tracks, int frame_id)
     }
 }
 
-void Tracker::calculateCostMatrix(vector<Track> &tracks, vector<Detection> &detections, vector<vector<double>> &costMatrix)
+void Tracker::filterTracksOutOfBounds(int xmin, int xmax, int ymin, int ymax)
+{
+    std::vector<unsigned int> filteredTracks;
+    for (unsigned i = 0; i < tracks.size(); i++)
+    {
+        Track &t = tracks[i];
+
+        Rect &r = t.predPosition;
+
+        // Check if the track's predicted position is in the window
+        if (t.predPosition.br().x < xmin ||
+            t.predPosition.tl().x >= xmax || // TAMERT HACK HACK HACK HACK
+            t.predPosition.br().y < ymin ||
+            t.predPosition.tl().y >= ymax)
+        {
+            filteredTracks.push_back(i);
+        }
+    }
+
+    // Remove the filtered tracks (maybe not the most efficient implementation)
+    for (int i = filteredTracks.size() - 1; i >= 0; i--)
+    {
+        cout << "Filtering out track that left scene with ID: " << tracks[filteredTracks[i]].id << endl;
+        tracks.erase(tracks.begin() + filteredTracks[i]);
+    }
+}
+
+void Tracker::calculateCostMatrix(vector<Detection> &detections, vector<vector<double>> &costMatrix)
 {
     // Iterate over each track-detection pair
     for (unsigned int i = 0; i < tracks.size(); i++)
@@ -226,7 +271,7 @@ void Tracker::calculateCostMatrix(vector<Track> &tracks, vector<Detection> &dete
 }
 
 void Tracker::classifyAssignments(vector<unsigned int> &assignmentPerRow, unsigned int numTracks, unsigned int numDetections,
-                              vector<int> &assignments, vector<unsigned int> &unassignedTracks, vector<unsigned int> &unassignedDetections)
+                                  vector<int> &assignments, vector<unsigned int> &unassignedTracks, vector<unsigned int> &unassignedDetections)
 {
     std::vector<bool> isDetectionAssigned(numDetections, false);
     for (unsigned int i = 0; i < numTracks; i++)
@@ -765,12 +810,12 @@ void Tracker::solveAssignmentProblem(vector<vector<double>> &costMatrix, unsigne
                               assignments, unassignedTracks, unassignedDetections);
 }
 
-void Tracker::detectionToTrackAssignment(vector<Detection> &detections, vector<Track> &tracks, vector<int> &assignments, vector<unsigned int> &unassignedTracks, vector<unsigned int> &unassignedDetections, /*cv::Ptr<cv::cuda::HOG> gpu_hog,*/ bool debug, int frameId)
+void Tracker::detectionToTrackAssignment(vector<Detection> &detections, vector<int> &assignments, vector<unsigned int> &unassignedTracks, vector<unsigned int> &unassignedDetections, /*cv::Ptr<cv::cuda::HOG> gpu_hog,*/ bool debug, int frameId)
 {
     // Compute the cost (based on overlap ratio) of assigning each detection to
     // each track - store results in #tracks x #detections matrix
     vector<vector<double>> costMatrix; // per track, then per detection
-    this->calculateCostMatrix(tracks, detections, costMatrix);
+    this->calculateCostMatrix(detections, costMatrix);
 
     // TODO: add gating cost
 
@@ -807,7 +852,7 @@ void Tracker::updateTrackConfidence(Track *track)
 /*
  * Updates the assigned tracks with the corresponding detections.
  */
-void Tracker::updateAssignedTracks(vector<Track> &tracks, vector<Detection> &detections, vector<int> &assignments)
+void Tracker::updateAssignedTracks(vector<Detection> &detections, vector<int> &assignments)
 {
     for (unsigned int trackIdx = 0; trackIdx < tracks.size(); trackIdx++)
     {
@@ -858,7 +903,7 @@ void Tracker::updateAssignedTracks(vector<Track> &tracks, vector<Detection> &det
 /*
  * Updates the tracks that were not assigned detections this frame.
  */
-void Tracker::updateUnassignedTracks(vector<Track> &tracks, vector<unsigned int> &unassignedTracks, int frame_id)
+void Tracker::updateUnassignedTracks(vector<unsigned int> &unassignedTracks, int frame_id)
 {
     for (unsigned int unassignedIdx = 0; unassignedIdx < unassignedTracks.size(); unassignedIdx++)
     {
@@ -883,7 +928,7 @@ void Tracker::updateUnassignedTracks(vector<Track> &tracks, vector<unsigned int>
     }
 }
 
-void Tracker::deleteLostTracks(vector<Track> &tracks)
+void Tracker::deleteLostTracks()
 {
     vector<unsigned int> trackIndicesToDelete;
 
@@ -915,7 +960,7 @@ void Tracker::deleteLostTracks(vector<Track> &tracks)
  * Creates new tracks from unassigned detections; assumes that any unassigned
  * detection is the start of a new track.
  */
-void Tracker::createNewTracks(vector<Track> &tracks, vector<Detection> &detections, vector<unsigned int> &unassignedDetections)
+void Tracker::createNewTracks(vector<Detection> &detections, vector<unsigned int> &unassignedDetections)
 {
     //cout << "Called createNewTracks with " << unassignedDetections.size() << " new detections." << endl;
 
