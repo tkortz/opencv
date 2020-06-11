@@ -288,7 +288,7 @@ public:
     void sched_coarse_grained_unrolled_for_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog, Mat* frames);
     void sched_fine_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog, Mat* frames);
     void thread_color_convert(node_t *_node, pthread_barrier_t* init_barrier,
-            cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog, Mat* frames, struct task_info t_info);
+            cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog, Mat* frames, struct task_info t_info, int graph_idx);
 
     void* thread_display(node_t* node, pthread_barrier_t* init_barrier);
 
@@ -945,7 +945,7 @@ void App::sched_coarse_grained_unrolled_for_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, 
 }
 
 void App::thread_color_convert(node_t *_node, pthread_barrier_t* init_barrier,
-        cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog, Mat* frames, struct task_info t_info)
+        cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog, Mat* frames, struct task_info t_info, int graph_idx)
 {
     fprintf(stdout, "node name: color_convert(source), task id: %d, node tid: %d\n", t_info.id, gettid());
     node_t node = *_node;
@@ -996,14 +996,12 @@ void App::thread_color_convert(node_t *_node, pthread_barrier_t* init_barrier,
 
     int count_frame = 0;
     while (count_frame < args.count / args.num_fine_graphs && running) {
-        for (int j=0; j<100; j = j + args.num_fine_graphs) {
+        for (int j = graph_idx; j < 100; j += args.num_fine_graphs) {
             if (!t_info.realtime)
                 usleep(30000);
-            //fprintf(stdout, "frame %d\n", count_frame);
             if (count_frame >= args.count)
                 break;
-            frame = frames[(j * args.num_fine_graphs + t_info.id) % 100];
-            //fprintf(stdout, "0 fires: image_to_show: %p, found: %p\n", img, found);
+            frame = frames[j];
             workBegin();
 
             /* color convert node starts below */
@@ -1356,7 +1354,7 @@ void App::sched_fine_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
             t_info.cluster = args.cluster;
         *t0 = new thread(&App::thread_color_convert, this,
                 color_convert_node, fine_init_barrier,
-                gpu_hog, cpu_hog, frames, t_info);
+                gpu_hog, cpu_hog, frames, t_info, g_idx);
 
         t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, cost_compute_scales);
         t_info.id = 1;
