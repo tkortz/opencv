@@ -290,13 +290,15 @@ public:
     void thread_color_convert(node_t *_node, pthread_barrier_t* init_barrier,
             cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog, Mat* frames, struct task_info t_info, int graph_idx);
 
-    void* thread_display(node_t* node, pthread_barrier_t* init_barrier);
+    void* thread_display(node_t* node, pthread_barrier_t* init_barrier, bool shouldDisplay);
 
     void handleKey(char key);
 
     void hogWorkBegin();
     void hogWorkEnd();
     string hogWorkFps() const;
+
+    string frameIndex(int) const;
 
     void workBegin();
     void workEnd();
@@ -550,7 +552,7 @@ struct linked_frames
     struct linked_frames * next;
 };
 
-void* App::thread_display(node_t* _node, pthread_barrier_t* init_barrier)
+void* App::thread_display(node_t* _node, pthread_barrier_t* init_barrier, bool shouldDisplay)
 {
     node_t node = *_node;
 #ifdef LOG_DEBUG
@@ -585,7 +587,7 @@ void* App::thread_display(node_t* _node, pthread_barrier_t* init_barrier)
                 printf("%lu response time: %f\n", in_buf->frame_index, (hog_work_end - in_buf->start_time) / getTickFrequency());
 
                 // Draw positive classified windows
-                if (args.display) {
+                if (shouldDisplay) {
                     for (size_t i = 0; i < in_buf->found->size(); i++) {
                         Rect r = (*in_buf->found)[i];
                         rectangle(*in_buf->img_to_show, r.tl(), r.br(), Scalar(0, 255, 0), 3);
@@ -600,6 +602,7 @@ void* App::thread_display(node_t* _node, pthread_barrier_t* init_barrier)
                         putText(*in_buf->img_to_show, "Mode: CPU", Point(5, 25), FONT_HERSHEY_SIMPLEX, 1., Scalar(255, 100, 0), 2);
                     putText(*in_buf->img_to_show, "FPS HOG: " + hogWorkFps(), Point(5, 65), FONT_HERSHEY_SIMPLEX, 1., Scalar(255, 100, 0), 2);
                     putText(*in_buf->img_to_show, "FPS total: " + workFps(), Point(5, 105), FONT_HERSHEY_SIMPLEX, 1., Scalar(255, 100, 0), 2);
+                    putText(*in_buf->img_to_show, "Frame: " + frameIndex(in_buf->frame_index), Point(5, 145), FONT_HERSHEY_SIMPLEX, 1., Scalar(255, 100, 0), 2);
                     imshow("opencv_gpu_hog", *in_buf->img_to_show);
                 }
 
@@ -778,7 +781,7 @@ void App::sched_coarse_grained_unrolled_for_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, 
     t_info.phase = t_info.phase + *std::max_element(bounds_classify, bounds_classify + NUM_SCALE_LEVELS);
     t_info.id = 3 * NUM_SCALE_LEVELS +  2;
     thread t5(&cv::cuda::HOG::thread_fine_collect_locations, gpu_hog, &collect_locations_node, &init_barrier, t_info);
-    thread t6(&App::thread_display, this, &display_node, &init_barrier);
+    thread t6(&App::thread_display, this, &display_node, &init_barrier, args.display);
 
     pgm_claim_node(color_convert_node);
 
@@ -1028,7 +1031,7 @@ void App::thread_color_convert(node_t *_node, pthread_barrier_t* init_barrier,
                 out_buf->gpu_img = gpu_img;
                 out_buf->found = found;
                 out_buf->img_to_show = img;
-                out_buf->frame_index = count_frame;
+                out_buf->frame_index = j;
                 out_buf->start_time = hog_work_begin;
                 CheckError(pgm_complete(node));
             } else {
@@ -1413,7 +1416,7 @@ void App::sched_fine_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
         //t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, cost_display);
         //t_info.phase;
         *t8 = new thread(&App::thread_display, this, display_node,
-                fine_init_barrier);
+                fine_init_barrier, g_idx == 0 && args.display);
     }
 
     /* graph construction finishes */
@@ -1934,6 +1937,13 @@ inline string App::hogWorkFps() const
 {
     stringstream ss;
     ss << hog_work_fps;
+    return ss.str();
+}
+
+inline string App::frameIndex(int i) const
+{
+    stringstream ss;
+    ss << i;
     return ss.str();
 }
 
