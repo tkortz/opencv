@@ -299,6 +299,7 @@ namespace
     static int numPartsWithin(int size, int part_size, int stride);
     static Size numPartsWithin(Size size, Size part_size, Size stride);
 
+    void set_up_litmus_task(const struct task_info &t_info, struct rt_task &param);
 
     struct params_compute  // a.k.a. compute scales node
     {
@@ -503,26 +504,7 @@ namespace
 
         struct rt_task param;
         if (t_info.realtime) {
-            if (t_info.cluster != -1)
-                CALL(be_migrate_to_domain(t_info.cluster));
-            init_rt_task_param(&param);
-            param.exec_cost = ms2ns(EXEC_COST);
-            param.period = ms2ns(t_info.period);
-            param.relative_deadline = ms2ns(t_info.relative_deadline);
-            param.phase = ms2ns(t_info.phase);
-            param.budget_policy = NO_ENFORCEMENT;
-            if (t_info.early)
-                param.release_policy = TASK_EARLY; /* early releasing */
-            else
-                param.release_policy = TASK_PERIODIC;
-            param.cls = RT_CLASS_SOFT;
-            param.priority = LITMUS_LOWEST_PRIORITY;
-            if (t_info.cluster != -1)
-                param.cpu = domain_to_first_cpu(t_info.cluster);
-            CALL( init_litmus() );
-            CALL( set_rt_task_param(gettid(), &param) );
-            CALL( task_mode(LITMUS_RT_TASK) );
-            CALL( wait_for_ts_release() );
+            set_up_litmus_task(t_info, param);
         }
 
         if(!hog_errors)
@@ -713,26 +695,7 @@ go_ahead:
 
         struct rt_task param;
         if (t_info.realtime) {
-            if (t_info.cluster != -1)
-                CALL(be_migrate_to_domain(t_info.cluster));
-            init_rt_task_param(&param);
-            param.exec_cost = ms2ns(EXEC_COST);
-            param.period = ms2ns(t_info.period);
-            param.relative_deadline = ms2ns(t_info.relative_deadline);
-            param.phase = ms2ns(t_info.phase);
-            param.budget_policy = NO_ENFORCEMENT;
-            if (t_info.early)
-                param.release_policy = TASK_EARLY; /* early releasing */
-            else
-                param.release_policy = TASK_PERIODIC;
-            param.cls = RT_CLASS_SOFT;
-            param.priority = LITMUS_LOWEST_PRIORITY;
-            if (t_info.cluster != -1)
-                param.cpu = domain_to_first_cpu(t_info.cluster);
-            CALL( init_litmus() );
-            CALL( set_rt_task_param(gettid(), &param) );
-            CALL( task_mode(LITMUS_RT_TASK) );
-            CALL( wait_for_ts_release() );
+            set_up_litmus_task(t_info, param);
         }
 
         if(!hog_errors)
@@ -848,26 +811,7 @@ go_ahead:
 
         struct rt_task param;
         if (t_info.realtime) {
-            if (t_info.cluster != -1)
-                CALL(be_migrate_to_domain(t_info.cluster));
-            init_rt_task_param(&param);
-            param.exec_cost = ms2ns(EXEC_COST);
-            param.period = ms2ns(t_info.period);
-            param.relative_deadline = ms2ns(t_info.relative_deadline);
-            param.phase = ms2ns(t_info.phase);
-            param.budget_policy = NO_ENFORCEMENT;
-            if (t_info.early)
-                param.release_policy = TASK_EARLY; /* early releasing */
-            else
-                param.release_policy = TASK_PERIODIC;
-            param.cls = RT_CLASS_SOFT;
-            param.priority = LITMUS_LOWEST_PRIORITY;
-            if (t_info.cluster != -1)
-                param.cpu = domain_to_first_cpu(t_info.cluster);
-            CALL( init_litmus() );
-            CALL( set_rt_task_param(gettid(), &param) );
-            CALL( task_mode(LITMUS_RT_TASK) );
-            CALL( wait_for_ts_release() );
+            set_up_litmus_task(t_info, param);
         }
 
         if(!hog_errors)
@@ -1003,26 +947,7 @@ go_ahead:
 
         struct rt_task param;
         if (t_info.realtime) {
-            if (t_info.cluster != -1)
-                CALL(be_migrate_to_domain(t_info.cluster));
-            init_rt_task_param(&param);
-            param.exec_cost = ms2ns(EXEC_COST);
-            param.period = ms2ns(t_info.period);
-            param.relative_deadline = ms2ns(t_info.relative_deadline);
-            param.phase = ms2ns(t_info.phase);
-            param.budget_policy = NO_ENFORCEMENT;
-            if (t_info.early)
-                param.release_policy = TASK_EARLY; /* early releasing */
-            else
-                param.release_policy = TASK_PERIODIC;
-            param.cls = RT_CLASS_SOFT;
-            param.priority = LITMUS_LOWEST_PRIORITY;
-            if (t_info.cluster != -1)
-                param.cpu = domain_to_first_cpu(t_info.cluster);
-            CALL( init_litmus() );
-            CALL( set_rt_task_param(gettid(), &param) );
-            CALL( task_mode(LITMUS_RT_TASK) );
-            CALL( wait_for_ts_release() );
+            set_up_litmus_task(t_info, param);
         }
 
         if(!hog_errors)
@@ -1146,26 +1071,7 @@ go_ahead:
 
         struct rt_task param;
         if (t_info.realtime) {
-            if (t_info.cluster != -1)
-                CALL(be_migrate_to_domain(t_info.cluster));
-            init_rt_task_param(&param);
-            param.exec_cost = ms2ns(EXEC_COST);
-            param.period = ms2ns(t_info.period);
-            param.relative_deadline = ms2ns(t_info.relative_deadline);
-            param.phase = ms2ns(t_info.phase);
-            param.budget_policy = NO_ENFORCEMENT;
-            if (t_info.early)
-                param.release_policy = TASK_EARLY; /* early releasing */
-            else
-                param.release_policy = TASK_PERIODIC;
-            param.cls = RT_CLASS_SOFT;
-            param.priority = LITMUS_LOWEST_PRIORITY;
-            if (t_info.cluster != -1)
-                param.cpu = domain_to_first_cpu(t_info.cluster);
-            CALL( init_litmus() );
-            CALL( set_rt_task_param(gettid(), &param) );
-            CALL( task_mode(LITMUS_RT_TASK) );
-            CALL( wait_for_ts_release() );
+            set_up_litmus_task(t_info, param);
         }
 
         if(!hog_errors)
@@ -1283,26 +1189,7 @@ go_ahead:
 
         struct rt_task param;
         if (t_info.realtime) {
-            if (t_info.cluster != -1)
-                CALL(be_migrate_to_domain(t_info.cluster));
-            init_rt_task_param(&param);
-            param.exec_cost = ms2ns(EXEC_COST);
-            param.period = ms2ns(t_info.period);
-            param.relative_deadline = ms2ns(t_info.relative_deadline);
-            param.phase = ms2ns(t_info.phase);
-            param.budget_policy = NO_ENFORCEMENT;
-            if (t_info.early)
-                param.release_policy = TASK_EARLY; /* early releasing */
-            else
-                param.release_policy = TASK_PERIODIC;
-            param.cls = RT_CLASS_SOFT;
-            param.priority = LITMUS_LOWEST_PRIORITY;
-            if (t_info.cluster != -1)
-                param.cpu = domain_to_first_cpu(t_info.cluster);
-            CALL( init_litmus() );
-            CALL( set_rt_task_param(gettid(), &param) );
-            CALL( task_mode(LITMUS_RT_TASK) );
-            CALL( wait_for_ts_release() );
+            set_up_litmus_task(t_info, param);
         }
 
         if(!hog_errors)
@@ -1466,26 +1353,7 @@ go_ahead:
 
         struct rt_task param;
         if (t_info.realtime) {
-            if (t_info.cluster != -1)
-                CALL(be_migrate_to_domain(t_info.cluster));
-            init_rt_task_param(&param);
-            param.exec_cost = ms2ns(EXEC_COST);
-            param.period = ms2ns(t_info.period);
-            param.relative_deadline = ms2ns(t_info.relative_deadline);
-            param.phase = ms2ns(t_info.phase);
-            param.budget_policy = NO_ENFORCEMENT;
-            if (t_info.early)
-                param.release_policy = TASK_EARLY; /* early releasing */
-            else
-                param.release_policy = TASK_PERIODIC;
-            param.cls = RT_CLASS_SOFT;
-            param.priority = LITMUS_LOWEST_PRIORITY;
-            if (t_info.cluster != -1)
-                param.cpu = domain_to_first_cpu(t_info.cluster);
-            CALL( init_litmus() );
-            CALL( set_rt_task_param(gettid(), &param) );
-            CALL( task_mode(LITMUS_RT_TASK) );
-            CALL( wait_for_ts_release() );
+            set_up_litmus_task(t_info, param);
         }
 
         if(!hog_errors)
@@ -1658,26 +1526,7 @@ go_ahead:
 
         struct rt_task param;
         if (t_info.realtime) {
-            if (t_info.cluster != -1)
-                CALL(be_migrate_to_domain(t_info.cluster));
-            init_rt_task_param(&param);
-            param.exec_cost = ms2ns(EXEC_COST);
-            param.period = ms2ns(t_info.period);
-            param.relative_deadline = ms2ns(t_info.relative_deadline);
-            param.phase = ms2ns(t_info.phase);
-            param.budget_policy = NO_ENFORCEMENT;
-            if (t_info.early)
-                param.release_policy = TASK_EARLY; /* early releasing */
-            else
-                param.release_policy = TASK_PERIODIC;
-            param.cls = RT_CLASS_SOFT;
-            param.priority = LITMUS_LOWEST_PRIORITY;
-            if (t_info.cluster != -1)
-                param.cpu = domain_to_first_cpu(t_info.cluster);
-            CALL( init_litmus() );
-            CALL( set_rt_task_param(gettid(), &param) );
-            CALL( task_mode(LITMUS_RT_TASK) );
-            CALL( wait_for_ts_release() );
+            set_up_litmus_task(t_info, param);
         }
 
         if(!hog_errors)
@@ -2215,26 +2064,7 @@ go_ahead:
 
         struct rt_task param;
         if (t_info.realtime) {
-            if (t_info.cluster != -1)
-                CALL(be_migrate_to_domain(t_info.cluster));
-            init_rt_task_param(&param);
-            param.exec_cost = ms2ns(EXEC_COST);
-            param.period = ms2ns(t_info.period);
-            param.relative_deadline = ms2ns(t_info.relative_deadline);
-            param.phase = ms2ns(t_info.phase);
-            param.budget_policy = NO_ENFORCEMENT;
-            if (t_info.early)
-                param.release_policy = TASK_EARLY; /* early releasing */
-            else
-                param.release_policy = TASK_PERIODIC;
-            param.cls = RT_CLASS_SOFT;
-            param.priority = LITMUS_LOWEST_PRIORITY;
-            if (t_info.cluster != -1)
-                param.cpu = domain_to_first_cpu(t_info.cluster);
-            CALL( init_litmus() );
-            CALL( set_rt_task_param(gettid(), &param) );
-            CALL( task_mode(LITMUS_RT_TASK) );
-            CALL( wait_for_ts_release() );
+            set_up_litmus_task(t_info, param);
         }
 
         if(!hog_errors)
@@ -2392,26 +2222,7 @@ go_ahead:
 
         struct rt_task param;
         if (t_info.realtime) {
-            if (t_info.cluster != -1)
-                CALL(be_migrate_to_domain(t_info.cluster));
-            init_rt_task_param(&param);
-            param.exec_cost = ms2ns(EXEC_COST);
-            param.period = ms2ns(t_info.period);
-            param.relative_deadline = ms2ns(t_info.relative_deadline);
-            param.phase = ms2ns(t_info.phase);
-            param.budget_policy = NO_ENFORCEMENT;
-            if (t_info.early)
-                param.release_policy = TASK_EARLY; /* early releasing */
-            else
-                param.release_policy = TASK_PERIODIC;
-            param.cls = RT_CLASS_SOFT;
-            param.priority = LITMUS_LOWEST_PRIORITY;
-            if (t_info.cluster != -1)
-                param.cpu = domain_to_first_cpu(t_info.cluster);
-            CALL( init_litmus() );
-            CALL( set_rt_task_param(gettid(), &param) );
-            CALL( task_mode(LITMUS_RT_TASK) );
-            CALL( wait_for_ts_release() );
+            set_up_litmus_task(t_info, param);
         }
 
         if(!hog_errors)
@@ -2577,26 +2388,7 @@ go_ahead:
 
         struct rt_task param;
         if (t_info.realtime) {
-            if (t_info.cluster != -1)
-                CALL(be_migrate_to_domain(t_info.cluster));
-            init_rt_task_param(&param);
-            param.exec_cost = ms2ns(EXEC_COST);
-            param.period = ms2ns(t_info.period);
-            param.relative_deadline = ms2ns(t_info.relative_deadline);
-            param.phase = ms2ns(t_info.phase);
-            param.budget_policy = NO_ENFORCEMENT;
-            if (t_info.early)
-                param.release_policy = TASK_EARLY; /* early releasing */
-            else
-                param.release_policy = TASK_PERIODIC;
-            param.cls = RT_CLASS_SOFT;
-            param.priority = LITMUS_LOWEST_PRIORITY;
-            if (t_info.cluster != -1)
-                param.cpu = domain_to_first_cpu(t_info.cluster);
-            CALL( init_litmus() );
-            CALL( set_rt_task_param(gettid(), &param) );
-            CALL( task_mode(LITMUS_RT_TASK) );
-            CALL( wait_for_ts_release() );
+            set_up_litmus_task(t_info, param);
         }
 
         if(!hog_errors)
@@ -2744,26 +2536,7 @@ go_ahead:
 
         struct rt_task param;
         if (t_info.realtime) {
-            if (t_info.cluster != -1)
-                CALL(be_migrate_to_domain(t_info.cluster));
-            init_rt_task_param(&param);
-            param.exec_cost = ms2ns(EXEC_COST);
-            param.period = ms2ns(t_info.period);
-            param.relative_deadline = ms2ns(t_info.relative_deadline);
-            param.phase = ms2ns(t_info.phase);
-            param.budget_policy = NO_ENFORCEMENT;
-            if (t_info.early)
-                param.release_policy = TASK_EARLY; /* early releasing */
-            else
-                param.release_policy = TASK_PERIODIC;
-            param.cls = RT_CLASS_SOFT;
-            param.priority = LITMUS_LOWEST_PRIORITY;
-            if (t_info.cluster != -1)
-                param.cpu = domain_to_first_cpu(t_info.cluster);
-            CALL( init_litmus() );
-            CALL( set_rt_task_param(gettid(), &param) );
-            CALL( task_mode(LITMUS_RT_TASK) );
-            CALL( wait_for_ts_release() );
+            set_up_litmus_task(t_info, param);
         }
 
         if(!hog_errors)
@@ -2938,26 +2711,7 @@ go_ahead:
 
         struct rt_task param;
         if (t_info.realtime) {
-            if (t_info.cluster != -1)
-                CALL(be_migrate_to_domain(t_info.cluster));
-            init_rt_task_param(&param);
-            param.exec_cost = ms2ns(EXEC_COST);
-            param.period = ms2ns(t_info.period);
-            param.relative_deadline = ms2ns(t_info.relative_deadline);
-            param.phase = ms2ns(t_info.phase);
-            param.budget_policy = NO_ENFORCEMENT;
-            if (t_info.early)
-                param.release_policy = TASK_EARLY; /* early releasing */
-            else
-                param.release_policy = TASK_PERIODIC;
-            param.cls = RT_CLASS_SOFT;
-            param.priority = LITMUS_LOWEST_PRIORITY;
-            if (t_info.cluster != -1)
-                param.cpu = domain_to_first_cpu(t_info.cluster);
-            CALL( init_litmus() );
-            CALL( set_rt_task_param(gettid(), &param) );
-            CALL( task_mode(LITMUS_RT_TASK) );
-            CALL( wait_for_ts_release() );
+            set_up_litmus_task(t_info, param);
         }
 
         if(!hog_errors)
@@ -3147,26 +2901,7 @@ go_ahead:
 
         struct rt_task param;
         if (t_info.realtime) {
-            if (t_info.cluster != -1)
-                CALL(be_migrate_to_domain(t_info.cluster));
-            init_rt_task_param(&param);
-            param.exec_cost = ms2ns(EXEC_COST);
-            param.period = ms2ns(t_info.period);
-            param.relative_deadline = ms2ns(t_info.relative_deadline);
-            param.phase = ms2ns(t_info.phase);
-            param.budget_policy = NO_ENFORCEMENT;
-            if (t_info.early)
-                param.release_policy = TASK_EARLY; /* early releasing */
-            else
-                param.release_policy = TASK_PERIODIC;
-            param.cls = RT_CLASS_SOFT;
-            param.priority = LITMUS_LOWEST_PRIORITY;
-            if (t_info.cluster != -1)
-                param.cpu = domain_to_first_cpu(t_info.cluster);
-            CALL( init_litmus() );
-            CALL( set_rt_task_param(gettid(), &param) );
-            CALL( task_mode(LITMUS_RT_TASK) );
-            CALL( wait_for_ts_release() );
+            set_up_litmus_task(t_info, param);
         }
 
         if(!hog_errors)
@@ -3353,26 +3088,7 @@ go_ahead:
 
         struct rt_task param;
         if (t_info.realtime) {
-            if (t_info.cluster != -1)
-                CALL(be_migrate_to_domain(t_info.cluster));
-            init_rt_task_param(&param);
-            param.exec_cost = ms2ns(EXEC_COST);
-            param.period = ms2ns(t_info.period);
-            param.relative_deadline = ms2ns(t_info.relative_deadline);
-            param.phase = ms2ns(t_info.phase);
-            param.budget_policy = NO_ENFORCEMENT;
-            if (t_info.early)
-                param.release_policy = TASK_EARLY; /* early releasing */
-            else
-                param.release_policy = TASK_PERIODIC;
-            param.cls = RT_CLASS_SOFT;
-            param.priority = LITMUS_LOWEST_PRIORITY;
-            if (t_info.cluster != -1)
-                param.cpu = domain_to_first_cpu(t_info.cluster);
-            CALL( init_litmus() );
-            CALL( set_rt_task_param(gettid(), &param) );
-            CALL( task_mode(LITMUS_RT_TASK) );
-            CALL( wait_for_ts_release() );
+            set_up_litmus_task(t_info, param);
         }
 
         if(!hog_errors)
@@ -3575,26 +3291,7 @@ go_ahead:
 
         struct rt_task param;
         if (t_info.realtime) {
-            if (t_info.cluster != -1)
-                CALL(be_migrate_to_domain(t_info.cluster));
-            init_rt_task_param(&param);
-            param.exec_cost = ms2ns(EXEC_COST);
-            param.period = ms2ns(t_info.period);
-            param.relative_deadline = ms2ns(t_info.relative_deadline);
-            param.phase = ms2ns(t_info.phase);
-            param.budget_policy = NO_ENFORCEMENT;
-            if (t_info.early)
-                param.release_policy = TASK_EARLY; /* early releasing */
-            else
-                param.release_policy = TASK_PERIODIC;
-            param.cls = RT_CLASS_SOFT;
-            param.priority = LITMUS_LOWEST_PRIORITY;
-            if (t_info.cluster != -1)
-                param.cpu = domain_to_first_cpu(t_info.cluster);
-            CALL( init_litmus() );
-            CALL( set_rt_task_param(gettid(), &param) );
-            CALL( task_mode(LITMUS_RT_TASK) );
-            CALL( wait_for_ts_release() );
+            set_up_litmus_task(t_info, param);
         }
 
         if(!hog_errors)
@@ -3808,26 +3505,7 @@ go_ahead:
 
         struct rt_task param;
         if (t_info.realtime) {
-            if (t_info.cluster != -1)
-                CALL(be_migrate_to_domain(t_info.cluster));
-            init_rt_task_param(&param);
-            param.exec_cost = ms2ns(EXEC_COST);
-            param.period = ms2ns(t_info.period);
-            param.relative_deadline = ms2ns(t_info.relative_deadline);
-            param.phase = ms2ns(t_info.phase);
-            param.budget_policy = NO_ENFORCEMENT;
-            if (t_info.early)
-                param.release_policy = TASK_EARLY; /* early releasing */
-            else
-                param.release_policy = TASK_PERIODIC;
-            param.cls = RT_CLASS_SOFT;
-            param.priority = LITMUS_LOWEST_PRIORITY;
-            if (t_info.cluster != -1)
-                param.cpu = domain_to_first_cpu(t_info.cluster);
-            CALL( init_litmus() );
-            CALL( set_rt_task_param(gettid(), &param) );
-            CALL( task_mode(LITMUS_RT_TASK) );
-            CALL( wait_for_ts_release() );
+            set_up_litmus_task(t_info, param);
         }
 
         if(!hog_errors)
@@ -4069,26 +3747,7 @@ go_ahead:
 
         struct rt_task param;
         if (t_info.realtime) {
-            if (t_info.cluster != -1)
-                CALL(be_migrate_to_domain(t_info.cluster));
-            init_rt_task_param(&param);
-            param.exec_cost = ms2ns(EXEC_COST);
-            param.period = ms2ns(t_info.period);
-            param.relative_deadline = ms2ns(t_info.relative_deadline);
-            param.phase = ms2ns(t_info.phase);
-            param.budget_policy = NO_ENFORCEMENT;
-            if (t_info.early)
-                param.release_policy = TASK_EARLY; /* early releasing */
-            else
-                param.release_policy = TASK_PERIODIC;
-            param.cls = RT_CLASS_SOFT;
-            param.priority = LITMUS_LOWEST_PRIORITY;
-            if (t_info.cluster != -1)
-                param.cpu = domain_to_first_cpu(t_info.cluster);
-            CALL( init_litmus() );
-            CALL( set_rt_task_param(gettid(), &param) );
-            CALL( task_mode(LITMUS_RT_TASK) );
-            CALL( wait_for_ts_release() );
+            set_up_litmus_task(t_info, param);
         }
 
         if(!hog_errors)
@@ -4312,6 +3971,30 @@ go_ahead:
         if (t_info.realtime)
             CALL( task_mode(BACKGROUND_TASK) );
         pthread_exit(0);
+    }
+
+    void set_up_litmus_task(const struct task_info &t_info, struct rt_task &param)
+    {
+        if (t_info.cluster != -1)
+            CALL(be_migrate_to_domain(t_info.cluster));
+        init_rt_task_param(&param);
+        param.exec_cost = ms2ns(EXEC_COST);
+        param.period = ms2ns(t_info.period);
+        param.relative_deadline = ms2ns(t_info.relative_deadline);
+        param.phase = ms2ns(t_info.phase);
+        param.budget_policy = NO_ENFORCEMENT;
+        if (t_info.early)
+            param.release_policy = TASK_EARLY; /* early releasing */
+        else
+            param.release_policy = TASK_PERIODIC;
+        param.cls = RT_CLASS_SOFT;
+        param.priority = LITMUS_LOWEST_PRIORITY;
+        if (t_info.cluster != -1)
+            param.cpu = domain_to_first_cpu(t_info.cluster);
+        CALL( init_litmus() );
+        CALL( set_rt_task_param(gettid(), &param) );
+        CALL( task_mode(LITMUS_RT_TASK) );
+        CALL( wait_for_ts_release() );
     }
 }
 
