@@ -49,13 +49,24 @@
 
 #include "opencv2/core/cuda.hpp"
 #include "pgm.h"
+// #include "fzlp.h"
 
 enum scheduling_option
 {
     end_to_end = 0,
-    coarse_grained,
-    fine_grained,
-    coarse_unrolled,
+    coarse_grained,  // 1
+    fine_grained,    // 2
+    coarse_unrolled, // 3
+    fine_AB,    //  4
+    fine_BC,    //  5
+    fine_CD,    //  6
+    fine_DE,    //  7
+    fine_ABC,   //  8
+    fine_BCD,   //  9
+    fine_CDE,   // 10
+    fine_ABCD,  // 11
+    fine_BCDE,  // 12
+    fine_ABCDE, // 13
     scheduling_option_end,
 };
 
@@ -242,6 +253,23 @@ public:
     virtual void* thread_fine_classify(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0;
     virtual void* thread_fine_collect_locations(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0;
 
+    /* two-node intra-level combinations */
+    virtual void* thread_fine_AB(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0; // resize          + compute grads
+    virtual void* thread_fine_BC(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0; // compute grads   + compute hists
+    virtual void* thread_fine_CD(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0; // compute hists   + normalize hists
+    virtual void* thread_fine_DE(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0; // normalize hists + classify hists
+
+    /* three-node intra-level combinations */
+    virtual void* thread_fine_ABC(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0; // resize        -> compute hists
+    virtual void* thread_fine_BCD(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0; // compute grads -> normalize hists
+    virtual void* thread_fine_CDE(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0; // compute hists -> classify hists
+
+    /* four-node intra-level combinations */
+    virtual void* thread_fine_ABCD(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0; // resize        -> normalize hists
+    virtual void* thread_fine_BCDE(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0; // compute grads -> classify hists
+
+    /* five-node entire-level combination */
+    virtual void* thread_fine_ABCDE(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0; // resize -> classify hists
 };
 
 //

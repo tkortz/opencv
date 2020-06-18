@@ -250,6 +250,24 @@ namespace
         void* thread_fine_classify(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info);
         void* thread_fine_collect_locations(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info);
 
+        /* two-node intra-level combinations */
+        void* thread_fine_AB(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info); // resize          + compute grads
+        void* thread_fine_BC(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info); // compute grads   + compute hists
+        void* thread_fine_CD(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info); // compute hists   + normalize hists
+        void* thread_fine_DE(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info); // normalize hists + classify hists
+
+        /* three-node intra-level combinations */
+        void* thread_fine_ABC(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info); // resize        -> compute hists
+        void* thread_fine_BCD(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info); // compute grads -> normalize hists
+        void* thread_fine_CDE(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info); // compute hists -> classify hists
+
+        /* four-node intra-level combinations */
+        void* thread_fine_ABCD(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info); // resize        -> normalize hists
+        void* thread_fine_BCDE(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info); // compute grads -> classify hists
+
+        /* five-node entire-level combination */
+        void* thread_fine_ABCDE(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info); // resize -> classify hists
+
     private:
         Size win_size_;
         Size block_size_;
@@ -2158,6 +2176,2142 @@ go_ahead:
                              cell_size_.width, cell_size_.height,
                              cells_per_block_.width, cells_per_block_.height,
                              StreamAccessor::getStream(stream));
+    }
+
+    void* HOG_Impl::thread_fine_AB(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info)
+    {
+        fprintf(stdout, "node name: resize+compute_grads, task id: %d, node tid: %d\n", t_info.id, gettid());
+        node_t node = *_node;
+#ifdef LOG_DEBUG
+        char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
+        tabbuf[node.node] = '\0';
+#endif
+
+        CheckError(pgm_claim_node(node));
+
+        int ret = 0;
+
+        edge_t *in_edge = (edge_t *)calloc(1, sizeof(edge_t));
+        CheckError(pgm_get_edges_in(node, in_edge, 1));
+        struct params_resize *in_buf = (struct params_resize *)pgm_get_edge_buf_c(*in_edge);
+        if (in_buf == NULL)
+            fprintf(stderr, "resize+compute_grads node in buffer is NULL\n");
+
+        edge_t *out_edge = (edge_t *)calloc(1, sizeof(edge_t));
+        CheckError(pgm_get_edges_out(node, out_edge, 1));
+        struct params_compute_histograms *out_buf = (struct params_compute_histograms *)pgm_get_edge_buf_p(*out_edge);
+        if (out_buf == NULL)
+            fprintf(stderr, "resize+compute_grads node out buffer is NULL\n");
+
+        Stream stream;
+        GpuMat * smaller_img;
+        GpuMat * gpu_img;
+
+        BufferPool pool(stream);
+        GpuMat * grad;
+        GpuMat * qangle;
+
+        pthread_barrier_wait(init_barrier);
+
+        struct rt_task param;
+        if (t_info.realtime) {
+            if (t_info.cluster != -1)
+                CALL(be_migrate_to_domain(t_info.cluster));
+            init_rt_task_param(&param);
+            param.exec_cost = ms2ns(EXEC_COST);
+            param.period = ms2ns(t_info.period);
+            param.relative_deadline = ms2ns(t_info.relative_deadline);
+            param.phase = ms2ns(t_info.phase);
+            param.budget_policy = NO_ENFORCEMENT;
+            if (t_info.early)
+                param.release_policy = TASK_EARLY; /* early releasing */
+            else
+                param.release_policy = TASK_PERIODIC;
+            param.cls = RT_CLASS_SOFT;
+            param.priority = LITMUS_LOWEST_PRIORITY;
+            if (t_info.cluster != -1)
+                param.cpu = domain_to_first_cpu(t_info.cluster);
+            CALL( init_litmus() );
+            CALL( set_rt_task_param(gettid(), &param) );
+            CALL( task_mode(LITMUS_RT_TASK) );
+            CALL( wait_for_ts_release() );
+        }
+
+        if(!hog_errors)
+        {
+            do {
+                ret = pgm_wait(node);
+
+                if(ret != PGM_TERMINATE)
+                {
+                    CheckError(ret);
+#ifdef LOG_DEBUG
+                    fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
+#endif
+
+                    if (t_info.sched == fine_grained && t_info.early)
+                        gpu_period_guard(t_info.s_info_in, t_info.s_info_out);
+
+                    smaller_img = in_buf->smaller_img;
+                    gpu_img = in_buf->gpu_img;
+                    /* ===========================
+                     * resize image
+                     */
+                    unsigned long long curr_deadline;
+                    if (smaller_img->size() != gpu_img->size())
+                    {
+                        switch (gpu_img->type())
+                        {
+                            case CV_8UC1: hog::resize_8UC1_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index); break;
+                            case CV_8UC4: hog::resize_8UC4_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index); break;
+                        }
+                    }
+                    if (t_info.realtime && t_info.sched == fine_grained) {
+                        CALL(get_current_deadline(&curr_deadline));
+                        CALL(set_current_deadline(curr_deadline + param.period));
+                    }
+                    cudaStreamSynchronize(StreamAccessor::getStream(stream));
+
+                    CV_Assert( smaller_img->type() == CV_8UC1 || smaller_img->type() == CV_8UC4 );
+                    CV_Assert( win_stride_.width % block_stride_.width == 0 && win_stride_.height % block_stride_.height == 0 );
+                    /*
+                     * end of resize image
+                     * =========================== */
+
+                    /* ===========================
+                     * compute gradients
+                     */
+                    grad = new GpuMat();
+                    qangle = new GpuMat();
+
+                    float  angleScale = static_cast<float>(nbins_ / CV_PI);
+                    *grad       = pool.getBuffer(smaller_img->size(), CV_32FC2);
+                    *qangle     = pool.getBuffer(smaller_img->size(), CV_8UC2);
+
+                    switch (smaller_img->type())
+                    {
+                        case CV_8UC1:
+                            hog::compute_gradients_8UC1(nbins_,
+                                    smaller_img->rows, smaller_img->cols, *smaller_img,
+                                    angleScale,
+                                    *grad, *qangle,
+                                    gamma_correction_,
+                                    StreamAccessor::getStream(stream));
+                            break;
+                        case CV_8UC4:
+                            hog::compute_gradients_8UC4(nbins_,
+                                    smaller_img->rows, smaller_img->cols, *smaller_img,
+                                    angleScale,
+                                    *grad, *qangle,
+                                    gamma_correction_,
+                                    StreamAccessor::getStream(stream));
+                            break;
+                    }
+                    if (t_info.realtime && t_info.sched == fine_grained) {
+                        CALL(get_current_deadline(&curr_deadline));
+                        CALL(set_current_deadline(curr_deadline + param.period));
+                    }
+                    cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
+                    /*
+                     * end of compute gradients
+                     * =========================== */
+
+                    out_buf->gpu_img = in_buf->gpu_img;
+                    out_buf->found = in_buf->found;
+                    out_buf->img_to_show = in_buf->img_to_show;
+                    out_buf->smaller_img = in_buf->smaller_img;
+                    out_buf->level_scale = in_buf->level_scale;
+                    out_buf->confidences = in_buf->confidences;
+                    out_buf->index = in_buf->index;
+                    out_buf->labels = in_buf->labels;
+                    out_buf->grad = grad;
+                    out_buf->qangle = qangle;
+                    out_buf->frame_index = in_buf->frame_index;
+                    out_buf->start_time = in_buf->start_time;
+                    CheckError(pgm_complete(node));
+                    if (t_info.realtime && t_info.sched == fine_grained) {
+                        CALL(set_current_deadline(curr_deadline));
+                    }
+                    if (t_info.realtime)
+                        sleep_next_period(); /* this calls the system call sys_complete_job. With early releasing, this shouldn't block.*/
+                }
+                else
+                {
+#ifdef LOG_DEBUG
+                    fprintf(stdout, "%s- %d terminates\n", tabbuf, node.node);
+#endif
+                    //pgm_terminate(node);
+                }
+
+            } while(ret != PGM_TERMINATE);
+        }
+
+        pthread_barrier_wait(init_barrier);
+
+        CheckError(pgm_release_node(node));
+
+        free(in_edge);
+        free(out_edge);
+
+        if (t_info.realtime)
+            CALL( task_mode(BACKGROUND_TASK) );
+        pthread_exit(0);
+    }
+
+    void* HOG_Impl::thread_fine_BC(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info)
+    {
+        fprintf(stdout, "node name: compute_grads+compute_hists, task id: %d, node tid: %d\n", t_info.id, gettid());
+        node_t node = *_node;
+#ifdef LOG_DEBUG
+        char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
+        tabbuf[node.node] = '\0';
+#endif
+        CheckError(pgm_claim_node(node));
+        int ret = 0;
+
+        edge_t *in_edge = (edge_t *)calloc(1, sizeof(edge_t));
+        CheckError(pgm_get_edges_in(node, in_edge, 1));
+        struct params_compute_gradients *in_buf = (struct params_compute_gradients *)pgm_get_edge_buf_c(*in_edge);
+        if (in_buf == NULL)
+            fprintf(stderr, "compute_grads+compute_hists node in buffer is NULL\n");
+
+        edge_t *out_edge = (edge_t *)calloc(1, sizeof(edge_t));
+        CheckError(pgm_get_edges_out(node, out_edge, 1));
+        struct params_fine_normalize *out_buf = (struct params_fine_normalize *)pgm_get_edge_buf_p(*out_edge);
+        if (out_buf == NULL)
+            fprintf(stderr, "compute_grads+compute_hists node out buffer is NULL\n");
+
+        Stream stream;
+        BufferPool pool(stream);
+        GpuMat * smaller_img;
+        GpuMat * grad;
+        GpuMat * qangle;
+        GpuMat * block_hists;
+
+        pthread_barrier_wait(init_barrier);
+
+        struct rt_task param;
+        if (t_info.realtime) {
+            if (t_info.cluster != -1)
+                CALL(be_migrate_to_domain(t_info.cluster));
+            init_rt_task_param(&param);
+            param.exec_cost = ms2ns(EXEC_COST);
+            param.period = ms2ns(t_info.period);
+            param.relative_deadline = ms2ns(t_info.relative_deadline);
+            param.phase = ms2ns(t_info.phase);
+            param.budget_policy = NO_ENFORCEMENT;
+            if (t_info.early)
+                param.release_policy = TASK_EARLY; /* early releasing */
+            else
+                param.release_policy = TASK_PERIODIC;
+            param.cls = RT_CLASS_SOFT;
+            param.priority = LITMUS_LOWEST_PRIORITY;
+            if (t_info.cluster != -1)
+                param.cpu = domain_to_first_cpu(t_info.cluster);
+            CALL( init_litmus() );
+            CALL( set_rt_task_param(gettid(), &param) );
+            CALL( task_mode(LITMUS_RT_TASK) );
+            CALL( wait_for_ts_release() );
+        }
+
+        if(!hog_errors)
+        {
+            do {
+                ret = pgm_wait(node);
+
+                if(ret != PGM_TERMINATE)
+                {
+                    CheckError(ret);
+#ifdef LOG_DEBUG
+                    fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
+#endif
+                    if (t_info.sched == fine_grained && t_info.early)
+                        gpu_period_guard(t_info.s_info_in, t_info.s_info_out);
+
+                    smaller_img = in_buf->smaller_img;
+
+                    /* ===========================
+                     * compute gradients
+                     */
+                    grad = new GpuMat();
+                    qangle = new GpuMat();
+
+                    float  angleScale = static_cast<float>(nbins_ / CV_PI);
+                    *grad       = pool.getBuffer(smaller_img->size(), CV_32FC2);
+                    *qangle     = pool.getBuffer(smaller_img->size(), CV_8UC2);
+
+                    switch (smaller_img->type())
+                    {
+                        case CV_8UC1:
+                            hog::compute_gradients_8UC1(nbins_,
+                                    smaller_img->rows, smaller_img->cols, *smaller_img,
+                                    angleScale,
+                                    *grad, *qangle,
+                                    gamma_correction_,
+                                    StreamAccessor::getStream(stream));
+                            break;
+                        case CV_8UC4:
+                            hog::compute_gradients_8UC4(nbins_,
+                                    smaller_img->rows, smaller_img->cols, *smaller_img,
+                                    angleScale,
+                                    *grad, *qangle,
+                                    gamma_correction_,
+                                    StreamAccessor::getStream(stream));
+                            break;
+                    }
+                    unsigned long long curr_deadline;
+                    if (t_info.realtime && t_info.sched == fine_grained) {
+                        CALL(get_current_deadline(&curr_deadline));
+                        CALL(set_current_deadline(curr_deadline + param.period));
+                    }
+                    cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
+                    /*
+                     * end of compute gradients
+                     * =========================== */
+
+                    block_hists = new GpuMat();
+
+                    /* ===========================
+                     * compute histograms
+                     */
+                    *block_hists      = pool.getBuffer(1, getTotalHistSize(smaller_img->size()), CV_32FC1);
+
+                    hog::compute_hists(nbins_,
+                            block_stride_.width, block_stride_.height,
+                            smaller_img->rows, smaller_img->cols,
+                            *grad, *qangle,
+                            (float)getWinSigma(),
+                            block_hists->ptr<float>(),
+                            cell_size_.width, cell_size_.height,
+                            cells_per_block_.width, cells_per_block_.height,
+                            StreamAccessor::getStream(stream));
+                    if (t_info.realtime && t_info.sched == fine_grained) {
+                        // Mimic having two CPU nodes surrounding GPU nodes (one before,
+                        // and one after, which must have a later deadline by one period)
+                        CALL(get_current_deadline(&curr_deadline));
+                        CALL(set_current_deadline(curr_deadline + param.period));
+                        // Ming thinks maybe we should add the response-time of the GPU node
+                    }
+                    cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
+
+                    grad->release();
+                    qangle->release();
+                    /*
+                     * end of compute histograms
+                     * =========================== */
+
+                    out_buf->gpu_img = in_buf->gpu_img;
+                    out_buf->found = in_buf->found;
+                    out_buf->img_to_show = in_buf->img_to_show;
+                    out_buf->smaller_img = in_buf->smaller_img;
+                    out_buf->level_scale = in_buf->level_scale;
+                    out_buf->confidences = in_buf->confidences;
+                    out_buf->labels = in_buf->labels;
+                    out_buf->index = in_buf->index;
+                    out_buf->frame_index = in_buf->frame_index;
+                    out_buf->start_time = in_buf->start_time;
+                    out_buf->block_hists= block_hists;
+                    CheckError(pgm_complete(node));
+                    if (t_info.realtime && t_info.sched == fine_grained) {
+                        CALL(set_current_deadline(curr_deadline));
+                    }
+                    if (t_info.realtime)
+                        sleep_next_period(); /* this calls the system call sys_complete_job. With early releasing, this shouldn't block.*/
+                }
+                else
+                {
+#ifdef LOG_DEBUG
+                    fprintf(stdout, "%s- %d terminates\n", tabbuf, node.node);
+#endif
+                    //pgm_terminate(node);
+                }
+
+            } while(ret != PGM_TERMINATE);
+        }
+
+        pthread_barrier_wait(init_barrier);
+
+        CheckError(pgm_release_node(node));
+
+        free(in_edge);
+        free(out_edge);
+
+        if (t_info.realtime)
+            CALL( task_mode(BACKGROUND_TASK) );
+        pthread_exit(0);
+    }
+
+    void* HOG_Impl::thread_fine_CD(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info)
+    {
+        fprintf(stdout, "node name: compute_hists+normalize_hists, task id: %d, node tid: %d\n", t_info.id, gettid());
+        node_t node = *_node;
+#ifdef LOG_DEBUG
+        char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
+        tabbuf[node.node] = '\0';
+#endif
+        CheckError(pgm_claim_node(node));
+        int ret = 0;
+
+        edge_t *in_edge = (edge_t *)calloc(1, sizeof(edge_t));
+        CheckError(pgm_get_edges_in(node, in_edge, 1));
+        struct params_compute_histograms *in_buf = (struct params_compute_histograms *)pgm_get_edge_buf_c(*in_edge);
+        if (in_buf == NULL)
+            fprintf(stderr, "compute_hists+normalize_hists node in buffer is NULL\n");
+
+        edge_t *out_edge = (edge_t *)calloc(1, sizeof(edge_t));
+        CheckError(pgm_get_edges_out(node, out_edge, 1));
+        struct params_fine_classify *out_buf = (struct params_fine_classify *)pgm_get_edge_buf_p(*out_edge);
+        if (out_buf == NULL)
+            fprintf(stderr, "compute_hists+normalize_hists node out buffer is NULL\n");
+
+        GpuMat * smaller_img;
+        GpuMat * grad;
+        GpuMat * qangle;
+
+        Stream stream;
+        BufferPool pool(stream);
+
+        GpuMat * block_hists;
+
+        pthread_barrier_wait(init_barrier);
+
+        struct rt_task param;
+        if (t_info.realtime) {
+            if (t_info.cluster != -1)
+                CALL(be_migrate_to_domain(t_info.cluster));
+            init_rt_task_param(&param);
+            param.exec_cost = ms2ns(EXEC_COST);
+            param.period = ms2ns(t_info.period);
+            param.relative_deadline = ms2ns(t_info.relative_deadline);
+            param.phase = ms2ns(t_info.phase);
+            param.budget_policy = NO_ENFORCEMENT;
+            if (t_info.early)
+                param.release_policy = TASK_EARLY; /* early releasing */
+            else
+                param.release_policy = TASK_PERIODIC;
+            param.cls = RT_CLASS_SOFT;
+            param.priority = LITMUS_LOWEST_PRIORITY;
+            if (t_info.cluster != -1)
+                param.cpu = domain_to_first_cpu(t_info.cluster);
+            CALL( init_litmus() );
+            CALL( set_rt_task_param(gettid(), &param) );
+            CALL( task_mode(LITMUS_RT_TASK) );
+            CALL( wait_for_ts_release() );
+        }
+
+        if(!hog_errors)
+        {
+            do {
+                ret = pgm_wait(node);
+
+                if(ret != PGM_TERMINATE)
+                {
+                    CheckError(ret);
+#ifdef LOG_DEBUG
+                    fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
+#endif
+                    if (t_info.sched == fine_grained && t_info.early)
+                        gpu_period_guard(t_info.s_info_in, t_info.s_info_out);
+
+                    smaller_img = in_buf->smaller_img;
+                    grad = in_buf->grad;
+                    qangle = in_buf->qangle;
+
+                    block_hists = new GpuMat();
+
+                    /* ===========================
+                     * compute histograms
+                     */
+                    *block_hists      = pool.getBuffer(1, getTotalHistSize(smaller_img->size()), CV_32FC1);
+
+                    hog::compute_hists(nbins_,
+                            block_stride_.width, block_stride_.height,
+                            smaller_img->rows, smaller_img->cols,
+                            *grad, *qangle,
+                            (float)getWinSigma(),
+                            block_hists->ptr<float>(),
+                            cell_size_.width, cell_size_.height,
+                            cells_per_block_.width, cells_per_block_.height,
+                            StreamAccessor::getStream(stream));
+                    unsigned long long curr_deadline;
+                    if (t_info.realtime && t_info.sched == fine_grained) {
+                        CALL(get_current_deadline(&curr_deadline));
+                        CALL(set_current_deadline(curr_deadline + param.period));
+                    }
+                    cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
+
+                    grad->release();
+                    qangle->release();
+                    /*
+                     * end of compute histograms
+                     * =========================== */
+
+                    /* ===========================
+                     * normalize histograms
+                     */
+                    hog::normalize_hists(nbins_,
+                            block_stride_.width, block_stride_.height,
+                            smaller_img->rows, smaller_img->cols,
+                            block_hists->ptr<float>(),
+                            (float)threshold_L2hys_,
+                            cell_size_.width, cell_size_.height,
+                            cells_per_block_.width, cells_per_block_.height,
+                            StreamAccessor::getStream(stream));
+                    if (t_info.realtime && t_info.sched == fine_grained) {
+                        CALL(get_current_deadline(&curr_deadline));
+                        CALL(set_current_deadline(curr_deadline + param.period));
+                    }
+                    cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
+                    /*
+                     * end of nomalize histograms
+                     * =========================== */
+
+                    out_buf->gpu_img = in_buf->gpu_img;
+                    out_buf->found = in_buf->found;
+                    out_buf->img_to_show = in_buf->img_to_show;
+                    out_buf->smaller_img = in_buf->smaller_img;
+                    out_buf->level_scale = in_buf->level_scale;
+                    out_buf->confidences = in_buf->confidences;
+                    out_buf->index = in_buf->index;
+                    out_buf->labels = in_buf->labels;
+                    out_buf->frame_index = in_buf->frame_index;
+                    out_buf->start_time = in_buf->start_time;
+                    out_buf->block_hists = block_hists;
+
+                    CheckError(pgm_complete(node));
+                    if (t_info.realtime && t_info.sched == fine_grained) {
+                        CALL(set_current_deadline(curr_deadline));
+                    }
+                    if (t_info.realtime)
+                        sleep_next_period(); /* this calls the system call sys_complete_job. With early releasing, this shouldn't block.*/
+                }
+                else
+                {
+#ifdef LOG_DEBUG
+                    fprintf(stdout, "%s- %d terminates\n", tabbuf, node.node);
+#endif
+                    //pgm_terminate(node);
+                }
+
+            } while(ret != PGM_TERMINATE);
+        }
+
+        pthread_barrier_wait(init_barrier);
+
+        CheckError(pgm_release_node(node));
+
+        free(in_edge);
+        free(out_edge);
+
+        if (t_info.realtime)
+            CALL( task_mode(BACKGROUND_TASK) );
+        pthread_exit(0);
+    }
+
+    void* HOG_Impl::thread_fine_DE(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info)
+    {
+        fprintf(stdout, "node name: normalize_hists+classify_hists, task id: %d, node tid: %d\n", t_info.id, gettid());
+        node_t node = *_node;
+#ifdef LOG_DEBUG
+        char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
+        tabbuf[node.node] = '\0';
+#endif
+        CheckError(pgm_claim_node(node));
+        int ret = 0;
+
+        edge_t *in_edge = (edge_t *)calloc(1, sizeof(edge_t));
+        CheckError(pgm_get_edges_in(node, in_edge, 1));
+        struct params_fine_normalize *in_buf = (struct params_fine_normalize *)pgm_get_edge_buf_c(*in_edge);
+        if (in_buf == NULL)
+            fprintf(stderr, "normalize_hists+classify_hists node in buffer is NULL\n");
+
+        edge_t *out_edge = (edge_t *)calloc(1, sizeof(edge_t));
+        CheckError(pgm_get_edges_out(node, out_edge, 1));
+        struct params_fine_collect_locations *out_buf = (struct params_fine_collect_locations *)pgm_get_edge_buf_p(*out_edge);
+        if (out_buf == NULL)
+            fprintf(stderr, "normalize_hists+classify_hists node out buffer is NULL\n");
+
+        GpuMat * smaller_img;
+        GpuMat * block_hists;
+        Stream stream;
+
+        std::vector<double> * confidences;
+        BufferPool pool(stream);
+        GpuMat * labels;
+        Size wins_per_img;
+
+        pthread_barrier_wait(init_barrier);
+
+        struct rt_task param;
+        if (t_info.realtime) {
+            if (t_info.cluster != -1)
+                CALL(be_migrate_to_domain(t_info.cluster));
+            init_rt_task_param(&param);
+            param.exec_cost = ms2ns(EXEC_COST);
+            param.period = ms2ns(t_info.period);
+            param.relative_deadline = ms2ns(t_info.relative_deadline);
+            param.phase = ms2ns(t_info.phase);
+            param.budget_policy = NO_ENFORCEMENT;
+            if (t_info.early)
+                param.release_policy = TASK_EARLY; /* early releasing */
+            else
+                param.release_policy = TASK_PERIODIC;
+            param.cls = RT_CLASS_SOFT;
+            param.priority = LITMUS_LOWEST_PRIORITY;
+            if (t_info.cluster != -1)
+                param.cpu = domain_to_first_cpu(t_info.cluster);
+            CALL( init_litmus() );
+            CALL( set_rt_task_param(gettid(), &param) );
+            CALL( task_mode(LITMUS_RT_TASK) );
+            CALL( wait_for_ts_release() );
+        }
+
+        if(!hog_errors)
+        {
+            do {
+                ret = pgm_wait(node);
+
+                if(ret != PGM_TERMINATE)
+                {
+                    CheckError(ret);
+#ifdef LOG_DEBUG
+                    fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
+#endif
+                    if (t_info.sched == fine_grained && t_info.early)
+                        gpu_period_guard(t_info.s_info_in, t_info.s_info_out);
+
+                    smaller_img = in_buf->smaller_img;
+                    block_hists = in_buf->block_hists;
+
+                    /* ===========================
+                     * normalize histograms
+                     */
+                    hog::normalize_hists(nbins_,
+                            block_stride_.width, block_stride_.height,
+                            smaller_img->rows, smaller_img->cols,
+                            block_hists->ptr<float>(),
+                            (float)threshold_L2hys_,
+                            cell_size_.width, cell_size_.height,
+                            cells_per_block_.width, cells_per_block_.height,
+                            StreamAccessor::getStream(stream));
+                            // &this->fzlp, in_buf->index, in_buf->frame_index);
+
+                    unsigned long long curr_deadline;
+                    if (t_info.realtime && t_info.sched == fine_grained) {
+                        CALL(get_current_deadline(&curr_deadline));
+                        CALL(set_current_deadline(curr_deadline + param.period));
+                    }
+                    cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
+                    /*
+                     * end of nomalize histograms
+                     * =========================== */
+
+                    confidences = in_buf->confidences;
+                    labels = in_buf->labels;
+
+                    /* ===========================
+                     * classify
+                     */
+                    wins_per_img = numPartsWithin(smaller_img->size(), win_size_, win_stride_);
+
+                    if (t_info.realtime && t_info.sched == fine_grained) {
+                        CALL(get_current_deadline(&curr_deadline));
+                    }
+                    if (confidences == NULL)
+                    {
+                        *labels = pool.getBuffer(1, wins_per_img.area(), CV_8UC1);
+
+                        if (t_info.realtime && t_info.sched == fine_grained) {
+                            CALL(set_current_deadline(curr_deadline + param.period));
+                        }
+                        hog::classify_hists(win_size_.height, win_size_.width,
+                                block_stride_.height, block_stride_.width,
+                                win_stride_.height, win_stride_.width,
+                                smaller_img->rows, smaller_img->cols,
+                                block_hists->ptr<float>(),
+                                detector_.ptr<float>(),
+                                (float)free_coef_,
+                                (float)hit_threshold_,
+                                cell_size_.width, cells_per_block_.width,
+                                labels->ptr());
+                    }
+                    else
+                    {
+                        *labels = pool.getBuffer(1, wins_per_img.area(), CV_32FC1);
+
+                        if (t_info.realtime && t_info.sched == fine_grained) {
+                            CALL(set_current_deadline(curr_deadline + param.period));
+                        }
+                        hog::compute_confidence_hists(win_size_.height, win_size_.width,
+                                block_stride_.height, block_stride_.width,
+                                win_stride_.height, win_stride_.width,
+                                smaller_img->rows, smaller_img->cols,
+                                block_hists->ptr<float>(),
+                                detector_.ptr<float>(),
+                                (float)free_coef_,
+                                (float)hit_threshold_,
+                                cell_size_.width, cells_per_block_.width,
+                                labels->ptr<float>());
+                    }
+                    /*
+                     * end of classify
+                     * =========================== */
+
+                    block_hists->release();
+
+                    out_buf->gpu_img = in_buf->gpu_img;
+                    out_buf->found = in_buf->found;
+                    out_buf->img_to_show = in_buf->img_to_show;
+                    out_buf->smaller_img = in_buf->smaller_img;
+                    out_buf->level_scale = in_buf->level_scale;
+                    out_buf->confidences = in_buf->confidences;
+                    out_buf->labels = in_buf->labels;
+                    out_buf->index = in_buf->index;
+                    out_buf->frame_index = in_buf->frame_index;
+                    out_buf->start_time = in_buf->start_time;
+
+                    CheckError(pgm_complete(node));
+                    if (t_info.realtime && t_info.sched == fine_grained) {
+                        CALL(set_current_deadline(curr_deadline));
+                    }
+                    if (t_info.realtime)
+                        sleep_next_period(); /* this calls the system call sys_complete_job. With early releasing, this shouldn't block.*/
+                }
+                else
+                {
+#ifdef LOG_DEBUG
+                    fprintf(stdout, "%s- %d terminates\n", tabbuf, node.node);
+#endif
+                    //pgm_terminate(node);
+                }
+
+            } while(ret != PGM_TERMINATE);
+        }
+
+        pthread_barrier_wait(init_barrier);
+
+        CheckError(pgm_release_node(node));
+
+        free(in_edge);
+        free(out_edge);
+        if (t_info.realtime)
+            CALL( task_mode(BACKGROUND_TASK) );
+        pthread_exit(0);
+    }
+
+    void* HOG_Impl::thread_fine_ABC(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info)
+    {
+        fprintf(stdout, "node name: resize->compute_hists, task id: %d, node tid: %d\n", t_info.id, gettid());
+        node_t node = *_node;
+#ifdef LOG_DEBUG
+        char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
+        tabbuf[node.node] = '\0';
+#endif
+
+        CheckError(pgm_claim_node(node));
+
+        int ret = 0;
+
+        edge_t *in_edge = (edge_t *)calloc(1, sizeof(edge_t));
+        CheckError(pgm_get_edges_in(node, in_edge, 1));
+        struct params_resize *in_buf = (struct params_resize *)pgm_get_edge_buf_c(*in_edge);
+        if (in_buf == NULL)
+            fprintf(stderr, "resize->compute_hists node in buffer is NULL\n");
+
+        edge_t *out_edge = (edge_t *)calloc(1, sizeof(edge_t));
+        CheckError(pgm_get_edges_out(node, out_edge, 1));
+        struct params_fine_normalize *out_buf = (struct params_fine_normalize *)pgm_get_edge_buf_p(*out_edge);
+        if (out_buf == NULL)
+            fprintf(stderr, "resize->compute_hists node out buffer is NULL\n");
+
+        Stream stream;
+        GpuMat * smaller_img;
+        GpuMat * gpu_img;
+
+        BufferPool pool(stream);
+        GpuMat * grad;
+        GpuMat * qangle;
+
+        GpuMat * block_hists;
+
+        pthread_barrier_wait(init_barrier);
+
+        struct rt_task param;
+        if (t_info.realtime) {
+            if (t_info.cluster != -1)
+                CALL(be_migrate_to_domain(t_info.cluster));
+            init_rt_task_param(&param);
+            param.exec_cost = ms2ns(EXEC_COST);
+            param.period = ms2ns(t_info.period);
+            param.relative_deadline = ms2ns(t_info.relative_deadline);
+            param.phase = ms2ns(t_info.phase);
+            param.budget_policy = NO_ENFORCEMENT;
+            if (t_info.early)
+                param.release_policy = TASK_EARLY; /* early releasing */
+            else
+                param.release_policy = TASK_PERIODIC;
+            param.cls = RT_CLASS_SOFT;
+            param.priority = LITMUS_LOWEST_PRIORITY;
+            if (t_info.cluster != -1)
+                param.cpu = domain_to_first_cpu(t_info.cluster);
+            CALL( init_litmus() );
+            CALL( set_rt_task_param(gettid(), &param) );
+            CALL( task_mode(LITMUS_RT_TASK) );
+            CALL( wait_for_ts_release() );
+        }
+
+        if(!hog_errors)
+        {
+            do {
+                ret = pgm_wait(node);
+
+                if(ret != PGM_TERMINATE)
+                {
+                    CheckError(ret);
+#ifdef LOG_DEBUG
+                    fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
+#endif
+
+                    if (t_info.sched == fine_grained && t_info.early)
+                        gpu_period_guard(t_info.s_info_in, t_info.s_info_out);
+
+                    smaller_img = in_buf->smaller_img;
+                    gpu_img = in_buf->gpu_img;
+                    /* ===========================
+                     * resize image
+                     */
+                    unsigned long long curr_deadline;
+                    if (smaller_img->size() != gpu_img->size())
+                    {
+                        switch (gpu_img->type())
+                        {
+                            case CV_8UC1: hog::resize_8UC1_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index); break;
+                            case CV_8UC4: hog::resize_8UC4_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index); break;
+                        }
+                    }
+                    if (t_info.realtime && t_info.sched == fine_grained) {
+                        CALL(get_current_deadline(&curr_deadline));
+                        CALL(set_current_deadline(curr_deadline + param.period));
+                    }
+                    cudaStreamSynchronize(StreamAccessor::getStream(stream));
+
+                    CV_Assert( smaller_img->type() == CV_8UC1 || smaller_img->type() == CV_8UC4 );
+                    CV_Assert( win_stride_.width % block_stride_.width == 0 && win_stride_.height % block_stride_.height == 0 );
+                    /*
+                     * end of resize image
+                     * =========================== */
+
+                    /* ===========================
+                     * compute gradients
+                     */
+                    grad = new GpuMat();
+                    qangle = new GpuMat();
+
+                    float  angleScale = static_cast<float>(nbins_ / CV_PI);
+                    *grad       = pool.getBuffer(smaller_img->size(), CV_32FC2);
+                    *qangle     = pool.getBuffer(smaller_img->size(), CV_8UC2);
+
+                    switch (smaller_img->type())
+                    {
+                        case CV_8UC1:
+                            hog::compute_gradients_8UC1(nbins_,
+                                    smaller_img->rows, smaller_img->cols, *smaller_img,
+                                    angleScale,
+                                    *grad, *qangle,
+                                    gamma_correction_,
+                                    StreamAccessor::getStream(stream));
+                            break;
+                        case CV_8UC4:
+                            hog::compute_gradients_8UC4(nbins_,
+                                    smaller_img->rows, smaller_img->cols, *smaller_img,
+                                    angleScale,
+                                    *grad, *qangle,
+                                    gamma_correction_,
+                                    StreamAccessor::getStream(stream));
+                            break;
+                    }
+                    if (t_info.realtime && t_info.sched == fine_grained) {
+                        CALL(get_current_deadline(&curr_deadline));
+                        CALL(set_current_deadline(curr_deadline + param.period));
+                    }
+                    cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
+                    /*
+                     * end of compute gradients
+                     * =========================== */
+
+                    block_hists = new GpuMat();
+
+                    /* ===========================
+                     * compute histograms
+                     */
+                    *block_hists      = pool.getBuffer(1, getTotalHistSize(smaller_img->size()), CV_32FC1);
+
+                    hog::compute_hists(nbins_,
+                            block_stride_.width, block_stride_.height,
+                            smaller_img->rows, smaller_img->cols,
+                            *grad, *qangle,
+                            (float)getWinSigma(),
+                            block_hists->ptr<float>(),
+                            cell_size_.width, cell_size_.height,
+                            cells_per_block_.width, cells_per_block_.height,
+                            StreamAccessor::getStream(stream));
+                    if (t_info.realtime && t_info.sched == fine_grained) {
+                        // Mimic having two CPU nodes surrounding GPU nodes (one before,
+                        // and one after, which must have a later deadline by one period)
+                        CALL(get_current_deadline(&curr_deadline));
+                        CALL(set_current_deadline(curr_deadline + param.period));
+                        // Ming thinks maybe we should add the response-time of the GPU node
+                    }
+                    cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
+
+                    grad->release();
+                    qangle->release();
+                    /*
+                     * end of compute histograms
+                     * =========================== */
+
+                    out_buf->gpu_img = in_buf->gpu_img;
+                    out_buf->found = in_buf->found;
+                    out_buf->img_to_show = in_buf->img_to_show;
+                    out_buf->smaller_img = in_buf->smaller_img;
+                    out_buf->level_scale = in_buf->level_scale;
+                    out_buf->confidences = in_buf->confidences;
+                    out_buf->index = in_buf->index;
+                    out_buf->labels = in_buf->labels;
+                    out_buf->frame_index = in_buf->frame_index;
+                    out_buf->start_time = in_buf->start_time;
+                    out_buf->block_hists= block_hists;
+                    CheckError(pgm_complete(node));
+                    if (t_info.realtime && t_info.sched == fine_grained) {
+                        CALL(set_current_deadline(curr_deadline));
+                    }
+                    if (t_info.realtime)
+                        sleep_next_period(); /* this calls the system call sys_complete_job. With early releasing, this shouldn't block.*/
+                }
+                else
+                {
+#ifdef LOG_DEBUG
+                    fprintf(stdout, "%s- %d terminates\n", tabbuf, node.node);
+#endif
+                    //pgm_terminate(node);
+                }
+
+            } while(ret != PGM_TERMINATE);
+        }
+
+        pthread_barrier_wait(init_barrier);
+
+        CheckError(pgm_release_node(node));
+
+        free(in_edge);
+        free(out_edge);
+
+        if (t_info.realtime)
+            CALL( task_mode(BACKGROUND_TASK) );
+        pthread_exit(0);
+    }
+
+    void* HOG_Impl::thread_fine_BCD(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info)
+    {
+        fprintf(stdout, "node name: compute_grads->normalize_hists, task id: %d, node tid: %d\n", t_info.id, gettid());
+        node_t node = *_node;
+#ifdef LOG_DEBUG
+        char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
+        tabbuf[node.node] = '\0';
+#endif
+        CheckError(pgm_claim_node(node));
+        int ret = 0;
+
+        edge_t *in_edge = (edge_t *)calloc(1, sizeof(edge_t));
+        CheckError(pgm_get_edges_in(node, in_edge, 1));
+        struct params_compute_gradients *in_buf = (struct params_compute_gradients *)pgm_get_edge_buf_c(*in_edge);
+        if (in_buf == NULL)
+            fprintf(stderr, "compute_grads->normalize_hists node in buffer is NULL\n");
+
+        edge_t *out_edge = (edge_t *)calloc(1, sizeof(edge_t));
+        CheckError(pgm_get_edges_out(node, out_edge, 1));
+        struct params_fine_classify *out_buf = (struct params_fine_classify *)pgm_get_edge_buf_p(*out_edge);
+        if (out_buf == NULL)
+            fprintf(stderr, "compute_grads->normalize_hists node out buffer is NULL\n");
+
+        GpuMat * smaller_img;
+        GpuMat * grad;
+        GpuMat * qangle;
+
+        Stream stream;
+        BufferPool pool(stream);
+
+        GpuMat * block_hists;
+
+        pthread_barrier_wait(init_barrier);
+
+        struct rt_task param;
+        if (t_info.realtime) {
+            if (t_info.cluster != -1)
+                CALL(be_migrate_to_domain(t_info.cluster));
+            init_rt_task_param(&param);
+            param.exec_cost = ms2ns(EXEC_COST);
+            param.period = ms2ns(t_info.period);
+            param.relative_deadline = ms2ns(t_info.relative_deadline);
+            param.phase = ms2ns(t_info.phase);
+            param.budget_policy = NO_ENFORCEMENT;
+            if (t_info.early)
+                param.release_policy = TASK_EARLY; /* early releasing */
+            else
+                param.release_policy = TASK_PERIODIC;
+            param.cls = RT_CLASS_SOFT;
+            param.priority = LITMUS_LOWEST_PRIORITY;
+            if (t_info.cluster != -1)
+                param.cpu = domain_to_first_cpu(t_info.cluster);
+            CALL( init_litmus() );
+            CALL( set_rt_task_param(gettid(), &param) );
+            CALL( task_mode(LITMUS_RT_TASK) );
+            CALL( wait_for_ts_release() );
+        }
+
+        if(!hog_errors)
+        {
+            do {
+                ret = pgm_wait(node);
+
+                if(ret != PGM_TERMINATE)
+                {
+                    CheckError(ret);
+#ifdef LOG_DEBUG
+                    fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
+#endif
+                    if (t_info.sched == fine_grained && t_info.early)
+                        gpu_period_guard(t_info.s_info_in, t_info.s_info_out);
+
+                    smaller_img = in_buf->smaller_img;
+
+                    /* ===========================
+                     * compute gradients
+                     */
+                    grad = new GpuMat();
+                    qangle = new GpuMat();
+
+                    float  angleScale = static_cast<float>(nbins_ / CV_PI);
+                    *grad       = pool.getBuffer(smaller_img->size(), CV_32FC2);
+                    *qangle     = pool.getBuffer(smaller_img->size(), CV_8UC2);
+
+                    switch (smaller_img->type())
+                    {
+                        case CV_8UC1:
+                            hog::compute_gradients_8UC1(nbins_,
+                                    smaller_img->rows, smaller_img->cols, *smaller_img,
+                                    angleScale,
+                                    *grad, *qangle,
+                                    gamma_correction_,
+                                    StreamAccessor::getStream(stream));
+                            break;
+                        case CV_8UC4:
+                            hog::compute_gradients_8UC4(nbins_,
+                                    smaller_img->rows, smaller_img->cols, *smaller_img,
+                                    angleScale,
+                                    *grad, *qangle,
+                                    gamma_correction_,
+                                    StreamAccessor::getStream(stream));
+                            break;
+                    }
+                    unsigned long long curr_deadline;
+                    if (t_info.realtime && t_info.sched == fine_grained) {
+                        CALL(get_current_deadline(&curr_deadline));
+                        CALL(set_current_deadline(curr_deadline + param.period));
+                    }
+                    cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
+                    /*
+                     * end of compute gradients
+                     * =========================== */
+
+                    block_hists = new GpuMat();
+
+                    /* ===========================
+                     * compute histograms
+                     */
+                    *block_hists      = pool.getBuffer(1, getTotalHistSize(smaller_img->size()), CV_32FC1);
+
+                    hog::compute_hists(nbins_,
+                            block_stride_.width, block_stride_.height,
+                            smaller_img->rows, smaller_img->cols,
+                            *grad, *qangle,
+                            (float)getWinSigma(),
+                            block_hists->ptr<float>(),
+                            cell_size_.width, cell_size_.height,
+                            cells_per_block_.width, cells_per_block_.height,
+                            StreamAccessor::getStream(stream));
+                    if (t_info.realtime && t_info.sched == fine_grained) {
+                        CALL(get_current_deadline(&curr_deadline));
+                        CALL(set_current_deadline(curr_deadline + param.period));
+                    }
+                    cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
+
+                    grad->release();
+                    qangle->release();
+                    /*
+                     * end of compute histograms
+                     * =========================== */
+
+                    /* ===========================
+                     * normalize histograms
+                     */
+                    hog::normalize_hists(nbins_,
+                            block_stride_.width, block_stride_.height,
+                            smaller_img->rows, smaller_img->cols,
+                            block_hists->ptr<float>(),
+                            (float)threshold_L2hys_,
+                            cell_size_.width, cell_size_.height,
+                            cells_per_block_.width, cells_per_block_.height,
+                            StreamAccessor::getStream(stream));
+                    if (t_info.realtime && t_info.sched == fine_grained) {
+                        CALL(get_current_deadline(&curr_deadline));
+                        CALL(set_current_deadline(curr_deadline + param.period));
+                    }
+                    cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
+                    /*
+                     * end of nomalize histograms
+                     * =========================== */
+
+                    out_buf->gpu_img = in_buf->gpu_img;
+                    out_buf->found = in_buf->found;
+                    out_buf->img_to_show = in_buf->img_to_show;
+                    out_buf->smaller_img = in_buf->smaller_img;
+                    out_buf->level_scale = in_buf->level_scale;
+                    out_buf->confidences = in_buf->confidences;
+                    out_buf->labels = in_buf->labels;
+                    out_buf->index = in_buf->index;
+                    out_buf->frame_index = in_buf->frame_index;
+                    out_buf->start_time = in_buf->start_time;
+                    out_buf->block_hists = block_hists;
+                    CheckError(pgm_complete(node));
+                    if (t_info.realtime && t_info.sched == fine_grained) {
+                        CALL(set_current_deadline(curr_deadline));
+                    }
+                    if (t_info.realtime)
+                        sleep_next_period(); /* this calls the system call sys_complete_job. With early releasing, this shouldn't block.*/
+                }
+                else
+                {
+#ifdef LOG_DEBUG
+                    fprintf(stdout, "%s- %d terminates\n", tabbuf, node.node);
+#endif
+                    //pgm_terminate(node);
+                }
+
+            } while(ret != PGM_TERMINATE);
+        }
+
+        pthread_barrier_wait(init_barrier);
+
+        CheckError(pgm_release_node(node));
+
+        free(in_edge);
+        free(out_edge);
+
+        if (t_info.realtime)
+            CALL( task_mode(BACKGROUND_TASK) );
+        pthread_exit(0);
+    }
+
+    void* HOG_Impl::thread_fine_CDE(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info)
+    {
+        fprintf(stdout, "node name: compute_hists->classify_hists, task id: %d, node tid: %d\n", t_info.id, gettid());
+        node_t node = *_node;
+#ifdef LOG_DEBUG
+        char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
+        tabbuf[node.node] = '\0';
+#endif
+        CheckError(pgm_claim_node(node));
+        int ret = 0;
+
+        edge_t *in_edge = (edge_t *)calloc(1, sizeof(edge_t));
+        CheckError(pgm_get_edges_in(node, in_edge, 1));
+        struct params_compute_histograms *in_buf = (struct params_compute_histograms *)pgm_get_edge_buf_c(*in_edge);
+        if (in_buf == NULL)
+            fprintf(stderr, "compute_hists->classify_hists node in buffer is NULL\n");
+
+        edge_t *out_edge = (edge_t *)calloc(1, sizeof(edge_t));
+        CheckError(pgm_get_edges_out(node, out_edge, 1));
+        struct params_fine_collect_locations *out_buf = (struct params_fine_collect_locations *)pgm_get_edge_buf_p(*out_edge);
+        if (out_buf == NULL)
+            fprintf(stderr, "compute_hists->classify_hists node out buffer is NULL\n");
+
+        GpuMat * smaller_img;
+        GpuMat * grad;
+        GpuMat * qangle;
+
+        Stream stream;
+        BufferPool pool(stream);
+
+        GpuMat * block_hists;
+
+        std::vector<double> * confidences;
+        GpuMat * labels;
+        Size wins_per_img;
+
+        pthread_barrier_wait(init_barrier);
+
+        struct rt_task param;
+        if (t_info.realtime) {
+            if (t_info.cluster != -1)
+                CALL(be_migrate_to_domain(t_info.cluster));
+            init_rt_task_param(&param);
+            param.exec_cost = ms2ns(EXEC_COST);
+            param.period = ms2ns(t_info.period);
+            param.relative_deadline = ms2ns(t_info.relative_deadline);
+            param.phase = ms2ns(t_info.phase);
+            param.budget_policy = NO_ENFORCEMENT;
+            if (t_info.early)
+                param.release_policy = TASK_EARLY; /* early releasing */
+            else
+                param.release_policy = TASK_PERIODIC;
+            param.cls = RT_CLASS_SOFT;
+            param.priority = LITMUS_LOWEST_PRIORITY;
+            if (t_info.cluster != -1)
+                param.cpu = domain_to_first_cpu(t_info.cluster);
+            CALL( init_litmus() );
+            CALL( set_rt_task_param(gettid(), &param) );
+            CALL( task_mode(LITMUS_RT_TASK) );
+            CALL( wait_for_ts_release() );
+        }
+
+        if(!hog_errors)
+        {
+            do {
+                ret = pgm_wait(node);
+
+                if(ret != PGM_TERMINATE)
+                {
+                    CheckError(ret);
+#ifdef LOG_DEBUG
+                    fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
+#endif
+                    if (t_info.sched == fine_grained && t_info.early)
+                        gpu_period_guard(t_info.s_info_in, t_info.s_info_out);
+
+                    smaller_img = in_buf->smaller_img;
+                    grad = in_buf->grad;
+                    qangle = in_buf->qangle;
+
+                    block_hists = new GpuMat();
+
+                    /* ===========================
+                     * compute histograms
+                     */
+                    *block_hists      = pool.getBuffer(1, getTotalHistSize(smaller_img->size()), CV_32FC1);
+
+                    hog::compute_hists(nbins_,
+                            block_stride_.width, block_stride_.height,
+                            smaller_img->rows, smaller_img->cols,
+                            *grad, *qangle,
+                            (float)getWinSigma(),
+                            block_hists->ptr<float>(),
+                            cell_size_.width, cell_size_.height,
+                            cells_per_block_.width, cells_per_block_.height,
+                            StreamAccessor::getStream(stream));
+                    unsigned long long curr_deadline;
+                    if (t_info.realtime && t_info.sched == fine_grained) {
+                        CALL(get_current_deadline(&curr_deadline));
+                        CALL(set_current_deadline(curr_deadline + param.period));
+                    }
+                    cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
+
+                    grad->release();
+                    qangle->release();
+                    /*
+                     * end of compute histograms
+                     * =========================== */
+
+                    /* ===========================
+                     * normalize histograms
+                     */
+                    hog::normalize_hists(nbins_,
+                            block_stride_.width, block_stride_.height,
+                            smaller_img->rows, smaller_img->cols,
+                            block_hists->ptr<float>(),
+                            (float)threshold_L2hys_,
+                            cell_size_.width, cell_size_.height,
+                            cells_per_block_.width, cells_per_block_.height,
+                            StreamAccessor::getStream(stream));
+                    if (t_info.realtime && t_info.sched == fine_grained) {
+                        CALL(get_current_deadline(&curr_deadline));
+                        CALL(set_current_deadline(curr_deadline + param.period));
+                    }
+                    cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
+                    /*
+                     * end of nomalize histograms
+                     * =========================== */
+
+                    confidences = in_buf->confidences;
+                    labels = in_buf->labels;
+
+                    /* ===========================
+                     * classify
+                     */
+                    wins_per_img = numPartsWithin(smaller_img->size(), win_size_, win_stride_);
+
+                    if (t_info.realtime && t_info.sched == fine_grained) {
+                        CALL(get_current_deadline(&curr_deadline));
+                    }
+                    if (confidences == NULL)
+                    {
+                        *labels = pool.getBuffer(1, wins_per_img.area(), CV_8UC1);
+
+                        if (t_info.realtime && t_info.sched == fine_grained) {
+                            CALL(set_current_deadline(curr_deadline + param.period));
+                        }
+                        hog::classify_hists(win_size_.height, win_size_.width,
+                                block_stride_.height, block_stride_.width,
+                                win_stride_.height, win_stride_.width,
+                                smaller_img->rows, smaller_img->cols,
+                                block_hists->ptr<float>(),
+                                detector_.ptr<float>(),
+                                (float)free_coef_,
+                                (float)hit_threshold_,
+                                cell_size_.width, cells_per_block_.width,
+                                labels->ptr());
+                    }
+                    else
+                    {
+                        *labels = pool.getBuffer(1, wins_per_img.area(), CV_32FC1);
+
+                        if (t_info.realtime && t_info.sched == fine_grained) {
+                            CALL(set_current_deadline(curr_deadline + param.period));
+                        }
+                        hog::compute_confidence_hists(win_size_.height, win_size_.width,
+                                block_stride_.height, block_stride_.width,
+                                win_stride_.height, win_stride_.width,
+                                smaller_img->rows, smaller_img->cols,
+                                block_hists->ptr<float>(),
+                                detector_.ptr<float>(),
+                                (float)free_coef_,
+                                (float)hit_threshold_,
+                                cell_size_.width, cells_per_block_.width,
+                                labels->ptr<float>());
+                    }
+                    /*
+                     * end of classify
+                     * =========================== */
+
+                    block_hists->release();
+
+                    out_buf->gpu_img = in_buf->gpu_img;
+                    out_buf->found = in_buf->found;
+                    out_buf->img_to_show = in_buf->img_to_show;
+                    out_buf->smaller_img = in_buf->smaller_img;
+                    out_buf->level_scale = in_buf->level_scale;
+                    out_buf->confidences = in_buf->confidences;
+                    out_buf->index = in_buf->index;
+                    out_buf->labels = in_buf->labels;
+                    out_buf->frame_index = in_buf->frame_index;
+                    out_buf->start_time = in_buf->start_time;
+
+                    CheckError(pgm_complete(node));
+                    if (t_info.realtime && t_info.sched == fine_grained) {
+                        CALL(set_current_deadline(curr_deadline));
+                    }
+                    if (t_info.realtime)
+                        sleep_next_period(); /* this calls the system call sys_complete_job. With early releasing, this shouldn't block.*/
+                }
+                else
+                {
+#ifdef LOG_DEBUG
+                    fprintf(stdout, "%s- %d terminates\n", tabbuf, node.node);
+#endif
+                    //pgm_terminate(node);
+                }
+
+            } while(ret != PGM_TERMINATE);
+        }
+
+        pthread_barrier_wait(init_barrier);
+
+        CheckError(pgm_release_node(node));
+
+        free(in_edge);
+        free(out_edge);
+
+        if (t_info.realtime)
+            CALL( task_mode(BACKGROUND_TASK) );
+        pthread_exit(0);
+    }
+
+    void* HOG_Impl::thread_fine_ABCD(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info)
+    {
+        fprintf(stdout, "node name: resize->normalize_hists, task id: %d, node tid: %d\n", t_info.id, gettid());
+        node_t node = *_node;
+#ifdef LOG_DEBUG
+        char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
+        tabbuf[node.node] = '\0';
+#endif
+
+        CheckError(pgm_claim_node(node));
+
+        int ret = 0;
+
+        edge_t *in_edge = (edge_t *)calloc(1, sizeof(edge_t));
+        CheckError(pgm_get_edges_in(node, in_edge, 1));
+        struct params_resize *in_buf = (struct params_resize *)pgm_get_edge_buf_c(*in_edge);
+        if (in_buf == NULL)
+            fprintf(stderr, "resize->normalize_hists node in buffer is NULL\n");
+
+        edge_t *out_edge = (edge_t *)calloc(1, sizeof(edge_t));
+        CheckError(pgm_get_edges_out(node, out_edge, 1));
+        struct params_fine_classify *out_buf = (struct params_fine_classify *)pgm_get_edge_buf_p(*out_edge);
+        if (out_buf == NULL)
+            fprintf(stderr, "resize->normalize_hists node out buffer is NULL\n");
+
+        Stream stream;
+        GpuMat * smaller_img;
+        GpuMat * gpu_img;
+
+        BufferPool pool(stream);
+        GpuMat * grad;
+        GpuMat * qangle;
+
+        GpuMat * block_hists;
+
+        pthread_barrier_wait(init_barrier);
+
+        struct rt_task param;
+        if (t_info.realtime) {
+            if (t_info.cluster != -1)
+                CALL(be_migrate_to_domain(t_info.cluster));
+            init_rt_task_param(&param);
+            param.exec_cost = ms2ns(EXEC_COST);
+            param.period = ms2ns(t_info.period);
+            param.relative_deadline = ms2ns(t_info.relative_deadline);
+            param.phase = ms2ns(t_info.phase);
+            param.budget_policy = NO_ENFORCEMENT;
+            if (t_info.early)
+                param.release_policy = TASK_EARLY; /* early releasing */
+            else
+                param.release_policy = TASK_PERIODIC;
+            param.cls = RT_CLASS_SOFT;
+            param.priority = LITMUS_LOWEST_PRIORITY;
+            if (t_info.cluster != -1)
+                param.cpu = domain_to_first_cpu(t_info.cluster);
+            CALL( init_litmus() );
+            CALL( set_rt_task_param(gettid(), &param) );
+            CALL( task_mode(LITMUS_RT_TASK) );
+            CALL( wait_for_ts_release() );
+        }
+
+        if(!hog_errors)
+        {
+            do {
+                ret = pgm_wait(node);
+
+                if(ret != PGM_TERMINATE)
+                {
+                    CheckError(ret);
+#ifdef LOG_DEBUG
+                    fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
+#endif
+
+                    if (t_info.sched == fine_grained && t_info.early)
+                        gpu_period_guard(t_info.s_info_in, t_info.s_info_out);
+
+                    smaller_img = in_buf->smaller_img;
+                    gpu_img = in_buf->gpu_img;
+                    /* ===========================
+                     * resize image
+                     */
+                    unsigned long long curr_deadline;
+                    if (smaller_img->size() != gpu_img->size())
+                    {
+                        switch (gpu_img->type())
+                        {
+                            case CV_8UC1: hog::resize_8UC1_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index); break;
+                            case CV_8UC4: hog::resize_8UC4_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index); break;
+                        }
+                    }
+                    if (t_info.realtime && t_info.sched == fine_grained) {
+                        CALL(get_current_deadline(&curr_deadline));
+                        CALL(set_current_deadline(curr_deadline + param.period));
+                    }
+                    cudaStreamSynchronize(StreamAccessor::getStream(stream));
+
+                    CV_Assert( smaller_img->type() == CV_8UC1 || smaller_img->type() == CV_8UC4 );
+                    CV_Assert( win_stride_.width % block_stride_.width == 0 && win_stride_.height % block_stride_.height == 0 );
+                    /*
+                     * end of resize image
+                     * =========================== */
+
+                    /* ===========================
+                     * compute gradients
+                     */
+                    grad = new GpuMat();
+                    qangle = new GpuMat();
+
+                    float  angleScale = static_cast<float>(nbins_ / CV_PI);
+                    *grad       = pool.getBuffer(smaller_img->size(), CV_32FC2);
+                    *qangle     = pool.getBuffer(smaller_img->size(), CV_8UC2);
+
+                    switch (smaller_img->type())
+                    {
+                        case CV_8UC1:
+                            hog::compute_gradients_8UC1(nbins_,
+                                    smaller_img->rows, smaller_img->cols, *smaller_img,
+                                    angleScale,
+                                    *grad, *qangle,
+                                    gamma_correction_,
+                                    StreamAccessor::getStream(stream));
+                            break;
+                        case CV_8UC4:
+                            hog::compute_gradients_8UC4(nbins_,
+                                    smaller_img->rows, smaller_img->cols, *smaller_img,
+                                    angleScale,
+                                    *grad, *qangle,
+                                    gamma_correction_,
+                                    StreamAccessor::getStream(stream));
+                            break;
+                    }
+                    if (t_info.realtime && t_info.sched == fine_grained) {
+                        CALL(get_current_deadline(&curr_deadline));
+                        CALL(set_current_deadline(curr_deadline + param.period));
+                    }
+                    cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
+                    /*
+                     * end of compute gradients
+                     * =========================== */
+
+                    block_hists = new GpuMat();
+
+                    /* ===========================
+                     * compute histograms
+                     */
+                    *block_hists      = pool.getBuffer(1, getTotalHistSize(smaller_img->size()), CV_32FC1);
+
+                    hog::compute_hists(nbins_,
+                            block_stride_.width, block_stride_.height,
+                            smaller_img->rows, smaller_img->cols,
+                            *grad, *qangle,
+                            (float)getWinSigma(),
+                            block_hists->ptr<float>(),
+                            cell_size_.width, cell_size_.height,
+                            cells_per_block_.width, cells_per_block_.height,
+                            StreamAccessor::getStream(stream));
+                    if (t_info.realtime && t_info.sched == fine_grained) {
+                        // Mimic having two CPU nodes surrounding GPU nodes (one before,
+                        // and one after, which must have a later deadline by one period)
+                        CALL(get_current_deadline(&curr_deadline));
+                        CALL(set_current_deadline(curr_deadline + param.period));
+                        // Ming thinks maybe we should add the response-time of the GPU node
+                    }
+                    cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
+
+                    grad->release();
+                    qangle->release();
+                    /*
+                     * end of compute histograms
+                     * =========================== */
+
+                    /* ===========================
+                     * normalize histograms
+                     */
+                    hog::normalize_hists(nbins_,
+                            block_stride_.width, block_stride_.height,
+                            smaller_img->rows, smaller_img->cols,
+                            block_hists->ptr<float>(),
+                            (float)threshold_L2hys_,
+                            cell_size_.width, cell_size_.height,
+                            cells_per_block_.width, cells_per_block_.height,
+                            StreamAccessor::getStream(stream));
+                    if (t_info.realtime && t_info.sched == fine_grained) {
+                        CALL(get_current_deadline(&curr_deadline));
+                        CALL(set_current_deadline(curr_deadline + param.period));
+                    }
+                    cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
+                    /*
+                     * end of nomalize histograms
+                     * =========================== */
+
+                    out_buf->gpu_img = in_buf->gpu_img;
+                    out_buf->found = in_buf->found;
+                    out_buf->img_to_show = in_buf->img_to_show;
+                    out_buf->smaller_img = in_buf->smaller_img;
+                    out_buf->level_scale = in_buf->level_scale;
+                    out_buf->confidences = in_buf->confidences;
+                    out_buf->index = in_buf->index;
+                    out_buf->labels = in_buf->labels;
+                    out_buf->frame_index = in_buf->frame_index;
+                    out_buf->start_time = in_buf->start_time;
+                    out_buf->block_hists = block_hists;
+                    CheckError(pgm_complete(node));
+                    if (t_info.realtime && t_info.sched == fine_grained) {
+                        CALL(set_current_deadline(curr_deadline));
+                    }
+                    if (t_info.realtime)
+                        sleep_next_period(); /* this calls the system call sys_complete_job. With early releasing, this shouldn't block.*/
+                }
+                else
+                {
+#ifdef LOG_DEBUG
+                    fprintf(stdout, "%s- %d terminates\n", tabbuf, node.node);
+#endif
+                    //pgm_terminate(node);
+                }
+
+            } while(ret != PGM_TERMINATE);
+        }
+
+        pthread_barrier_wait(init_barrier);
+
+        CheckError(pgm_release_node(node));
+
+        free(in_edge);
+        free(out_edge);
+
+        if (t_info.realtime)
+            CALL( task_mode(BACKGROUND_TASK) );
+        pthread_exit(0);
+    }
+
+    void* HOG_Impl::thread_fine_BCDE(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info)
+    {
+        fprintf(stdout, "node name: compute_grads->classify_hists, task id: %d, node tid: %d\n", t_info.id, gettid());
+        node_t node = *_node;
+#ifdef LOG_DEBUG
+        char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
+        tabbuf[node.node] = '\0';
+#endif
+        CheckError(pgm_claim_node(node));
+        int ret = 0;
+
+        edge_t *in_edge = (edge_t *)calloc(1, sizeof(edge_t));
+        CheckError(pgm_get_edges_in(node, in_edge, 1));
+        struct params_compute_gradients *in_buf = (struct params_compute_gradients *)pgm_get_edge_buf_c(*in_edge);
+        if (in_buf == NULL)
+            fprintf(stderr, "compute_grads->classify_hists node in buffer is NULL\n");
+
+        edge_t *out_edge = (edge_t *)calloc(1, sizeof(edge_t));
+        CheckError(pgm_get_edges_out(node, out_edge, 1));
+        struct params_fine_collect_locations *out_buf = (struct params_fine_collect_locations *)pgm_get_edge_buf_p(*out_edge);
+        if (out_buf == NULL)
+            fprintf(stderr, "compute_grads->classify_hists node out buffer is NULL\n");
+
+        GpuMat * smaller_img;
+        GpuMat * grad;
+        GpuMat * qangle;
+
+        Stream stream;
+        BufferPool pool(stream);
+
+        GpuMat * block_hists;
+
+        std::vector<double> * confidences;
+        GpuMat * labels;
+        Size wins_per_img;
+
+        pthread_barrier_wait(init_barrier);
+
+        struct rt_task param;
+        if (t_info.realtime) {
+            if (t_info.cluster != -1)
+                CALL(be_migrate_to_domain(t_info.cluster));
+            init_rt_task_param(&param);
+            param.exec_cost = ms2ns(EXEC_COST);
+            param.period = ms2ns(t_info.period);
+            param.relative_deadline = ms2ns(t_info.relative_deadline);
+            param.phase = ms2ns(t_info.phase);
+            param.budget_policy = NO_ENFORCEMENT;
+            if (t_info.early)
+                param.release_policy = TASK_EARLY; /* early releasing */
+            else
+                param.release_policy = TASK_PERIODIC;
+            param.cls = RT_CLASS_SOFT;
+            param.priority = LITMUS_LOWEST_PRIORITY;
+            if (t_info.cluster != -1)
+                param.cpu = domain_to_first_cpu(t_info.cluster);
+            CALL( init_litmus() );
+            CALL( set_rt_task_param(gettid(), &param) );
+            CALL( task_mode(LITMUS_RT_TASK) );
+            CALL( wait_for_ts_release() );
+        }
+
+        if(!hog_errors)
+        {
+            do {
+                ret = pgm_wait(node);
+
+                if(ret != PGM_TERMINATE)
+                {
+                    CheckError(ret);
+#ifdef LOG_DEBUG
+                    fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
+#endif
+                    if (t_info.sched == fine_grained && t_info.early)
+                        gpu_period_guard(t_info.s_info_in, t_info.s_info_out);
+
+                    smaller_img = in_buf->smaller_img;
+
+                    /* ===========================
+                     * compute gradients
+                     */
+                    grad = new GpuMat();
+                    qangle = new GpuMat();
+
+                    float  angleScale = static_cast<float>(nbins_ / CV_PI);
+                    *grad       = pool.getBuffer(smaller_img->size(), CV_32FC2);
+                    *qangle     = pool.getBuffer(smaller_img->size(), CV_8UC2);
+
+                    switch (smaller_img->type())
+                    {
+                        case CV_8UC1:
+                            hog::compute_gradients_8UC1(nbins_,
+                                    smaller_img->rows, smaller_img->cols, *smaller_img,
+                                    angleScale,
+                                    *grad, *qangle,
+                                    gamma_correction_,
+                                    StreamAccessor::getStream(stream));
+                            break;
+                        case CV_8UC4:
+                            hog::compute_gradients_8UC4(nbins_,
+                                    smaller_img->rows, smaller_img->cols, *smaller_img,
+                                    angleScale,
+                                    *grad, *qangle,
+                                    gamma_correction_,
+                                    StreamAccessor::getStream(stream));
+                            break;
+                    }
+                    unsigned long long curr_deadline;
+                    if (t_info.realtime && t_info.sched == fine_grained) {
+                        CALL(get_current_deadline(&curr_deadline));
+                        CALL(set_current_deadline(curr_deadline + param.period));
+                    }
+                    cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
+                    /*
+                     * end of compute gradients
+                     * =========================== */
+
+                    block_hists = new GpuMat();
+
+                    /* ===========================
+                     * compute histograms
+                     */
+                    *block_hists      = pool.getBuffer(1, getTotalHistSize(smaller_img->size()), CV_32FC1);
+
+                    hog::compute_hists(nbins_,
+                            block_stride_.width, block_stride_.height,
+                            smaller_img->rows, smaller_img->cols,
+                            *grad, *qangle,
+                            (float)getWinSigma(),
+                            block_hists->ptr<float>(),
+                            cell_size_.width, cell_size_.height,
+                            cells_per_block_.width, cells_per_block_.height,
+                            StreamAccessor::getStream(stream));
+                    if (t_info.realtime && t_info.sched == fine_grained) {
+                        CALL(get_current_deadline(&curr_deadline));
+                        CALL(set_current_deadline(curr_deadline + param.period));
+                    }
+                    cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
+
+                    grad->release();
+                    qangle->release();
+                    /*
+                     * end of compute histograms
+                     * =========================== */
+
+                    /* ===========================
+                     * normalize histograms
+                     */
+                    hog::normalize_hists(nbins_,
+                            block_stride_.width, block_stride_.height,
+                            smaller_img->rows, smaller_img->cols,
+                            block_hists->ptr<float>(),
+                            (float)threshold_L2hys_,
+                            cell_size_.width, cell_size_.height,
+                            cells_per_block_.width, cells_per_block_.height,
+                            StreamAccessor::getStream(stream));
+                    if (t_info.realtime && t_info.sched == fine_grained) {
+                        CALL(get_current_deadline(&curr_deadline));
+                        CALL(set_current_deadline(curr_deadline + param.period));
+                    }
+                    cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
+                    /*
+                     * end of nomalize histograms
+                     * =========================== */
+
+                    confidences = in_buf->confidences;
+                    labels = in_buf->labels;
+
+                    /* ===========================
+                     * classify
+                     */
+                    wins_per_img = numPartsWithin(smaller_img->size(), win_size_, win_stride_);
+
+                    if (t_info.realtime && t_info.sched == fine_grained) {
+                        CALL(get_current_deadline(&curr_deadline));
+                    }
+                    if (confidences == NULL)
+                    {
+                        *labels = pool.getBuffer(1, wins_per_img.area(), CV_8UC1);
+
+                        if (t_info.realtime && t_info.sched == fine_grained) {
+                            CALL(set_current_deadline(curr_deadline + param.period));
+                        }
+                        hog::classify_hists(win_size_.height, win_size_.width,
+                                block_stride_.height, block_stride_.width,
+                                win_stride_.height, win_stride_.width,
+                                smaller_img->rows, smaller_img->cols,
+                                block_hists->ptr<float>(),
+                                detector_.ptr<float>(),
+                                (float)free_coef_,
+                                (float)hit_threshold_,
+                                cell_size_.width, cells_per_block_.width,
+                                labels->ptr());
+                    }
+                    else
+                    {
+                        *labels = pool.getBuffer(1, wins_per_img.area(), CV_32FC1);
+
+                        if (t_info.realtime && t_info.sched == fine_grained) {
+                            CALL(set_current_deadline(curr_deadline + param.period));
+                        }
+                        hog::compute_confidence_hists(win_size_.height, win_size_.width,
+                                block_stride_.height, block_stride_.width,
+                                win_stride_.height, win_stride_.width,
+                                smaller_img->rows, smaller_img->cols,
+                                block_hists->ptr<float>(),
+                                detector_.ptr<float>(),
+                                (float)free_coef_,
+                                (float)hit_threshold_,
+                                cell_size_.width, cells_per_block_.width,
+                                labels->ptr<float>());
+                    }
+                    /*
+                     * end of classify
+                     * =========================== */
+
+                    block_hists->release();
+
+                    out_buf->gpu_img = in_buf->gpu_img;
+                    out_buf->found = in_buf->found;
+                    out_buf->img_to_show = in_buf->img_to_show;
+                    out_buf->smaller_img = in_buf->smaller_img;
+                    out_buf->level_scale = in_buf->level_scale;
+                    out_buf->confidences = in_buf->confidences;
+                    out_buf->labels = in_buf->labels;
+                    out_buf->index = in_buf->index;
+                    out_buf->frame_index = in_buf->frame_index;
+                    out_buf->start_time = in_buf->start_time;
+                    CheckError(pgm_complete(node));
+                    if (t_info.realtime && t_info.sched == fine_grained) {
+                        CALL(set_current_deadline(curr_deadline));
+                    }
+                    if (t_info.realtime)
+                        sleep_next_period(); /* this calls the system call sys_complete_job. With early releasing, this shouldn't block.*/
+                }
+                else
+                {
+#ifdef LOG_DEBUG
+                    fprintf(stdout, "%s- %d terminates\n", tabbuf, node.node);
+#endif
+                    //pgm_terminate(node);
+                }
+
+            } while(ret != PGM_TERMINATE);
+        }
+
+        pthread_barrier_wait(init_barrier);
+
+        CheckError(pgm_release_node(node));
+
+        free(in_edge);
+        free(out_edge);
+
+        if (t_info.realtime)
+            CALL( task_mode(BACKGROUND_TASK) );
+        pthread_exit(0);
+    }
+
+    void* HOG_Impl::thread_fine_ABCDE(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info)
+    {
+        fprintf(stdout, "node name: resize->classify_hists, task id: %d, node tid: %d\n", t_info.id, gettid());
+        node_t node = *_node;
+#ifdef LOG_DEBUG
+        char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
+        tabbuf[node.node] = '\0';
+#endif
+
+        CheckError(pgm_claim_node(node));
+
+        int ret = 0;
+
+        edge_t *in_edge = (edge_t *)calloc(1, sizeof(edge_t));
+        CheckError(pgm_get_edges_in(node, in_edge, 1));
+        struct params_resize *in_buf = (struct params_resize *)pgm_get_edge_buf_c(*in_edge);
+        if (in_buf == NULL)
+            fprintf(stderr, "resize->classify_hists node in buffer is NULL\n");
+
+        edge_t *out_edge = (edge_t *)calloc(1, sizeof(edge_t));
+        CheckError(pgm_get_edges_out(node, out_edge, 1));
+        struct params_fine_collect_locations *out_buf = (struct params_fine_collect_locations *)pgm_get_edge_buf_p(*out_edge);
+        if (out_buf == NULL)
+            fprintf(stderr, "resize->classify_hists node out buffer is NULL\n");
+
+        Stream stream;
+        GpuMat * smaller_img;
+        GpuMat * gpu_img;
+
+        BufferPool pool(stream);
+        GpuMat * grad;
+        GpuMat * qangle;
+
+        GpuMat * block_hists;
+
+        std::vector<double> * confidences;
+        GpuMat * labels;
+        Size wins_per_img;
+
+        pthread_barrier_wait(init_barrier);
+
+        struct rt_task param;
+        if (t_info.realtime) {
+            if (t_info.cluster != -1)
+                CALL(be_migrate_to_domain(t_info.cluster));
+            init_rt_task_param(&param);
+            param.exec_cost = ms2ns(EXEC_COST);
+            param.period = ms2ns(t_info.period);
+            param.relative_deadline = ms2ns(t_info.relative_deadline);
+            param.phase = ms2ns(t_info.phase);
+            param.budget_policy = NO_ENFORCEMENT;
+            if (t_info.early)
+                param.release_policy = TASK_EARLY; /* early releasing */
+            else
+                param.release_policy = TASK_PERIODIC;
+            param.cls = RT_CLASS_SOFT;
+            param.priority = LITMUS_LOWEST_PRIORITY;
+            if (t_info.cluster != -1)
+                param.cpu = domain_to_first_cpu(t_info.cluster);
+            CALL( init_litmus() );
+            CALL( set_rt_task_param(gettid(), &param) );
+            CALL( task_mode(LITMUS_RT_TASK) );
+            CALL( wait_for_ts_release() );
+        }
+
+        if(!hog_errors)
+        {
+            do {
+                ret = pgm_wait(node);
+
+                if(ret != PGM_TERMINATE)
+                {
+                    CheckError(ret);
+#ifdef LOG_DEBUG
+                    fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
+#endif
+
+                    if (t_info.sched == fine_grained && t_info.early)
+                        gpu_period_guard(t_info.s_info_in, t_info.s_info_out);
+
+                    smaller_img = in_buf->smaller_img;
+                    gpu_img = in_buf->gpu_img;
+                    /* ===========================
+                     * resize image
+                     */
+                    unsigned long long curr_deadline;
+                    if (smaller_img->size() != gpu_img->size())
+                    {
+                        switch (gpu_img->type())
+                        {
+                            case CV_8UC1: hog::resize_8UC1_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index); break;
+                            case CV_8UC4: hog::resize_8UC4_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index); break;
+                        }
+                    }
+                    if (t_info.realtime && t_info.sched == fine_grained) {
+                        CALL(get_current_deadline(&curr_deadline));
+                        CALL(set_current_deadline(curr_deadline + param.period));
+                    }
+                    cudaStreamSynchronize(StreamAccessor::getStream(stream));
+
+                    CV_Assert( smaller_img->type() == CV_8UC1 || smaller_img->type() == CV_8UC4 );
+                    CV_Assert( win_stride_.width % block_stride_.width == 0 && win_stride_.height % block_stride_.height == 0 );
+                    /*
+                     * end of resize image
+                     * =========================== */
+
+                    /* ===========================
+                     * compute gradients
+                     */
+                    grad = new GpuMat();
+                    qangle = new GpuMat();
+
+                    float  angleScale = static_cast<float>(nbins_ / CV_PI);
+                    *grad       = pool.getBuffer(smaller_img->size(), CV_32FC2);
+                    *qangle     = pool.getBuffer(smaller_img->size(), CV_8UC2);
+
+                    switch (smaller_img->type())
+                    {
+                        case CV_8UC1:
+                            hog::compute_gradients_8UC1(nbins_,
+                                    smaller_img->rows, smaller_img->cols, *smaller_img,
+                                    angleScale,
+                                    *grad, *qangle,
+                                    gamma_correction_,
+                                    StreamAccessor::getStream(stream));
+                            break;
+                        case CV_8UC4:
+                            hog::compute_gradients_8UC4(nbins_,
+                                    smaller_img->rows, smaller_img->cols, *smaller_img,
+                                    angleScale,
+                                    *grad, *qangle,
+                                    gamma_correction_,
+                                    StreamAccessor::getStream(stream));
+                            break;
+                    }
+                    if (t_info.realtime && t_info.sched == fine_grained) {
+                        CALL(get_current_deadline(&curr_deadline));
+                        CALL(set_current_deadline(curr_deadline + param.period));
+                    }
+                    cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
+                    /*
+                     * end of compute gradients
+                     * =========================== */
+
+                    block_hists = new GpuMat();
+
+                    /* ===========================
+                     * compute histograms
+                     */
+                    *block_hists      = pool.getBuffer(1, getTotalHistSize(smaller_img->size()), CV_32FC1);
+
+                    hog::compute_hists(nbins_,
+                            block_stride_.width, block_stride_.height,
+                            smaller_img->rows, smaller_img->cols,
+                            *grad, *qangle,
+                            (float)getWinSigma(),
+                            block_hists->ptr<float>(),
+                            cell_size_.width, cell_size_.height,
+                            cells_per_block_.width, cells_per_block_.height,
+                            StreamAccessor::getStream(stream));
+                    if (t_info.realtime && t_info.sched == fine_grained) {
+                        // Mimic having two CPU nodes surrounding GPU nodes (one before,
+                        // and one after, which must have a later deadline by one period)
+                        CALL(get_current_deadline(&curr_deadline));
+                        CALL(set_current_deadline(curr_deadline + param.period));
+                        // Ming thinks maybe we should add the response-time of the GPU node
+                    }
+                    cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
+
+                    grad->release();
+                    qangle->release();
+                    /*
+                     * end of compute histograms
+                     * =========================== */
+
+                    /* ===========================
+                     * normalize histograms
+                     */
+                    hog::normalize_hists(nbins_,
+                            block_stride_.width, block_stride_.height,
+                            smaller_img->rows, smaller_img->cols,
+                            block_hists->ptr<float>(),
+                            (float)threshold_L2hys_,
+                            cell_size_.width, cell_size_.height,
+                            cells_per_block_.width, cells_per_block_.height,
+                            StreamAccessor::getStream(stream));
+                    if (t_info.realtime && t_info.sched == fine_grained) {
+                        CALL(get_current_deadline(&curr_deadline));
+                        CALL(set_current_deadline(curr_deadline + param.period));
+                    }
+                    cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
+                    /*
+                     * end of nomalize histograms
+                     * =========================== */
+
+                    confidences = in_buf->confidences;
+                    labels = in_buf->labels;
+
+                    /* ===========================
+                     * classify
+                     */
+                    wins_per_img = numPartsWithin(smaller_img->size(), win_size_, win_stride_);
+
+                    if (t_info.realtime && t_info.sched == fine_grained) {
+                        CALL(get_current_deadline(&curr_deadline));
+                    }
+                    if (confidences == NULL)
+                    {
+                        *labels = pool.getBuffer(1, wins_per_img.area(), CV_8UC1);
+
+                        if (t_info.realtime && t_info.sched == fine_grained) {
+                            CALL(set_current_deadline(curr_deadline + param.period));
+                        }
+                        hog::classify_hists(win_size_.height, win_size_.width,
+                                block_stride_.height, block_stride_.width,
+                                win_stride_.height, win_stride_.width,
+                                smaller_img->rows, smaller_img->cols,
+                                block_hists->ptr<float>(),
+                                detector_.ptr<float>(),
+                                (float)free_coef_,
+                                (float)hit_threshold_,
+                                cell_size_.width, cells_per_block_.width,
+                                labels->ptr());
+                    }
+                    else
+                    {
+                        *labels = pool.getBuffer(1, wins_per_img.area(), CV_32FC1);
+
+                        if (t_info.realtime && t_info.sched == fine_grained) {
+                            CALL(set_current_deadline(curr_deadline + param.period));
+                        }
+                        hog::compute_confidence_hists(win_size_.height, win_size_.width,
+                                block_stride_.height, block_stride_.width,
+                                win_stride_.height, win_stride_.width,
+                                smaller_img->rows, smaller_img->cols,
+                                block_hists->ptr<float>(),
+                                detector_.ptr<float>(),
+                                (float)free_coef_,
+                                (float)hit_threshold_,
+                                cell_size_.width, cells_per_block_.width,
+                                labels->ptr<float>());
+                    }
+                    /*
+                     * end of classify
+                     * =========================== */
+
+                    block_hists->release();
+
+                    out_buf->gpu_img = in_buf->gpu_img;
+                    out_buf->found = in_buf->found;
+                    out_buf->img_to_show = in_buf->img_to_show;
+                    out_buf->smaller_img = in_buf->smaller_img;
+                    out_buf->level_scale = in_buf->level_scale;
+                    out_buf->confidences = in_buf->confidences;
+                    out_buf->index = in_buf->index;
+                    out_buf->labels = in_buf->labels;
+                    out_buf->frame_index = in_buf->frame_index;
+                    out_buf->start_time = in_buf->start_time;
+                    CheckError(pgm_complete(node));
+                    if (t_info.realtime && t_info.sched == fine_grained) {
+                        CALL(set_current_deadline(curr_deadline));
+                    }
+                    if (t_info.realtime)
+                        sleep_next_period(); /* this calls the system call sys_complete_job. With early releasing, this shouldn't block.*/
+                }
+                else
+                {
+#ifdef LOG_DEBUG
+                    fprintf(stdout, "%s- %d terminates\n", tabbuf, node.node);
+#endif
+                    //pgm_terminate(node);
+                }
+
+            } while(ret != PGM_TERMINATE);
+        }
+
+        pthread_barrier_wait(init_barrier);
+
+        CheckError(pgm_release_node(node));
+
+        free(in_edge);
+        free(out_edge);
+
+        if (t_info.realtime)
+            CALL( task_mode(BACKGROUND_TASK) );
+        pthread_exit(0);
     }
 }
 
