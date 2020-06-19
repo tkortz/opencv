@@ -5124,21 +5124,23 @@ void App::sched_single_merge_in_level_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HO
             }
         }
 
+        // Note: the arrays for bounds and costs are transposed relative to all other arrays;
+        // they should be indexed first by node, then by level
         float bound_color_convert           = 31.0194960215;
         float bound_compute_scales          = 30.5688293615;
-        float bounds_1st [NUM_SCALE_LEVELS] = {30.2419972231,30.3148010256,30.2936775569,30.3079650324,30.2963991483,30.3058228698,30.3005336032,30.2888197835,30.293491626,30.2840584057,30.3013304497,30.3016323015,30.3111116087};
-        float bounds_2nd [NUM_SCALE_LEVELS] = {30.4902863291,30.44552396,30.4706995604,30.4291495557,30.4171804989,30.4135009326,30.3785928987,30.4059076714,30.3816881109,30.3627509567,30.3564101342,30.3519205285,30.3405616838};
-        float bounds_3rd [NUM_SCALE_LEVELS] = {30.5326861275,30.4951636278,30.5415047381,30.4958614402,30.5149987735,30.4750125581,30.5373623676,30.522424222,30.4851937235,30.4577396346,30.4263855713,30.4118414514,30.5202006157};
-        float bounds_4th [NUM_SCALE_LEVELS] = {30.2903383654,30.3080869341,30.2928467608,30.3064130287,30.3114078316,30.3120987837,30.2985990076,30.2803770804,30.3099685825,30.3123524377,30.2989110618,30.2943410679,30.3081075149};
-        float bounds_5th [NUM_SCALE_LEVELS] = {30.4792191337,30.4948973087,30.4540269983,30.429525815,30.5229441951,30.5070612675,30.497249677,30.4955912512,30.4267037822,30.4508744413,30.430038752,30.3991297266,30.3767439685};
+        float bound_levels [5][NUM_SCALE_LEVELS] = {{30.2419972231,30.3148010256,30.2936775569,30.3079650324,30.2963991483,30.3058228698,30.3005336032,30.2888197835,30.293491626,30.2840584057,30.3013304497,30.3016323015,30.3111116087},
+                                                    {30.4902863291,30.44552396,30.4706995604,30.4291495557,30.4171804989,30.4135009326,30.3785928987,30.4059076714,30.3816881109,30.3627509567,30.3564101342,30.3519205285,30.3405616838},
+                                                    {30.5326861275,30.4951636278,30.5415047381,30.4958614402,30.5149987735,30.4750125581,30.5373623676,30.522424222,30.4851937235,30.4577396346,30.4263855713,30.4118414514,30.5202006157},
+                                                    {30.2903383654,30.3080869341,30.2928467608,30.3064130287,30.3114078316,30.3120987837,30.2985990076,30.2803770804,30.3099685825,30.3123524377,30.2989110618,30.2943410679,30.3081075149},
+                                                    {30.4792191337,30.4948973087,30.4540269983,30.429525815,30.5229441951,30.5070612675,30.497249677,30.4955912512,30.4267037822,30.4508744413,30.430038752,30.3991297266,30.3767439685}};
 
         float cost_color_convert           = 4.509346;
         float cost_compute_scales          = 1.947347;
-        float costs_1st [NUM_SCALE_LEVELS] = {0.089336,0.503219,0.383134,0.464357,0.398606,0.452179,0.42211,0.355518,0.382077,0.32845,0.42664,0.428356,0.482245};
-        float costs_2nd [NUM_SCALE_LEVELS] = {1.500837,1.246367,1.389488,1.15328,1.085237,1.064319,0.86587,1.021152,0.883466,0.77581,0.739763,0.71424,0.649666};
-        float costs_3rd [NUM_SCALE_LEVELS] = {1.741876,1.528564,1.792009,1.532531,1.641325,1.414007,1.76846,1.683538,1.471886,1.315812,1.137567,1.054885,1.670897};
-        float costs_4th [NUM_SCALE_LEVELS] = {0.364151,0.46505,0.378411,0.455534,0.483929,0.487857,0.411112,0.307522,0.475747,0.489299,0.412886,0.386906,0.465167};
-        float costs_5th [NUM_SCALE_LEVELS] = {1.437921,1.52705,1.294706,1.155419,1.686494,1.596201,1.540423,1.530995,1.139376,1.276784,1.158335,0.98262,0.855359};
+        float cost_levels [5][NUM_SCALE_LEVELS] = {{0.089336,0.503219,0.383134,0.464357,0.398606,0.452179,0.42211,0.355518,0.382077,0.32845,0.42664,0.428356,0.482245},
+                                                   {1.500837,1.246367,1.389488,1.15328,1.085237,1.064319,0.86587,1.021152,0.883466,0.77581,0.739763,0.71424,0.649666},
+                                                   {1.741876,1.528564,1.792009,1.532531,1.641325,1.414007,1.76846,1.683538,1.471886,1.315812,1.137567,1.054885,1.670897},
+                                                   {0.364151,0.46505,0.378411,0.455534,0.483929,0.487857,0.411112,0.307522,0.475747,0.489299,0.412886,0.386906,0.465167},
+                                                   {1.437921,1.52705,1.294706,1.155419,1.686494,1.596201,1.540423,1.530995,1.139376,1.276784,1.158335,0.98262,0.855359}};
         float cost_collect_locations       = 4.307423;
 
         /* | first graph release      | second graph release     | first graph release again
@@ -5151,7 +5153,7 @@ void App::sched_single_merge_in_level_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HO
         struct task_info t_info;
         t_info.early = args.early;
         t_info.realtime = args.realtime;
-        t_info.sched = fine_AB;
+        t_info.sched = fine_single_merge_in_level;
         t_info.period = period;
         t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, cost_color_convert);
         t_info.phase = PERIOD * g_idx;
@@ -5161,322 +5163,106 @@ void App::sched_single_merge_in_level_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HO
         else
             t_info.cluster = args.cluster;
         *t0 = new thread(&App::thread_color_convert, this,
-                &color_convert_node, fine_init_barrier,
-                gpu_hog, cpu_hog, frames, t_info, g_idx);
+                         &color_convert_node, fine_init_barrier, gpu_hog, cpu_hog, frames, t_info, g_idx);
 
         t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, cost_compute_scales);
         t_info.id = task_id++;
         t_info.phase = t_info.phase + bound_color_convert;
         *t1 = new thread(&cv::cuda::HOG::thread_fine_compute_scales, gpu_hog,
-                &compute_scales_node, fine_init_barrier, t_info);
+                         &compute_scales_node, fine_init_barrier, t_info);
 
         for (int i=0; i<NUM_SCALE_LEVELS; i++) {
+            unsigned num_nodes = num_nodes_per_level[i];
+            void* (cv::cuda::HOG::* level_funcs[num_nodes])(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info);
+
             switch (level_options[i]) {
                 case fine_grained:
-                    t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_1st[i]);
-                    t_info.id = task_id++;
-                    t_info.phase = PERIOD * g_idx + bound_color_convert + bound_compute_scales;
-                    t_info.s_info_in = &(in_sync_info[i][0]);
-                    t_info.s_info_out = &(out_sync_info[i][0]);
-                    tlevel[t_info.id-2] = new thread(&cv::cuda::HOG::thread_fine_resize, gpu_hog,
-                                                     &(level_nodes[i][0]), fine_init_barrier, t_info);
-
-                    t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_2nd[i]);
-                    t_info.id = task_id++;
-                    t_info.phase = t_info.phase + bounds_1st[i];
-                    t_info.s_info_in = &(in_sync_info[i][1]);
-                    t_info.s_info_out = &(out_sync_info[i][1]);
-                    tlevel[t_info.id-2] = new thread(&cv::cuda::HOG::thread_fine_compute_gradients, gpu_hog,
-                                                     &(level_nodes[i][1]), fine_init_barrier, t_info);
-
-                    t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_3rd[i]);
-                    t_info.id = task_id++;
-                    t_info.phase = t_info.phase + bounds_2nd[i];
-                    t_info.s_info_in = &(in_sync_info[i][2]);
-                    t_info.s_info_out = &(out_sync_info[i][2]);
-                    tlevel[t_info.id-2] = new thread(&cv::cuda::HOG::thread_fine_compute_histograms, gpu_hog,
-                                                     &(level_nodes[i][2]), fine_init_barrier, t_info);
-
-                    t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_4th[i]);
-                    t_info.id = task_id++;
-                    t_info.phase = t_info.phase + bounds_3rd[i];
-                    t_info.s_info_in = &(in_sync_info[i][3]);
-                    t_info.s_info_out = &(out_sync_info[i][3]);
-                    tlevel[t_info.id-2] = new thread(&cv::cuda::HOG::thread_fine_normalize_histograms, gpu_hog,
-                                                     &(level_nodes[i][3]), fine_init_barrier, t_info);
-
-                    t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_5th[i]);
-                    t_info.id = task_id++;
-                    t_info.phase = t_info.phase + bounds_4th[i];
-                    t_info.s_info_in = &(in_sync_info[i][4]);
-                    t_info.s_info_out = &(out_sync_info[i][4]);
-                    tlevel[t_info.id-2] = new thread(&cv::cuda::HOG::thread_fine_classify, gpu_hog,
-                                                     &(level_nodes[i][4]), fine_init_barrier, t_info);
+                    level_funcs[0] = &cv::cuda::HOG::thread_fine_resize;
+                    level_funcs[1] = &cv::cuda::HOG::thread_fine_compute_gradients;
+                    level_funcs[2] = &cv::cuda::HOG::thread_fine_compute_histograms;
+                    level_funcs[3] = &cv::cuda::HOG::thread_fine_normalize_histograms;
+                    level_funcs[4] = &cv::cuda::HOG::thread_fine_classify;
                     break;
                 case fine_AB:
-                    t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_1st[i]);
-                    t_info.id = task_id++;
-                    t_info.phase = PERIOD * g_idx + bound_color_convert + bound_compute_scales;
-                    t_info.s_info_in = &(in_sync_info[i][0]);
-                    t_info.s_info_out = &(out_sync_info[i][0]);
-                    tlevel[t_info.id-2] = new thread(&cv::cuda::HOG::thread_fine_AB, gpu_hog,
-                                                     &(level_nodes[i][0]), fine_init_barrier, t_info);
-
-                    t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_2nd[i]);
-                    t_info.id = task_id++;
-                    t_info.phase = t_info.phase + bounds_1st[i];
-                    t_info.s_info_in = &(in_sync_info[i][1]);
-                    t_info.s_info_out = &(out_sync_info[i][1]);
-                    tlevel[t_info.id-2] = new thread(&cv::cuda::HOG::thread_fine_compute_histograms, gpu_hog,
-                                                     &(level_nodes[i][1]), fine_init_barrier, t_info);
-
-                    t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_3rd[i]);
-                    t_info.id = task_id++;
-                    t_info.phase = t_info.phase + bounds_2nd[i];
-                    t_info.s_info_in = &(in_sync_info[i][2]);
-                    t_info.s_info_out = &(out_sync_info[i][2]);
-                    tlevel[t_info.id-2] = new thread(&cv::cuda::HOG::thread_fine_normalize_histograms, gpu_hog,
-                                                     &(level_nodes[i][2]), fine_init_barrier, t_info);
-
-                    t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_4th[i]);
-                    t_info.id = task_id++;
-                    t_info.phase = t_info.phase + bounds_3rd[i];
-                    t_info.s_info_in = &(in_sync_info[i][3]);
-                    t_info.s_info_out = &(out_sync_info[i][3]);
-                    tlevel[t_info.id-2] = new thread(&cv::cuda::HOG::thread_fine_classify, gpu_hog,
-                                                     &(level_nodes[i][3]), fine_init_barrier, t_info);
+                    level_funcs[0] = &cv::cuda::HOG::thread_fine_AB;
+                    level_funcs[1] = &cv::cuda::HOG::thread_fine_compute_histograms;
+                    level_funcs[2] = &cv::cuda::HOG::thread_fine_normalize_histograms;
+                    level_funcs[3] = &cv::cuda::HOG::thread_fine_classify;
                     break;
                 case fine_BC:
-                    t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_1st[i]);
-                    t_info.id = task_id++;
-                    t_info.phase = PERIOD * g_idx + bound_color_convert + bound_compute_scales;
-                    t_info.s_info_in = &(in_sync_info[i][0]);
-                    t_info.s_info_out = &(out_sync_info[i][0]);
-                    tlevel[t_info.id-2] = new thread(&cv::cuda::HOG::thread_fine_resize, gpu_hog,
-                                                     &(level_nodes[i][0]), fine_init_barrier, t_info);
-
-                    t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_2nd[i]);
-                    t_info.id = task_id++;
-                    t_info.phase = t_info.phase + bounds_1st[i];
-                    t_info.s_info_in = &(in_sync_info[i][1]);
-                    t_info.s_info_out = &(out_sync_info[i][1]);
-                    tlevel[t_info.id-2] = new thread(&cv::cuda::HOG::thread_fine_BC, gpu_hog,
-                                                     &(level_nodes[i][1]), fine_init_barrier, t_info);
-
-                    t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_3rd[i]);
-                    t_info.id = task_id++;
-                    t_info.phase = t_info.phase + bounds_2nd[i];
-                    t_info.s_info_in = &(in_sync_info[i][2]);
-                    t_info.s_info_out = &(out_sync_info[i][2]);
-                    tlevel[t_info.id-2] = new thread(&cv::cuda::HOG::thread_fine_normalize_histograms, gpu_hog,
-                                                     &(level_nodes[i][2]), fine_init_barrier, t_info);
-
-                    t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_4th[i]);
-                    t_info.id = task_id++;
-                    t_info.phase = t_info.phase + bounds_3rd[i];
-                    t_info.s_info_in = &(in_sync_info[i][3]);
-                    t_info.s_info_out = &(out_sync_info[i][3]);
-                    tlevel[t_info.id-2] = new thread(&cv::cuda::HOG::thread_fine_classify, gpu_hog,
-                                                     &(level_nodes[i][3]), fine_init_barrier, t_info);
+                    level_funcs[0] = &cv::cuda::HOG::thread_fine_resize;
+                    level_funcs[1] = &cv::cuda::HOG::thread_fine_BC;
+                    level_funcs[2] = &cv::cuda::HOG::thread_fine_normalize_histograms;
+                    level_funcs[3] = &cv::cuda::HOG::thread_fine_classify;
                     break;
                 case fine_CD:
-                    t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_1st[i]);
-                    t_info.id = task_id++;
-                    t_info.phase = PERIOD * g_idx + bound_color_convert + bound_compute_scales;
-                    t_info.s_info_in = &(in_sync_info[i][0]);
-                    t_info.s_info_out = &(out_sync_info[i][0]);
-                    tlevel[t_info.id-2] = new thread(&cv::cuda::HOG::thread_fine_resize, gpu_hog,
-                                                     &(level_nodes[i][0]), fine_init_barrier, t_info);
-
-                    t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_2nd[i]);
-                    t_info.id = task_id++;
-                    t_info.phase = t_info.phase + bounds_1st[i];
-                    t_info.s_info_in = &(in_sync_info[i][1]);
-                    t_info.s_info_out = &(out_sync_info[i][1]);
-                    tlevel[t_info.id-2] = new thread(&cv::cuda::HOG::thread_fine_compute_gradients, gpu_hog,
-                                                     &(level_nodes[i][1]), fine_init_barrier, t_info);
-
-                    t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_3rd[i]);
-                    t_info.id = task_id++;
-                    t_info.phase = t_info.phase + bounds_2nd[i];
-                    t_info.s_info_in = &(in_sync_info[i][2]);
-                    t_info.s_info_out = &(out_sync_info[i][2]);
-                    tlevel[t_info.id-2] = new thread(&cv::cuda::HOG::thread_fine_CD, gpu_hog,
-                                                     &(level_nodes[i][2]), fine_init_barrier, t_info);
-
-                    t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_4th[i]);
-                    t_info.id = task_id++;
-                    t_info.phase = t_info.phase + bounds_3rd[i];
-                    t_info.s_info_in = &(in_sync_info[i][3]);
-                    t_info.s_info_out = &(out_sync_info[i][3]);
-                    tlevel[t_info.id-2] = new thread(&cv::cuda::HOG::thread_fine_classify, gpu_hog,
-                                                     &(level_nodes[i][3]), fine_init_barrier, t_info);
+                    level_funcs[0] = &cv::cuda::HOG::thread_fine_resize;
+                    level_funcs[1] = &cv::cuda::HOG::thread_fine_compute_gradients;
+                    level_funcs[2] = &cv::cuda::HOG::thread_fine_CD;
+                    level_funcs[3] = &cv::cuda::HOG::thread_fine_classify;
                     break;
                 case fine_DE:
-                    t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_1st[i]);
-                    t_info.id = task_id++;
-                    t_info.phase = PERIOD * g_idx + bound_color_convert + bound_compute_scales;
-                    t_info.s_info_in = &(in_sync_info[i][0]);
-                    t_info.s_info_out = &(out_sync_info[i][0]);
-                    tlevel[t_info.id-2] = new thread(&cv::cuda::HOG::thread_fine_resize, gpu_hog,
-                                                     &(level_nodes[i][0]), fine_init_barrier, t_info);
-
-                    t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_2nd[i]);
-                    t_info.id = task_id++;
-                    t_info.phase = t_info.phase + bounds_1st[i];
-                    t_info.s_info_in = &(in_sync_info[i][1]);
-                    t_info.s_info_out = &(out_sync_info[i][1]);
-                    tlevel[t_info.id-2] = new thread(&cv::cuda::HOG::thread_fine_compute_gradients, gpu_hog,
-                                                     &(level_nodes[i][1]), fine_init_barrier, t_info);
-
-                    t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_3rd[i]);
-                    t_info.id = task_id++;
-                    t_info.phase = t_info.phase + bounds_2nd[i];
-                    t_info.s_info_in = &(in_sync_info[i][2]);
-                    t_info.s_info_out = &(out_sync_info[i][2]);
-                    tlevel[t_info.id-2] = new thread(&cv::cuda::HOG::thread_fine_compute_histograms, gpu_hog,
-                                                     &(level_nodes[i][2]), fine_init_barrier, t_info);
-
-                    t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_4th[i]);
-                    t_info.id = task_id++;
-                    t_info.phase = t_info.phase + bounds_3rd[i];
-                    t_info.s_info_in = &(in_sync_info[i][3]);
-                    t_info.s_info_out = &(out_sync_info[i][3]);
-                    tlevel[t_info.id-2] = new thread(&cv::cuda::HOG::thread_fine_DE, gpu_hog,
-                                                     &(level_nodes[i][3]), fine_init_barrier, t_info);
+                    level_funcs[0] = &cv::cuda::HOG::thread_fine_resize;
+                    level_funcs[1] = &cv::cuda::HOG::thread_fine_compute_gradients;
+                    level_funcs[2] = &cv::cuda::HOG::thread_fine_compute_histograms;
+                    level_funcs[3] = &cv::cuda::HOG::thread_fine_DE;
                     break;
                 case fine_ABC:
-                    t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_1st[i]);
-                    t_info.id = task_id++;
-                    t_info.phase = PERIOD * g_idx + bound_color_convert + bound_compute_scales;
-                    t_info.s_info_in = &(in_sync_info[i][0]);
-                    t_info.s_info_out = &(out_sync_info[i][0]);
-                    tlevel[t_info.id-2] = new thread(&cv::cuda::HOG::thread_fine_ABC, gpu_hog,
-                                                     &(level_nodes[i][0]), fine_init_barrier, t_info);
-
-                    t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_2nd[i]);
-                    t_info.id = task_id++;
-                    t_info.phase = t_info.phase + bounds_1st[i];
-                    t_info.s_info_in = &(in_sync_info[i][1]);
-                    t_info.s_info_out = &(out_sync_info[i][1]);
-                    tlevel[t_info.id-2] = new thread(&cv::cuda::HOG::thread_fine_normalize_histograms, gpu_hog,
-                                                     &(level_nodes[i][1]), fine_init_barrier, t_info);
-
-                    t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_3rd[i]);
-                    t_info.id = task_id++;
-                    t_info.phase = t_info.phase + bounds_2nd[i];
-                    t_info.s_info_in = &(in_sync_info[i][2]);
-                    t_info.s_info_out = &(out_sync_info[i][2]);
-                    tlevel[t_info.id-2] = new thread(&cv::cuda::HOG::thread_fine_classify, gpu_hog,
-                                                     &(level_nodes[i][2]), fine_init_barrier, t_info);
+                    level_funcs[0] = &cv::cuda::HOG::thread_fine_ABC;
+                    level_funcs[1] = &cv::cuda::HOG::thread_fine_normalize_histograms;
+                    level_funcs[2] = &cv::cuda::HOG::thread_fine_classify;
                     break;
                 case fine_BCD:
-                    t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_1st[i]);
-                    t_info.id = task_id++;
-                    t_info.phase = PERIOD * g_idx + bound_color_convert + bound_compute_scales;
-                    t_info.s_info_in = &(in_sync_info[i][0]);
-                    t_info.s_info_out = &(out_sync_info[i][0]);
-                    tlevel[t_info.id-2] = new thread(&cv::cuda::HOG::thread_fine_resize, gpu_hog,
-                                                     &(level_nodes[i][0]), fine_init_barrier, t_info);
-
-                    t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_2nd[i]);
-                    t_info.id = task_id++;
-                    t_info.phase = t_info.phase + bounds_1st[i];
-                    t_info.s_info_in = &(in_sync_info[i][1]);
-                    t_info.s_info_out = &(out_sync_info[i][1]);
-                    tlevel[t_info.id-2] = new thread(&cv::cuda::HOG::thread_fine_BCD, gpu_hog,
-                                                     &(level_nodes[i][1]), fine_init_barrier, t_info);
-
-                    t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_3rd[i]);
-                    t_info.id = task_id++;
-                    t_info.phase = t_info.phase + bounds_2nd[i];
-                    t_info.s_info_in = &(in_sync_info[i][2]);
-                    t_info.s_info_out = &(out_sync_info[i][2]);
-                    tlevel[t_info.id-2] = new thread(&cv::cuda::HOG::thread_fine_classify, gpu_hog,
-                                                     &(level_nodes[i][2]), fine_init_barrier, t_info);
+                    level_funcs[0] = &cv::cuda::HOG::thread_fine_resize;
+                    level_funcs[1] = &cv::cuda::HOG::thread_fine_BCD;
+                    level_funcs[2] = &cv::cuda::HOG::thread_fine_classify;
                     break;
                 case fine_CDE:
-                    t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_1st[i]);
-                    t_info.id = task_id++;
-                    t_info.phase = PERIOD * g_idx + bound_color_convert + bound_compute_scales;
-                    t_info.s_info_in = &(in_sync_info[i][0]);
-                    t_info.s_info_out = &(out_sync_info[i][0]);
-                    tlevel[t_info.id-2] = new thread(&cv::cuda::HOG::thread_fine_resize, gpu_hog,
-                                                     &(level_nodes[i][0]), fine_init_barrier, t_info);
-
-                    t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_2nd[i]);
-                    t_info.id = task_id++;
-                    t_info.phase = t_info.phase + bounds_1st[i];
-                    t_info.s_info_in = &(in_sync_info[i][1]);
-                    t_info.s_info_out = &(out_sync_info[i][1]);
-                    tlevel[t_info.id-2] = new thread(&cv::cuda::HOG::thread_fine_compute_gradients, gpu_hog,
-                                                     &(level_nodes[i][1]), fine_init_barrier, t_info);
-
-                    t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_3rd[i]);
-                    t_info.id = task_id++;
-                    t_info.phase = t_info.phase + bounds_2nd[i];
-                    t_info.s_info_in = &(in_sync_info[i][2]);
-                    t_info.s_info_out = &(out_sync_info[i][2]);
-                    tlevel[t_info.id-2] = new thread(&cv::cuda::HOG::thread_fine_CDE, gpu_hog,
-                                                     &(level_nodes[i][2]), fine_init_barrier, t_info);
+                    level_funcs[0] = &cv::cuda::HOG::thread_fine_resize;
+                    level_funcs[1] = &cv::cuda::HOG::thread_fine_compute_gradients;
+                    level_funcs[2] = &cv::cuda::HOG::thread_fine_CDE;
                     break;
                 case fine_ABCD:
-                    t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_1st[i]);
-                    t_info.id = task_id++;
-                    t_info.phase = PERIOD * g_idx + bound_color_convert + bound_compute_scales;
-                    t_info.s_info_in = &(in_sync_info[i][0]);
-                    t_info.s_info_out = &(out_sync_info[i][0]);
-                    tlevel[t_info.id-2] = new thread(&cv::cuda::HOG::thread_fine_ABCD, gpu_hog,
-                                                     &(level_nodes[i][0]), fine_init_barrier, t_info);
-
-                    t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_2nd[i]);
-                    t_info.id = task_id++;
-                    t_info.phase = t_info.phase + bounds_1st[i];
-                    t_info.s_info_in = &(in_sync_info[i][1]);
-                    t_info.s_info_out = &(out_sync_info[i][1]);
-                    tlevel[t_info.id-2] = new thread(&cv::cuda::HOG::thread_fine_classify, gpu_hog,
-                                                     &(level_nodes[i][1]), fine_init_barrier, t_info);
+                    level_funcs[0] = &cv::cuda::HOG::thread_fine_ABCD;
+                    level_funcs[1] = &cv::cuda::HOG::thread_fine_classify;
                     break;
                 case fine_BCDE:
-                    t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_1st[i]);
-                    t_info.id = task_id++;
-                    t_info.phase = PERIOD * g_idx + bound_color_convert + bound_compute_scales;
-                    t_info.s_info_in = &(in_sync_info[i][0]);
-                    t_info.s_info_out = &(out_sync_info[i][0]);
-                    tlevel[t_info.id-2] = new thread(&cv::cuda::HOG::thread_fine_resize, gpu_hog,
-                                                     &(level_nodes[i][0]), fine_init_barrier, t_info);
-
-                    t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_2nd[i]);
-                    t_info.id = task_id++;
-                    t_info.phase = t_info.phase + bounds_1st[i];
-                    t_info.s_info_in = &(in_sync_info[i][1]);
-                    t_info.s_info_out = &(out_sync_info[i][1]);
-                    tlevel[t_info.id-2] = new thread(&cv::cuda::HOG::thread_fine_BCDE, gpu_hog,
-                                                     &(level_nodes[i][1]), fine_init_barrier, t_info);
+                    level_funcs[0] = &cv::cuda::HOG::thread_fine_resize;
+                    level_funcs[1] = &cv::cuda::HOG::thread_fine_BCDE;
                     break;
                 case fine_ABCDE:
-                    t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_1st[i]);
-                    t_info.id = task_id++;
-                    t_info.phase = PERIOD * g_idx + bound_color_convert + bound_compute_scales;
-                    t_info.s_info_in = &(in_sync_info[i][0]);
-                    t_info.s_info_out = &(out_sync_info[i][0]);
-                    tlevel[t_info.id-2] = new thread(&cv::cuda::HOG::thread_fine_ABCDE, gpu_hog,
-                                                     &(level_nodes[i][0]), fine_init_barrier, t_info);
+                    level_funcs[0] = &cv::cuda::HOG::thread_fine_ABCDE;
                     break;
                 default:
                     break;
+            }
+
+            for (unsigned node_idx = 0; node_idx < num_nodes; node_idx++)
+            {
+                // Recall that cost_levels and bound_levels are transposed: node first, then level
+                t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, cost_levels[node_idx][i]);
+                t_info.id = task_id++;
+                t_info.phase = node_idx == 0 \
+                                    ? PERIOD * g_idx + bound_color_convert + bound_compute_scales \
+                                    : t_info.phase + bound_levels[node_idx - 1][i];
+                t_info.s_info_in = &(in_sync_info[i][node_idx]);
+                t_info.s_info_out = &(out_sync_info[i][node_idx]);
+                tlevel[t_info.id-2] = new thread(level_funcs[node_idx], gpu_hog,
+                                                 &(level_nodes[i][node_idx]), fine_init_barrier, t_info);
             }
         }
 
         t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, cost_collect_locations);
         t_info.id = task_id++;
         // TODO: fix this computation
-        t_info.phase = t_info.phase + *std::max_element(bounds_5th, bounds_5th+NUM_SCALE_LEVELS);
+        t_info.phase = t_info.phase + *std::max_element(&(bound_levels[4][0]), &(bound_levels[4][NUM_SCALE_LEVELS-1]));
         *t7 = new thread(&cv::cuda::HOG::thread_fine_collect_locations, gpu_hog,
                 &collect_locations_node, fine_init_barrier, t_info);
 
         *t8 = new thread(&App::thread_display, this, &display_node,
                 fine_init_barrier, g_idx == 0 && args.display);
+
+        fprintf(stdout, "Created %d tasks\n", task_id);
     }
 
     /* graph construction finishes */
