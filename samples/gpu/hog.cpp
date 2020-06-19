@@ -1125,25 +1125,6 @@ void App::sched_fine_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
     /* graph construction */
     graph_t arr_g                       [args.num_fine_graphs];
 
-    node_t arr_color_convert_node       [args.num_fine_graphs];
-    node_t arr_compute_scales_node      [args.num_fine_graphs];
-    node_t arr_resize_node              [args.num_fine_graphs][NUM_SCALE_LEVELS];
-    node_t arr_compute_gradients_node   [args.num_fine_graphs][NUM_SCALE_LEVELS];
-    node_t arr_compute_histograms_node  [args.num_fine_graphs][NUM_SCALE_LEVELS];
-    node_t arr_normalize_node           [args.num_fine_graphs][NUM_SCALE_LEVELS];
-    node_t arr_classify_node            [args.num_fine_graphs][NUM_SCALE_LEVELS];
-    node_t arr_collect_locations_node   [args.num_fine_graphs];
-    node_t arr_display_node             [args.num_fine_graphs];
-
-    edge_t arr_e0_1[args.num_fine_graphs];
-    edge_t arr_e1_2[args.num_fine_graphs][NUM_SCALE_LEVELS];
-    edge_t arr_e2_3[args.num_fine_graphs][NUM_SCALE_LEVELS];
-    edge_t arr_e3_4[args.num_fine_graphs][NUM_SCALE_LEVELS];
-    edge_t arr_e4_5[args.num_fine_graphs][NUM_SCALE_LEVELS];
-    edge_t arr_e5_6[args.num_fine_graphs][NUM_SCALE_LEVELS];
-    edge_t arr_e6_7[args.num_fine_graphs][NUM_SCALE_LEVELS];
-    edge_t arr_e7_8[args.num_fine_graphs];
-
     struct sync_info arr_sync_info_resize             [args.num_fine_graphs][NUM_SCALE_LEVELS];
     struct sync_info arr_sync_info_compute_gradients  [args.num_fine_graphs][NUM_SCALE_LEVELS];
     struct sync_info arr_sync_info_compute_histograms [args.num_fine_graphs][NUM_SCALE_LEVELS];
@@ -1170,24 +1151,24 @@ void App::sched_fine_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
 
         graph_t* g_ptr = arr_g + g_idx;
 
-        node_t* color_convert_node      = arr_color_convert_node + g_idx;
-        node_t* compute_scales_node     = arr_compute_scales_node + g_idx;
-        node_t* resize_node             = arr_resize_node[g_idx];
-        node_t* compute_gradients_node  = arr_compute_gradients_node[g_idx];
-        node_t* compute_histograms_node = arr_compute_histograms_node[g_idx];
-        node_t* normalize_node          = arr_normalize_node[g_idx];
-        node_t* classify_node           = arr_classify_node[g_idx];
-        node_t* collect_locations_node  = arr_collect_locations_node + g_idx;
-        node_t* display_node            = arr_display_node + g_idx;
+        node_t color_convert_node;
+        node_t compute_scales_node;
+        node_t resize_node             [NUM_SCALE_LEVELS];
+        node_t compute_gradients_node  [NUM_SCALE_LEVELS];
+        node_t compute_histograms_node [NUM_SCALE_LEVELS];
+        node_t normalize_node          [NUM_SCALE_LEVELS];
+        node_t classify_node           [NUM_SCALE_LEVELS];
+        node_t collect_locations_node;
+        node_t display_node;
 
-        edge_t* e0_1 = arr_e0_1 + g_idx;
-        edge_t* e1_2 = arr_e1_2[g_idx];
-        edge_t* e2_3 = arr_e2_3[g_idx];
-        edge_t* e3_4 = arr_e3_4[g_idx];
-        edge_t* e4_5 = arr_e4_5[g_idx];
-        edge_t* e5_6 = arr_e5_6[g_idx];
-        edge_t* e6_7 = arr_e6_7[g_idx];
-        edge_t* e7_8 = arr_e7_8 + g_idx;
+        edge_t e0_1;
+        edge_t e1_2 [NUM_SCALE_LEVELS];
+        edge_t e2_3 [NUM_SCALE_LEVELS];
+        edge_t e3_4 [NUM_SCALE_LEVELS];
+        edge_t e4_5 [NUM_SCALE_LEVELS];
+        edge_t e5_6 [NUM_SCALE_LEVELS];
+        edge_t e6_7 [NUM_SCALE_LEVELS];
+        edge_t e7_8;
 
         thread** t0 = arr_t0 + g_idx;
         thread** t1 = arr_t1 + g_idx;
@@ -1229,8 +1210,8 @@ void App::sched_fine_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
         CheckError(pgm_init_graph(g_ptr, buf));
         graph_t g = *g_ptr;
 
-        CheckError(pgm_init_node(color_convert_node, g, "color_convert"));
-        CheckError(pgm_init_node(compute_scales_node, g, "compute_scales"));
+        CheckError(pgm_init_node(&color_convert_node, g, "color_convert"));
+        CheckError(pgm_init_node(&compute_scales_node, g, "compute_scales"));
         for (int i=0; i<NUM_SCALE_LEVELS; i++) {
             CheckError(pgm_init_node(resize_node + i, g, "resize"));
             CheckError(pgm_init_node(compute_gradients_node + i, g, "compute_gradients"));
@@ -1238,8 +1219,8 @@ void App::sched_fine_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
             CheckError(pgm_init_node(normalize_node + i, g, "normalize"));
             CheckError(pgm_init_node(classify_node + i, g, "classify"));
         }
-        CheckError(pgm_init_node(collect_locations_node, g, "collect_locations"));
-        CheckError(pgm_init_node(display_node, g, "display"));
+        CheckError(pgm_init_node(&collect_locations_node, g, "collect_locations"));
+        CheckError(pgm_init_node(&display_node, g, "display"));
 
         edge_attr_t fast_mq_attr;
         memset(&fast_mq_attr, 0, sizeof(fast_mq_attr));
@@ -1250,7 +1231,7 @@ void App::sched_fine_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
         fast_mq_attr.nr_produce = sizeof(struct params_compute);
         fast_mq_attr.nr_consume = sizeof(struct params_compute);
         fast_mq_attr.nr_threshold = sizeof(struct params_compute);
-        CheckError(pgm_init_edge(e0_1, *color_convert_node, *compute_scales_node, "e0_1", &fast_mq_attr));
+        CheckError(pgm_init_edge(&e0_1, color_convert_node, compute_scales_node, "e0_1", &fast_mq_attr));
 
         for (int i=0; i<NUM_SCALE_LEVELS; i++) {
             sprintf(buf, "e1_2_%d", i);
@@ -1258,7 +1239,7 @@ void App::sched_fine_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
             fast_mq_attr.nr_consume = sizeof(struct params_resize);
             fast_mq_attr.nr_threshold = sizeof(struct params_resize);
             CheckError(pgm_init_edge(e1_2 + i,
-                        *compute_scales_node,
+                        compute_scales_node,
                         resize_node[i], buf, &fast_mq_attr));
 
             sprintf(buf, "e2_3_%d", i);
@@ -1301,14 +1282,14 @@ void App::sched_fine_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
             fast_mq_attr.nr_threshold = sizeof(struct params_fine_collect_locations);
             CheckError(pgm_init_edge(e6_7 + i,
                         classify_node[i],
-                        *collect_locations_node, buf,
+                        collect_locations_node, buf,
                         &fast_mq_attr));
         }
 
         fast_mq_attr.nr_produce = sizeof(struct params_display);
         fast_mq_attr.nr_consume = sizeof(struct params_display);
         fast_mq_attr.nr_threshold = sizeof(struct params_display);
-        CheckError(pgm_init_edge(e7_8, *collect_locations_node, *display_node, "e7_8", &fast_mq_attr));
+        CheckError(pgm_init_edge(&e7_8, collect_locations_node, display_node, "e7_8", &fast_mq_attr));
 
         pthread_barrier_init(fine_init_barrier, 0, 5 * NUM_SCALE_LEVELS + 4);
 
@@ -1365,20 +1346,21 @@ void App::sched_fine_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
         t_info.period = period;
         t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, cost_color_convert);
         t_info.phase = PERIOD * g_idx;
+        // t_info.fzlp_nodes = (fzlp_node_t *)calloc(NUM_SCALE_LEVELS, sizeof(fzlp_node_t));
         t_info.id = 0;
         if (args.cluster != -1)
             t_info.cluster = args.cluster;// + g_idx;
         else
             t_info.cluster = args.cluster;
         *t0 = new thread(&App::thread_color_convert, this,
-                color_convert_node, fine_init_barrier,
+                &color_convert_node, fine_init_barrier,
                 gpu_hog, cpu_hog, frames, t_info, g_idx);
 
         t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, cost_compute_scales);
         t_info.id = 1;
         t_info.phase = t_info.phase + bound_color_convert;
         *t1 = new thread(&cv::cuda::HOG::thread_fine_compute_scales, gpu_hog,
-                compute_scales_node, fine_init_barrier, t_info);
+                &compute_scales_node, fine_init_barrier, t_info);
 
         for (int i=0; i<NUM_SCALE_LEVELS; i++) {
             t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_resize[i]);
@@ -1427,10 +1409,10 @@ void App::sched_fine_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
         t_info.id = 5 * NUM_SCALE_LEVELS + 2;
         t_info.phase = t_info.phase + *std::max_element(bounds_classify, bounds_classify+NUM_SCALE_LEVELS);
         *t7 = new thread(&cv::cuda::HOG::thread_fine_collect_locations, gpu_hog,
-                collect_locations_node, fine_init_barrier, t_info);
+                &collect_locations_node, fine_init_barrier, t_info);
         //t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, cost_display);
         //t_info.phase;
-        *t8 = new thread(&App::thread_display, this, display_node,
+        *t8 = new thread(&App::thread_display, this, &display_node,
                 fine_init_barrier, g_idx == 0 && args.display);
     }
 
@@ -2016,23 +1998,6 @@ void App::sched_AB_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog
     /* graph construction */
     graph_t arr_g                       [args.num_fine_graphs];
 
-    node_t arr_color_convert_node       [args.num_fine_graphs];
-    node_t arr_compute_scales_node      [args.num_fine_graphs];
-    node_t arr_AB_node                  [args.num_fine_graphs][NUM_SCALE_LEVELS]; // resize + compute-grads
-    node_t arr_compute_histograms_node  [args.num_fine_graphs][NUM_SCALE_LEVELS];
-    node_t arr_normalize_node           [args.num_fine_graphs][NUM_SCALE_LEVELS];
-    node_t arr_classify_node            [args.num_fine_graphs][NUM_SCALE_LEVELS];
-    node_t arr_collect_locations_node   [args.num_fine_graphs];
-    node_t arr_display_node             [args.num_fine_graphs];
-
-    edge_t arr_e0_1[args.num_fine_graphs];
-    edge_t arr_e1_23[args.num_fine_graphs][NUM_SCALE_LEVELS];
-    edge_t arr_e23_4[args.num_fine_graphs][NUM_SCALE_LEVELS];
-    edge_t arr_e4_5[args.num_fine_graphs][NUM_SCALE_LEVELS];
-    edge_t arr_e5_6[args.num_fine_graphs][NUM_SCALE_LEVELS];
-    edge_t arr_e6_7[args.num_fine_graphs][NUM_SCALE_LEVELS];
-    edge_t arr_e7_8[args.num_fine_graphs];
-
     struct sync_info arr_sync_info_AB                 [args.num_fine_graphs][NUM_SCALE_LEVELS];
     struct sync_info arr_sync_info_compute_histograms [args.num_fine_graphs][NUM_SCALE_LEVELS];
     struct sync_info arr_sync_info_normalize          [args.num_fine_graphs][NUM_SCALE_LEVELS];
@@ -2057,22 +2022,22 @@ void App::sched_AB_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog
 
         graph_t* g_ptr = arr_g + g_idx;
 
-        node_t* color_convert_node      = arr_color_convert_node + g_idx;
-        node_t* compute_scales_node     = arr_compute_scales_node + g_idx;
-        node_t* AB_node                 = arr_AB_node[g_idx];
-        node_t* compute_histograms_node = arr_compute_histograms_node[g_idx];
-        node_t* normalize_node          = arr_normalize_node[g_idx];
-        node_t* classify_node           = arr_classify_node[g_idx];
-        node_t* collect_locations_node  = arr_collect_locations_node + g_idx;
-        node_t* display_node            = arr_display_node + g_idx;
+        node_t color_convert_node;
+        node_t compute_scales_node;
+        node_t AB_node                 [NUM_SCALE_LEVELS]; // resize + compute-grads
+        node_t compute_histograms_node [NUM_SCALE_LEVELS];
+        node_t normalize_node          [NUM_SCALE_LEVELS];
+        node_t classify_node           [NUM_SCALE_LEVELS];
+        node_t collect_locations_node;
+        node_t display_node;
 
-        edge_t* e0_1 = arr_e0_1 + g_idx;
-        edge_t* e1_23 = arr_e1_23[g_idx];
-        edge_t* e23_4 = arr_e23_4[g_idx];
-        edge_t* e4_5 = arr_e4_5[g_idx];
-        edge_t* e5_6 = arr_e5_6[g_idx];
-        edge_t* e6_7 = arr_e6_7[g_idx];
-        edge_t* e7_8 = arr_e7_8 + g_idx;
+        edge_t e0_1;
+        edge_t e1_23 [NUM_SCALE_LEVELS];
+        edge_t e23_4 [NUM_SCALE_LEVELS];
+        edge_t e4_5  [NUM_SCALE_LEVELS];
+        edge_t e5_6  [NUM_SCALE_LEVELS];
+        edge_t e6_7  [NUM_SCALE_LEVELS];
+        edge_t e7_8;
 
         thread** t0  = arr_t0 + g_idx;
         thread** t1  = arr_t1 + g_idx;
@@ -2109,16 +2074,16 @@ void App::sched_AB_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog
         CheckError(pgm_init_graph(g_ptr, buf));
         graph_t g = *g_ptr;
 
-        CheckError(pgm_init_node(color_convert_node, g, "color_convert"));
-        CheckError(pgm_init_node(compute_scales_node, g, "compute_scales"));
+        CheckError(pgm_init_node(&color_convert_node, g, "color_convert"));
+        CheckError(pgm_init_node(&compute_scales_node, g, "compute_scales"));
         for (int i=0; i<NUM_SCALE_LEVELS; i++) {
             CheckError(pgm_init_node(AB_node + i, g, "AB"));
             CheckError(pgm_init_node(compute_histograms_node + i, g, "compute_histograms"));
             CheckError(pgm_init_node(normalize_node + i, g, "normalize"));
             CheckError(pgm_init_node(classify_node + i, g, "classify"));
         }
-        CheckError(pgm_init_node(collect_locations_node, g, "collect_locations"));
-        CheckError(pgm_init_node(display_node, g, "display"));
+        CheckError(pgm_init_node(&collect_locations_node, g, "collect_locations"));
+        CheckError(pgm_init_node(&display_node, g, "display"));
 
         edge_attr_t fast_mq_attr;
         memset(&fast_mq_attr, 0, sizeof(fast_mq_attr));
@@ -2129,7 +2094,7 @@ void App::sched_AB_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog
         fast_mq_attr.nr_produce = sizeof(struct params_compute);
         fast_mq_attr.nr_consume = sizeof(struct params_compute);
         fast_mq_attr.nr_threshold = sizeof(struct params_compute);
-        CheckError(pgm_init_edge(e0_1, *color_convert_node, *compute_scales_node, "e0_1", &fast_mq_attr));
+        CheckError(pgm_init_edge(&e0_1, color_convert_node, compute_scales_node, "e0_1", &fast_mq_attr));
 
         for (int i=0; i<NUM_SCALE_LEVELS; i++) {
             sprintf(buf, "e1_23_%d", i);
@@ -2137,7 +2102,7 @@ void App::sched_AB_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog
             fast_mq_attr.nr_consume = sizeof(struct params_resize);
             fast_mq_attr.nr_threshold = sizeof(struct params_resize);
             CheckError(pgm_init_edge(e1_23 + i,
-                        *compute_scales_node,
+                        compute_scales_node,
                         AB_node[i], buf, &fast_mq_attr));
 
             sprintf(buf, "e23_4_%d", i);
@@ -2171,14 +2136,14 @@ void App::sched_AB_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog
             fast_mq_attr.nr_threshold = sizeof(struct params_fine_collect_locations);
             CheckError(pgm_init_edge(e6_7 + i,
                         classify_node[i],
-                        *collect_locations_node, buf,
+                        collect_locations_node, buf,
                         &fast_mq_attr));
         }
 
         fast_mq_attr.nr_produce = sizeof(struct params_display);
         fast_mq_attr.nr_consume = sizeof(struct params_display);
         fast_mq_attr.nr_threshold = sizeof(struct params_display);
-        CheckError(pgm_init_edge(e7_8, *collect_locations_node, *display_node, "e7_8", &fast_mq_attr));
+        CheckError(pgm_init_edge(&e7_8, collect_locations_node, display_node, "e7_8", &fast_mq_attr));
 
         pthread_barrier_init(fine_init_barrier, 0, 4 * NUM_SCALE_LEVELS + 4);
 
@@ -2237,14 +2202,14 @@ void App::sched_AB_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog
         else
             t_info.cluster = args.cluster;
         *t0 = new thread(&App::thread_color_convert, this,
-                color_convert_node, fine_init_barrier,
+                &color_convert_node, fine_init_barrier,
                 gpu_hog, cpu_hog, frames, t_info, g_idx);
 
         t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, cost_compute_scales);
         t_info.id = 1;
         t_info.phase = t_info.phase + bound_color_convert;
         *t1 = new thread(&cv::cuda::HOG::thread_fine_compute_scales, gpu_hog,
-                compute_scales_node, fine_init_barrier, t_info);
+                &compute_scales_node, fine_init_barrier, t_info);
 
         for (int i=0; i<NUM_SCALE_LEVELS; i++) {
             t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_AB[i]);
@@ -2285,10 +2250,10 @@ void App::sched_AB_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog
         t_info.id = 4 * NUM_SCALE_LEVELS + 2;
         t_info.phase = t_info.phase + *std::max_element(bounds_classify, bounds_classify+NUM_SCALE_LEVELS);
         *t7 = new thread(&cv::cuda::HOG::thread_fine_collect_locations, gpu_hog,
-                collect_locations_node, fine_init_barrier, t_info);
+                &collect_locations_node, fine_init_barrier, t_info);
         //t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, cost_display);
         //t_info.phase;
-        *t8 = new thread(&App::thread_display, this, display_node,
+        *t8 = new thread(&App::thread_display, this, &display_node,
                 fine_init_barrier, g_idx == 0 && args.display);
     }
 
@@ -2346,23 +2311,6 @@ void App::sched_BC_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog
     /* graph construction */
     graph_t arr_g                       [args.num_fine_graphs];
 
-    node_t arr_color_convert_node       [args.num_fine_graphs];
-    node_t arr_compute_scales_node      [args.num_fine_graphs];
-    node_t arr_resize_node              [args.num_fine_graphs][NUM_SCALE_LEVELS];
-    node_t arr_BC_node                  [args.num_fine_graphs][NUM_SCALE_LEVELS]; // compute-grads + compute-hists
-    node_t arr_normalize_node           [args.num_fine_graphs][NUM_SCALE_LEVELS];
-    node_t arr_classify_node            [args.num_fine_graphs][NUM_SCALE_LEVELS];
-    node_t arr_collect_locations_node   [args.num_fine_graphs];
-    node_t arr_display_node             [args.num_fine_graphs];
-
-    edge_t arr_e0_1[args.num_fine_graphs];
-    edge_t arr_e1_2[args.num_fine_graphs][NUM_SCALE_LEVELS];
-    edge_t arr_e2_34[args.num_fine_graphs][NUM_SCALE_LEVELS];
-    edge_t arr_e34_5[args.num_fine_graphs][NUM_SCALE_LEVELS];
-    edge_t arr_e5_6[args.num_fine_graphs][NUM_SCALE_LEVELS];
-    edge_t arr_e6_7[args.num_fine_graphs][NUM_SCALE_LEVELS];
-    edge_t arr_e7_8[args.num_fine_graphs];
-
     struct sync_info arr_sync_info_resize             [args.num_fine_graphs][NUM_SCALE_LEVELS];
     struct sync_info arr_sync_info_BC                 [args.num_fine_graphs][NUM_SCALE_LEVELS];
     struct sync_info arr_sync_info_normalize          [args.num_fine_graphs][NUM_SCALE_LEVELS];
@@ -2387,22 +2335,22 @@ void App::sched_BC_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog
 
         graph_t* g_ptr = arr_g + g_idx;
 
-        node_t* color_convert_node      = arr_color_convert_node + g_idx;
-        node_t* compute_scales_node     = arr_compute_scales_node + g_idx;
-        node_t* resize_node             = arr_resize_node[g_idx];
-        node_t* BC_node                 = arr_BC_node[g_idx];
-        node_t* normalize_node          = arr_normalize_node[g_idx];
-        node_t* classify_node           = arr_classify_node[g_idx];
-        node_t* collect_locations_node  = arr_collect_locations_node + g_idx;
-        node_t* display_node            = arr_display_node + g_idx;
+        node_t color_convert_node;
+        node_t compute_scales_node;
+        node_t resize_node             [NUM_SCALE_LEVELS];
+        node_t BC_node                 [NUM_SCALE_LEVELS]; // compute-grads + compute-hists
+        node_t normalize_node          [NUM_SCALE_LEVELS];
+        node_t classify_node           [NUM_SCALE_LEVELS];
+        node_t collect_locations_node;
+        node_t display_node;
 
-        edge_t* e0_1 = arr_e0_1 + g_idx;
-        edge_t* e1_2 = arr_e1_2[g_idx];
-        edge_t* e2_34 = arr_e2_34[g_idx];
-        edge_t* e34_5 = arr_e34_5[g_idx];
-        edge_t* e5_6 = arr_e5_6[g_idx];
-        edge_t* e6_7 = arr_e6_7[g_idx];
-        edge_t* e7_8 = arr_e7_8 + g_idx;
+        edge_t e0_1;
+        edge_t e1_2  [NUM_SCALE_LEVELS];
+        edge_t e2_34 [NUM_SCALE_LEVELS];
+        edge_t e34_5 [NUM_SCALE_LEVELS];
+        edge_t e5_6  [NUM_SCALE_LEVELS];
+        edge_t e6_7  [NUM_SCALE_LEVELS];
+        edge_t e7_8;
 
         thread** t0  = arr_t0 + g_idx;
         thread** t1  = arr_t1 + g_idx;
@@ -2439,16 +2387,16 @@ void App::sched_BC_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog
         CheckError(pgm_init_graph(g_ptr, buf));
         graph_t g = *g_ptr;
 
-        CheckError(pgm_init_node(color_convert_node, g, "color_convert"));
-        CheckError(pgm_init_node(compute_scales_node, g, "compute_scales"));
+        CheckError(pgm_init_node(&color_convert_node, g, "color_convert"));
+        CheckError(pgm_init_node(&compute_scales_node, g, "compute_scales"));
         for (int i=0; i<NUM_SCALE_LEVELS; i++) {
             CheckError(pgm_init_node(resize_node + i, g, "resize"));
             CheckError(pgm_init_node(BC_node + i, g, "BC"));
             CheckError(pgm_init_node(normalize_node + i, g, "normalize"));
             CheckError(pgm_init_node(classify_node + i, g, "classify"));
         }
-        CheckError(pgm_init_node(collect_locations_node, g, "collect_locations"));
-        CheckError(pgm_init_node(display_node, g, "display"));
+        CheckError(pgm_init_node(&collect_locations_node, g, "collect_locations"));
+        CheckError(pgm_init_node(&display_node, g, "display"));
 
         edge_attr_t fast_mq_attr;
         memset(&fast_mq_attr, 0, sizeof(fast_mq_attr));
@@ -2459,7 +2407,7 @@ void App::sched_BC_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog
         fast_mq_attr.nr_produce = sizeof(struct params_compute);
         fast_mq_attr.nr_consume = sizeof(struct params_compute);
         fast_mq_attr.nr_threshold = sizeof(struct params_compute);
-        CheckError(pgm_init_edge(e0_1, *color_convert_node, *compute_scales_node, "e0_1", &fast_mq_attr));
+        CheckError(pgm_init_edge(&e0_1, color_convert_node, compute_scales_node, "e0_1", &fast_mq_attr));
 
         for (int i=0; i<NUM_SCALE_LEVELS; i++) {
             sprintf(buf, "e1_2_%d", i);
@@ -2467,7 +2415,7 @@ void App::sched_BC_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog
             fast_mq_attr.nr_consume = sizeof(struct params_resize);
             fast_mq_attr.nr_threshold = sizeof(struct params_resize);
             CheckError(pgm_init_edge(e1_2 + i,
-                        *compute_scales_node,
+                        compute_scales_node,
                         resize_node[i], buf, &fast_mq_attr));
 
             sprintf(buf, "e2_34_%d", i);
@@ -2500,14 +2448,14 @@ void App::sched_BC_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog
             fast_mq_attr.nr_threshold = sizeof(struct params_fine_collect_locations);
             CheckError(pgm_init_edge(e6_7 + i,
                         classify_node[i],
-                        *collect_locations_node, buf,
+                        collect_locations_node, buf,
                         &fast_mq_attr));
         }
 
         fast_mq_attr.nr_produce = sizeof(struct params_display);
         fast_mq_attr.nr_consume = sizeof(struct params_display);
         fast_mq_attr.nr_threshold = sizeof(struct params_display);
-        CheckError(pgm_init_edge(e7_8, *collect_locations_node, *display_node, "e7_8", &fast_mq_attr));
+        CheckError(pgm_init_edge(&e7_8, collect_locations_node, display_node, "e7_8", &fast_mq_attr));
 
         pthread_barrier_init(fine_init_barrier, 0, 4 * NUM_SCALE_LEVELS + 4);
 
@@ -2570,14 +2518,14 @@ void App::sched_BC_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog
         else
             t_info.cluster = args.cluster;
         *t0 = new thread(&App::thread_color_convert, this,
-                color_convert_node, fine_init_barrier,
+                &color_convert_node, fine_init_barrier,
                 gpu_hog, cpu_hog, frames, t_info, g_idx);
 
         t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, cost_compute_scales);
         t_info.id = 1;
         t_info.phase = t_info.phase + bound_color_convert;
         *t1 = new thread(&cv::cuda::HOG::thread_fine_compute_scales, gpu_hog,
-                compute_scales_node, fine_init_barrier, t_info);
+                &compute_scales_node, fine_init_barrier, t_info);
 
         for (int i=0; i<NUM_SCALE_LEVELS; i++) {
             t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_resize[i]);
@@ -2617,10 +2565,10 @@ void App::sched_BC_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog
         t_info.id = 4 * NUM_SCALE_LEVELS + 2;
         t_info.phase = t_info.phase + *std::max_element(bounds_classify, bounds_classify+NUM_SCALE_LEVELS);
         *t7 = new thread(&cv::cuda::HOG::thread_fine_collect_locations, gpu_hog,
-                collect_locations_node, fine_init_barrier, t_info);
+                &collect_locations_node, fine_init_barrier, t_info);
         //t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, cost_display);
         //t_info.phase;
-        *t8 = new thread(&App::thread_display, this, display_node,
+        *t8 = new thread(&App::thread_display, this, &display_node,
                 fine_init_barrier, g_idx == 0 && args.display);
     }
 
@@ -2678,23 +2626,6 @@ void App::sched_CD_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog
     /* graph construction */
     graph_t arr_g                       [args.num_fine_graphs];
 
-    node_t arr_color_convert_node       [args.num_fine_graphs];
-    node_t arr_compute_scales_node      [args.num_fine_graphs];
-    node_t arr_resize_node              [args.num_fine_graphs][NUM_SCALE_LEVELS];
-    node_t arr_compute_gradients_node   [args.num_fine_graphs][NUM_SCALE_LEVELS];
-    node_t arr_CD_node                  [args.num_fine_graphs][NUM_SCALE_LEVELS]; // compute-hists + normalize-hists
-    node_t arr_classify_node            [args.num_fine_graphs][NUM_SCALE_LEVELS];
-    node_t arr_collect_locations_node   [args.num_fine_graphs];
-    node_t arr_display_node             [args.num_fine_graphs];
-
-    edge_t arr_e0_1[args.num_fine_graphs];
-    edge_t arr_e1_2[args.num_fine_graphs][NUM_SCALE_LEVELS];
-    edge_t arr_e2_3[args.num_fine_graphs][NUM_SCALE_LEVELS];
-    edge_t arr_e3_45[args.num_fine_graphs][NUM_SCALE_LEVELS];
-    edge_t arr_e45_6[args.num_fine_graphs][NUM_SCALE_LEVELS];
-    edge_t arr_e6_7[args.num_fine_graphs][NUM_SCALE_LEVELS];
-    edge_t arr_e7_8[args.num_fine_graphs];
-
     struct sync_info arr_sync_info_resize             [args.num_fine_graphs][NUM_SCALE_LEVELS];
     struct sync_info arr_sync_info_compute_gradients  [args.num_fine_graphs][NUM_SCALE_LEVELS];
     struct sync_info arr_sync_info_CD                 [args.num_fine_graphs][NUM_SCALE_LEVELS];
@@ -2719,22 +2650,22 @@ void App::sched_CD_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog
 
         graph_t* g_ptr = arr_g + g_idx;
 
-        node_t* color_convert_node      = arr_color_convert_node + g_idx;
-        node_t* compute_scales_node     = arr_compute_scales_node + g_idx;
-        node_t* resize_node             = arr_resize_node[g_idx];
-        node_t* compute_gradients_node  = arr_compute_gradients_node[g_idx];
-        node_t* CD_node                 = arr_CD_node[g_idx];
-        node_t* classify_node           = arr_classify_node[g_idx];
-        node_t* collect_locations_node  = arr_collect_locations_node + g_idx;
-        node_t* display_node            = arr_display_node + g_idx;
+        node_t color_convert_node;
+        node_t compute_scales_node;
+        node_t resize_node            [NUM_SCALE_LEVELS];
+        node_t compute_gradients_node [NUM_SCALE_LEVELS];
+        node_t CD_node                [NUM_SCALE_LEVELS]; // compute-hists + normalize-hists
+        node_t classify_node          [NUM_SCALE_LEVELS];
+        node_t collect_locations_node;
+        node_t display_node;
 
-        edge_t* e0_1 = arr_e0_1 + g_idx;
-        edge_t* e1_2 = arr_e1_2[g_idx];
-        edge_t* e2_3 = arr_e2_3[g_idx];
-        edge_t* e3_45 = arr_e3_45[g_idx];
-        edge_t* e45_6 = arr_e45_6[g_idx];
-        edge_t* e6_7 = arr_e6_7[g_idx];
-        edge_t* e7_8 = arr_e7_8 + g_idx;
+        edge_t e0_1;
+        edge_t e1_2  [NUM_SCALE_LEVELS];
+        edge_t e2_3  [NUM_SCALE_LEVELS];
+        edge_t e3_45 [NUM_SCALE_LEVELS];
+        edge_t e45_6 [NUM_SCALE_LEVELS];
+        edge_t e6_7  [NUM_SCALE_LEVELS];
+        edge_t e7_8;
 
         thread** t0  = arr_t0 + g_idx;
         thread** t1  = arr_t1 + g_idx;
@@ -2771,16 +2702,16 @@ void App::sched_CD_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog
         CheckError(pgm_init_graph(g_ptr, buf));
         graph_t g = *g_ptr;
 
-        CheckError(pgm_init_node(color_convert_node, g, "color_convert"));
-        CheckError(pgm_init_node(compute_scales_node, g, "compute_scales"));
+        CheckError(pgm_init_node(&color_convert_node, g, "color_convert"));
+        CheckError(pgm_init_node(&compute_scales_node, g, "compute_scales"));
         for (int i=0; i<NUM_SCALE_LEVELS; i++) {
             CheckError(pgm_init_node(resize_node + i, g, "resize"));
             CheckError(pgm_init_node(compute_gradients_node + i, g, "compute_gradients"));
             CheckError(pgm_init_node(CD_node + i, g, "CD"));
             CheckError(pgm_init_node(classify_node + i, g, "classify"));
         }
-        CheckError(pgm_init_node(collect_locations_node, g, "collect_locations"));
-        CheckError(pgm_init_node(display_node, g, "display"));
+        CheckError(pgm_init_node(&collect_locations_node, g, "collect_locations"));
+        CheckError(pgm_init_node(&display_node, g, "display"));
 
         edge_attr_t fast_mq_attr;
         memset(&fast_mq_attr, 0, sizeof(fast_mq_attr));
@@ -2791,7 +2722,7 @@ void App::sched_CD_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog
         fast_mq_attr.nr_produce = sizeof(struct params_compute);
         fast_mq_attr.nr_consume = sizeof(struct params_compute);
         fast_mq_attr.nr_threshold = sizeof(struct params_compute);
-        CheckError(pgm_init_edge(e0_1, *color_convert_node, *compute_scales_node, "e0_1", &fast_mq_attr));
+        CheckError(pgm_init_edge(&e0_1, color_convert_node, compute_scales_node, "e0_1", &fast_mq_attr));
 
         for (int i=0; i<NUM_SCALE_LEVELS; i++) {
             sprintf(buf, "e1_2_%d", i);
@@ -2799,7 +2730,7 @@ void App::sched_CD_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog
             fast_mq_attr.nr_consume = sizeof(struct params_resize);
             fast_mq_attr.nr_threshold = sizeof(struct params_resize);
             CheckError(pgm_init_edge(e1_2 + i,
-                        *compute_scales_node,
+                        compute_scales_node,
                         resize_node[i], buf, &fast_mq_attr));
 
             sprintf(buf, "e2_3_%d", i);
@@ -2833,14 +2764,14 @@ void App::sched_CD_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog
             fast_mq_attr.nr_threshold = sizeof(struct params_fine_collect_locations);
             CheckError(pgm_init_edge(e6_7 + i,
                         classify_node[i],
-                        *collect_locations_node, buf,
+                        collect_locations_node, buf,
                         &fast_mq_attr));
         }
 
         fast_mq_attr.nr_produce = sizeof(struct params_display);
         fast_mq_attr.nr_consume = sizeof(struct params_display);
         fast_mq_attr.nr_threshold = sizeof(struct params_display);
-        CheckError(pgm_init_edge(e7_8, *collect_locations_node, *display_node, "e7_8", &fast_mq_attr));
+        CheckError(pgm_init_edge(&e7_8, collect_locations_node, display_node, "e7_8", &fast_mq_attr));
 
         pthread_barrier_init(fine_init_barrier, 0, 4 * NUM_SCALE_LEVELS + 4);
 
@@ -2907,14 +2838,14 @@ void App::sched_CD_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog
         else
             t_info.cluster = args.cluster;
         *t0 = new thread(&App::thread_color_convert, this,
-                color_convert_node, fine_init_barrier,
+                &color_convert_node, fine_init_barrier,
                 gpu_hog, cpu_hog, frames, t_info, g_idx);
 
         t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, cost_compute_scales);
         t_info.id = 1;
         t_info.phase = t_info.phase + bound_color_convert;
         *t1 = new thread(&cv::cuda::HOG::thread_fine_compute_scales, gpu_hog,
-                compute_scales_node, fine_init_barrier, t_info);
+                &compute_scales_node, fine_init_barrier, t_info);
 
         for (int i=0; i<NUM_SCALE_LEVELS; i++) {
             t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_resize[i]);
@@ -2954,10 +2885,10 @@ void App::sched_CD_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog
         t_info.id = 4 * NUM_SCALE_LEVELS + 2;
         t_info.phase = t_info.phase + *std::max_element(bounds_classify, bounds_classify+NUM_SCALE_LEVELS);
         *t7 = new thread(&cv::cuda::HOG::thread_fine_collect_locations, gpu_hog,
-                collect_locations_node, fine_init_barrier, t_info);
+                &collect_locations_node, fine_init_barrier, t_info);
         //t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, cost_display);
         //t_info.phase;
-        *t8 = new thread(&App::thread_display, this, display_node,
+        *t8 = new thread(&App::thread_display, this, &display_node,
                 fine_init_barrier, g_idx == 0 && args.display);
     }
 
@@ -3015,23 +2946,6 @@ void App::sched_DE_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog
     /* graph construction */
     graph_t arr_g                       [args.num_fine_graphs];
 
-    node_t arr_color_convert_node       [args.num_fine_graphs];
-    node_t arr_compute_scales_node      [args.num_fine_graphs];
-    node_t arr_resize_node              [args.num_fine_graphs][NUM_SCALE_LEVELS];
-    node_t arr_compute_gradients_node   [args.num_fine_graphs][NUM_SCALE_LEVELS];
-    node_t arr_compute_histograms_node  [args.num_fine_graphs][NUM_SCALE_LEVELS];
-    node_t arr_DE_node                  [args.num_fine_graphs][NUM_SCALE_LEVELS]; // normalize-hists + classify-hists
-    node_t arr_collect_locations_node   [args.num_fine_graphs];
-    node_t arr_display_node             [args.num_fine_graphs];
-
-    edge_t arr_e0_1[args.num_fine_graphs];
-    edge_t arr_e1_2[args.num_fine_graphs][NUM_SCALE_LEVELS];
-    edge_t arr_e2_3[args.num_fine_graphs][NUM_SCALE_LEVELS];
-    edge_t arr_e3_4[args.num_fine_graphs][NUM_SCALE_LEVELS];
-    edge_t arr_e4_56[args.num_fine_graphs][NUM_SCALE_LEVELS];
-    edge_t arr_e56_7[args.num_fine_graphs][NUM_SCALE_LEVELS];
-    edge_t arr_e7_8[args.num_fine_graphs];
-
     struct sync_info arr_sync_info_resize             [args.num_fine_graphs][NUM_SCALE_LEVELS];
     struct sync_info arr_sync_info_compute_gradients  [args.num_fine_graphs][NUM_SCALE_LEVELS];
     struct sync_info arr_sync_info_compute_histograms [args.num_fine_graphs][NUM_SCALE_LEVELS];
@@ -3056,22 +2970,22 @@ void App::sched_DE_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog
 
         graph_t* g_ptr = arr_g + g_idx;
 
-        node_t* color_convert_node      = arr_color_convert_node + g_idx;
-        node_t* compute_scales_node     = arr_compute_scales_node + g_idx;
-        node_t* resize_node             = arr_resize_node[g_idx];
-        node_t* compute_gradients_node  = arr_compute_gradients_node[g_idx];
-        node_t* compute_histograms_node = arr_compute_histograms_node[g_idx];
-        node_t* DE_node                 = arr_DE_node[g_idx];
-        node_t* collect_locations_node  = arr_collect_locations_node + g_idx;
-        node_t* display_node            = arr_display_node + g_idx;
+        node_t color_convert_node;
+        node_t compute_scales_node;
+        node_t resize_node             [NUM_SCALE_LEVELS];
+        node_t compute_gradients_node  [NUM_SCALE_LEVELS];
+        node_t compute_histograms_node [NUM_SCALE_LEVELS];
+        node_t DE_node                 [NUM_SCALE_LEVELS]; // normalize-hists + classify-hists
+        node_t collect_locations_node;
+        node_t display_node;
 
-        edge_t* e0_1 = arr_e0_1 + g_idx;
-        edge_t* e1_2 = arr_e1_2[g_idx];
-        edge_t* e2_3 = arr_e2_3[g_idx];
-        edge_t* e3_4 = arr_e3_4[g_idx];
-        edge_t* e4_56 = arr_e4_56[g_idx];
-        edge_t* e56_7 = arr_e56_7[g_idx];
-        edge_t* e7_8 = arr_e7_8 + g_idx;
+        edge_t e0_1;
+        edge_t e1_2  [NUM_SCALE_LEVELS];
+        edge_t e2_3  [NUM_SCALE_LEVELS];
+        edge_t e3_4 [NUM_SCALE_LEVELS];
+        edge_t e4_56 [NUM_SCALE_LEVELS];
+        edge_t e56_7  [NUM_SCALE_LEVELS];
+        edge_t e7_8;
 
         thread** t0  = arr_t0 + g_idx;
         thread** t1  = arr_t1 + g_idx;
@@ -3108,16 +3022,16 @@ void App::sched_DE_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog
         CheckError(pgm_init_graph(g_ptr, buf));
         graph_t g = *g_ptr;
 
-        CheckError(pgm_init_node(color_convert_node, g, "color_convert"));
-        CheckError(pgm_init_node(compute_scales_node, g, "compute_scales"));
+        CheckError(pgm_init_node(&color_convert_node, g, "color_convert"));
+        CheckError(pgm_init_node(&compute_scales_node, g, "compute_scales"));
         for (int i=0; i<NUM_SCALE_LEVELS; i++) {
             CheckError(pgm_init_node(resize_node + i, g, "resize"));
             CheckError(pgm_init_node(compute_gradients_node + i, g, "compute_gradients"));
             CheckError(pgm_init_node(compute_histograms_node + i, g, "compute_histograms"));
             CheckError(pgm_init_node(DE_node + i, g, "DE"));
         }
-        CheckError(pgm_init_node(collect_locations_node, g, "collect_locations"));
-        CheckError(pgm_init_node(display_node, g, "display"));
+        CheckError(pgm_init_node(&collect_locations_node, g, "collect_locations"));
+        CheckError(pgm_init_node(&display_node, g, "display"));
 
         edge_attr_t fast_mq_attr;
         memset(&fast_mq_attr, 0, sizeof(fast_mq_attr));
@@ -3128,7 +3042,7 @@ void App::sched_DE_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog
         fast_mq_attr.nr_produce = sizeof(struct params_compute);
         fast_mq_attr.nr_consume = sizeof(struct params_compute);
         fast_mq_attr.nr_threshold = sizeof(struct params_compute);
-        CheckError(pgm_init_edge(e0_1, *color_convert_node, *compute_scales_node, "e0_1", &fast_mq_attr));
+        CheckError(pgm_init_edge(&e0_1, color_convert_node, compute_scales_node, "e0_1", &fast_mq_attr));
 
         for (int i=0; i<NUM_SCALE_LEVELS; i++) {
             sprintf(buf, "e1_2_%d", i);
@@ -3136,7 +3050,7 @@ void App::sched_DE_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog
             fast_mq_attr.nr_consume = sizeof(struct params_resize);
             fast_mq_attr.nr_threshold = sizeof(struct params_resize);
             CheckError(pgm_init_edge(e1_2 + i,
-                        *compute_scales_node,
+                        compute_scales_node,
                         resize_node[i], buf, &fast_mq_attr));
 
             sprintf(buf, "e2_3_%d", i);
@@ -3170,14 +3084,14 @@ void App::sched_DE_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog
             fast_mq_attr.nr_threshold = sizeof(struct params_fine_collect_locations);
             CheckError(pgm_init_edge(e56_7 + i,
                         DE_node[i],
-                        *collect_locations_node, buf,
+                        collect_locations_node, buf,
                         &fast_mq_attr));
         }
 
         fast_mq_attr.nr_produce = sizeof(struct params_display);
         fast_mq_attr.nr_consume = sizeof(struct params_display);
         fast_mq_attr.nr_threshold = sizeof(struct params_display);
-        CheckError(pgm_init_edge(e7_8, *collect_locations_node, *display_node, "e7_8", &fast_mq_attr));
+        CheckError(pgm_init_edge(&e7_8, collect_locations_node, display_node, "e7_8", &fast_mq_attr));
 
         pthread_barrier_init(fine_init_barrier, 0, 4 * NUM_SCALE_LEVELS + 4);
 
@@ -3244,14 +3158,14 @@ void App::sched_DE_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog
         else
             t_info.cluster = args.cluster;
         *t0 = new thread(&App::thread_color_convert, this,
-                color_convert_node, fine_init_barrier,
+                &color_convert_node, fine_init_barrier,
                 gpu_hog, cpu_hog, frames, t_info, g_idx);
 
         t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, cost_compute_scales);
         t_info.id = 1;
         t_info.phase = t_info.phase + bound_color_convert;
         *t1 = new thread(&cv::cuda::HOG::thread_fine_compute_scales, gpu_hog,
-                compute_scales_node, fine_init_barrier, t_info);
+                &compute_scales_node, fine_init_barrier, t_info);
 
         for (int i=0; i<NUM_SCALE_LEVELS; i++) {
             t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_resize[i]);
@@ -3292,10 +3206,10 @@ void App::sched_DE_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog
         t_info.id = 4 * NUM_SCALE_LEVELS + 2;
         t_info.phase = t_info.phase + *std::max_element(bounds_DE, bounds_DE+NUM_SCALE_LEVELS);
         *t7 = new thread(&cv::cuda::HOG::thread_fine_collect_locations, gpu_hog,
-                collect_locations_node, fine_init_barrier, t_info);
+                &collect_locations_node, fine_init_barrier, t_info);
         //t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, cost_display);
         //t_info.phase;
-        *t8 = new thread(&App::thread_display, this, display_node,
+        *t8 = new thread(&App::thread_display, this, &display_node,
                 fine_init_barrier, g_idx == 0 && args.display);
     }
 
@@ -3353,21 +3267,6 @@ void App::sched_ABC_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_ho
     /* graph construction */
     graph_t arr_g                       [args.num_fine_graphs];
 
-    node_t arr_color_convert_node       [args.num_fine_graphs];
-    node_t arr_compute_scales_node      [args.num_fine_graphs];
-    node_t arr_ABC_node                 [args.num_fine_graphs][NUM_SCALE_LEVELS]; // resize -> compute-hists
-    node_t arr_normalize_node           [args.num_fine_graphs][NUM_SCALE_LEVELS];
-    node_t arr_classify_node            [args.num_fine_graphs][NUM_SCALE_LEVELS];
-    node_t arr_collect_locations_node   [args.num_fine_graphs];
-    node_t arr_display_node             [args.num_fine_graphs];
-
-    edge_t arr_e0_1[args.num_fine_graphs];
-    edge_t arr_e1_234[args.num_fine_graphs][NUM_SCALE_LEVELS];
-    edge_t arr_e234_5[args.num_fine_graphs][NUM_SCALE_LEVELS];
-    edge_t arr_e5_6[args.num_fine_graphs][NUM_SCALE_LEVELS];
-    edge_t arr_e6_7[args.num_fine_graphs][NUM_SCALE_LEVELS];
-    edge_t arr_e7_8[args.num_fine_graphs];
-
     struct sync_info arr_sync_info_ABC                [args.num_fine_graphs][NUM_SCALE_LEVELS];
     struct sync_info arr_sync_info_normalize          [args.num_fine_graphs][NUM_SCALE_LEVELS];
     struct sync_info arr_sync_info_classify           [args.num_fine_graphs][NUM_SCALE_LEVELS];
@@ -3390,20 +3289,20 @@ void App::sched_ABC_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_ho
 
         graph_t* g_ptr = arr_g + g_idx;
 
-        node_t* color_convert_node      = arr_color_convert_node + g_idx;
-        node_t* compute_scales_node     = arr_compute_scales_node + g_idx;
-        node_t* ABC_node                = arr_ABC_node[g_idx];
-        node_t* normalize_node          = arr_normalize_node[g_idx];
-        node_t* classify_node           = arr_classify_node[g_idx];
-        node_t* collect_locations_node  = arr_collect_locations_node + g_idx;
-        node_t* display_node            = arr_display_node + g_idx;
+        node_t color_convert_node;
+        node_t compute_scales_node;
+        node_t ABC_node                [NUM_SCALE_LEVELS]; // resize -> compute-hists
+        node_t normalize_node          [NUM_SCALE_LEVELS];
+        node_t classify_node           [NUM_SCALE_LEVELS];
+        node_t collect_locations_node;
+        node_t display_node;
 
-        edge_t* e0_1 = arr_e0_1 + g_idx;
-        edge_t* e1_234 = arr_e1_234[g_idx];
-        edge_t* e234_5 = arr_e234_5[g_idx];
-        edge_t* e5_6 = arr_e5_6[g_idx];
-        edge_t* e6_7 = arr_e6_7[g_idx];
-        edge_t* e7_8 = arr_e7_8 + g_idx;
+        edge_t e0_1;
+        edge_t e1_234 [NUM_SCALE_LEVELS];
+        edge_t e234_5 [NUM_SCALE_LEVELS];
+        edge_t e5_6   [NUM_SCALE_LEVELS];
+        edge_t e6_7   [NUM_SCALE_LEVELS];
+        edge_t e7_8;
 
         thread** t0  = arr_t0 + g_idx;
         thread** t1  = arr_t1 + g_idx;
@@ -3435,15 +3334,15 @@ void App::sched_ABC_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_ho
         CheckError(pgm_init_graph(g_ptr, buf));
         graph_t g = *g_ptr;
 
-        CheckError(pgm_init_node(color_convert_node, g, "color_convert"));
-        CheckError(pgm_init_node(compute_scales_node, g, "compute_scales"));
+        CheckError(pgm_init_node(&color_convert_node, g, "color_convert"));
+        CheckError(pgm_init_node(&compute_scales_node, g, "compute_scales"));
         for (int i=0; i<NUM_SCALE_LEVELS; i++) {
             CheckError(pgm_init_node(ABC_node + i, g, "ABC"));
             CheckError(pgm_init_node(normalize_node + i, g, "normalize"));
             CheckError(pgm_init_node(classify_node + i, g, "classify"));
         }
-        CheckError(pgm_init_node(collect_locations_node, g, "collect_locations"));
-        CheckError(pgm_init_node(display_node, g, "display"));
+        CheckError(pgm_init_node(&collect_locations_node, g, "collect_locations"));
+        CheckError(pgm_init_node(&display_node, g, "display"));
 
         edge_attr_t fast_mq_attr;
         memset(&fast_mq_attr, 0, sizeof(fast_mq_attr));
@@ -3454,7 +3353,7 @@ void App::sched_ABC_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_ho
         fast_mq_attr.nr_produce = sizeof(struct params_compute);
         fast_mq_attr.nr_consume = sizeof(struct params_compute);
         fast_mq_attr.nr_threshold = sizeof(struct params_compute);
-        CheckError(pgm_init_edge(e0_1, *color_convert_node, *compute_scales_node, "e0_1", &fast_mq_attr));
+        CheckError(pgm_init_edge(&e0_1, color_convert_node, compute_scales_node, "e0_1", &fast_mq_attr));
 
         for (int i=0; i<NUM_SCALE_LEVELS; i++) {
             sprintf(buf, "e1_234_%d", i);
@@ -3462,7 +3361,7 @@ void App::sched_ABC_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_ho
             fast_mq_attr.nr_consume = sizeof(struct params_resize);
             fast_mq_attr.nr_threshold = sizeof(struct params_resize);
             CheckError(pgm_init_edge(e1_234 + i,
-                        *compute_scales_node,
+                        compute_scales_node,
                         ABC_node[i], buf, &fast_mq_attr));
 
             sprintf(buf, "e234_5_%d", i);
@@ -3487,14 +3386,14 @@ void App::sched_ABC_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_ho
             fast_mq_attr.nr_threshold = sizeof(struct params_fine_collect_locations);
             CheckError(pgm_init_edge(e6_7 + i,
                         classify_node[i],
-                        *collect_locations_node, buf,
+                        collect_locations_node, buf,
                         &fast_mq_attr));
         }
 
         fast_mq_attr.nr_produce = sizeof(struct params_display);
         fast_mq_attr.nr_consume = sizeof(struct params_display);
         fast_mq_attr.nr_threshold = sizeof(struct params_display);
-        CheckError(pgm_init_edge(e7_8, *collect_locations_node, *display_node, "e7_8", &fast_mq_attr));
+        CheckError(pgm_init_edge(&e7_8, collect_locations_node, display_node, "e7_8", &fast_mq_attr));
 
         pthread_barrier_init(fine_init_barrier, 0, 3 * NUM_SCALE_LEVELS + 4);
 
@@ -3561,14 +3460,14 @@ void App::sched_ABC_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_ho
         else
             t_info.cluster = args.cluster;
         *t0 = new thread(&App::thread_color_convert, this,
-                color_convert_node, fine_init_barrier,
+                &color_convert_node, fine_init_barrier,
                 gpu_hog, cpu_hog, frames, t_info, g_idx);
 
         t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, cost_compute_scales);
         t_info.id = 1;
         t_info.phase = t_info.phase + bound_color_convert;
         *t1 = new thread(&cv::cuda::HOG::thread_fine_compute_scales, gpu_hog,
-                compute_scales_node, fine_init_barrier, t_info);
+                &compute_scales_node, fine_init_barrier, t_info);
 
         for (int i=0; i<NUM_SCALE_LEVELS; i++) {
             t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_ABC[i]);
@@ -3600,10 +3499,10 @@ void App::sched_ABC_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_ho
         t_info.id = 3 * NUM_SCALE_LEVELS + 2;
         t_info.phase = t_info.phase + *std::max_element(bounds_classify, bounds_classify+NUM_SCALE_LEVELS);
         *t7 = new thread(&cv::cuda::HOG::thread_fine_collect_locations, gpu_hog,
-                collect_locations_node, fine_init_barrier, t_info);
+                &collect_locations_node, fine_init_barrier, t_info);
         //t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, cost_display);
         //t_info.phase;
-        *t8 = new thread(&App::thread_display, this, display_node,
+        *t8 = new thread(&App::thread_display, this, &display_node,
                 fine_init_barrier, g_idx == 0 && args.display);
     }
 
@@ -3657,21 +3556,6 @@ void App::sched_BCD_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_ho
     /* graph construction */
     graph_t arr_g                       [args.num_fine_graphs];
 
-    node_t arr_color_convert_node       [args.num_fine_graphs];
-    node_t arr_compute_scales_node      [args.num_fine_graphs];
-    node_t arr_resize_node              [args.num_fine_graphs][NUM_SCALE_LEVELS];
-    node_t arr_BCD_node                 [args.num_fine_graphs][NUM_SCALE_LEVELS]; // compute-grads -> normalize-hists
-    node_t arr_classify_node            [args.num_fine_graphs][NUM_SCALE_LEVELS];
-    node_t arr_collect_locations_node   [args.num_fine_graphs];
-    node_t arr_display_node             [args.num_fine_graphs];
-
-    edge_t arr_e0_1[args.num_fine_graphs];
-    edge_t arr_e1_2[args.num_fine_graphs][NUM_SCALE_LEVELS];
-    edge_t arr_e2_345[args.num_fine_graphs][NUM_SCALE_LEVELS];
-    edge_t arr_e345_6[args.num_fine_graphs][NUM_SCALE_LEVELS];
-    edge_t arr_e6_7[args.num_fine_graphs][NUM_SCALE_LEVELS];
-    edge_t arr_e7_8[args.num_fine_graphs];
-
     struct sync_info arr_sync_info_resize             [args.num_fine_graphs][NUM_SCALE_LEVELS];
     struct sync_info arr_sync_info_BCD                [args.num_fine_graphs][NUM_SCALE_LEVELS];
     struct sync_info arr_sync_info_classify           [args.num_fine_graphs][NUM_SCALE_LEVELS];
@@ -3694,20 +3578,20 @@ void App::sched_BCD_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_ho
 
         graph_t* g_ptr = arr_g + g_idx;
 
-        node_t* color_convert_node      = arr_color_convert_node + g_idx;
-        node_t* compute_scales_node     = arr_compute_scales_node + g_idx;
-        node_t* resize_node             = arr_resize_node[g_idx];
-        node_t* BCD_node                = arr_BCD_node[g_idx];
-        node_t* classify_node           = arr_classify_node[g_idx];
-        node_t* collect_locations_node  = arr_collect_locations_node + g_idx;
-        node_t* display_node            = arr_display_node + g_idx;
+        node_t color_convert_node;
+        node_t compute_scales_node;
+        node_t resize_node             [NUM_SCALE_LEVELS];
+        node_t BCD_node                [NUM_SCALE_LEVELS]; // compute-grads -> normalize-hists
+        node_t classify_node           [NUM_SCALE_LEVELS];
+        node_t collect_locations_node;
+        node_t display_node;
 
-        edge_t* e0_1 = arr_e0_1 + g_idx;
-        edge_t* e1_2 = arr_e1_2[g_idx];
-        edge_t* e2_345 = arr_e2_345[g_idx];
-        edge_t* e345_6 = arr_e345_6[g_idx];
-        edge_t* e6_7 = arr_e6_7[g_idx];
-        edge_t* e7_8 = arr_e7_8 + g_idx;
+        edge_t e0_1;
+        edge_t e1_2   [NUM_SCALE_LEVELS];
+        edge_t e2_345 [NUM_SCALE_LEVELS];
+        edge_t e345_6 [NUM_SCALE_LEVELS];
+        edge_t e6_7   [NUM_SCALE_LEVELS];
+        edge_t e7_8;
 
         thread** t0   = arr_t0 + g_idx;
         thread** t1   = arr_t1 + g_idx;
@@ -3739,15 +3623,15 @@ void App::sched_BCD_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_ho
         CheckError(pgm_init_graph(g_ptr, buf));
         graph_t g = *g_ptr;
 
-        CheckError(pgm_init_node(color_convert_node, g, "color_convert"));
-        CheckError(pgm_init_node(compute_scales_node, g, "compute_scales"));
+        CheckError(pgm_init_node(&color_convert_node, g, "color_convert"));
+        CheckError(pgm_init_node(&compute_scales_node, g, "compute_scales"));
         for (int i=0; i<NUM_SCALE_LEVELS; i++) {
             CheckError(pgm_init_node(resize_node + i, g, "resize"));
             CheckError(pgm_init_node(BCD_node + i, g, "BCD"));
             CheckError(pgm_init_node(classify_node + i, g, "classify"));
         }
-        CheckError(pgm_init_node(collect_locations_node, g, "collect_locations"));
-        CheckError(pgm_init_node(display_node, g, "display"));
+        CheckError(pgm_init_node(&collect_locations_node, g, "collect_locations"));
+        CheckError(pgm_init_node(&display_node, g, "display"));
 
         edge_attr_t fast_mq_attr;
         memset(&fast_mq_attr, 0, sizeof(fast_mq_attr));
@@ -3758,7 +3642,7 @@ void App::sched_BCD_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_ho
         fast_mq_attr.nr_produce = sizeof(struct params_compute);
         fast_mq_attr.nr_consume = sizeof(struct params_compute);
         fast_mq_attr.nr_threshold = sizeof(struct params_compute);
-        CheckError(pgm_init_edge(e0_1, *color_convert_node, *compute_scales_node, "e0_1", &fast_mq_attr));
+        CheckError(pgm_init_edge(&e0_1, color_convert_node, compute_scales_node, "e0_1", &fast_mq_attr));
 
         for (int i=0; i<NUM_SCALE_LEVELS; i++) {
             sprintf(buf, "e1_2_%d", i);
@@ -3766,7 +3650,7 @@ void App::sched_BCD_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_ho
             fast_mq_attr.nr_consume = sizeof(struct params_resize);
             fast_mq_attr.nr_threshold = sizeof(struct params_resize);
             CheckError(pgm_init_edge(e1_2 + i,
-                        *compute_scales_node,
+                        compute_scales_node,
                         resize_node[i], buf, &fast_mq_attr));
 
             sprintf(buf, "e2_345_%d", i);
@@ -3791,14 +3675,14 @@ void App::sched_BCD_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_ho
             fast_mq_attr.nr_threshold = sizeof(struct params_fine_collect_locations);
             CheckError(pgm_init_edge(e6_7 + i,
                         classify_node[i],
-                        *collect_locations_node, buf,
+                        collect_locations_node, buf,
                         &fast_mq_attr));
         }
 
         fast_mq_attr.nr_produce = sizeof(struct params_display);
         fast_mq_attr.nr_consume = sizeof(struct params_display);
         fast_mq_attr.nr_threshold = sizeof(struct params_display);
-        CheckError(pgm_init_edge(e7_8, *collect_locations_node, *display_node, "e7_8", &fast_mq_attr));
+        CheckError(pgm_init_edge(&e7_8, collect_locations_node, display_node, "e7_8", &fast_mq_attr));
 
         pthread_barrier_init(fine_init_barrier, 0, 3 * NUM_SCALE_LEVELS + 4);
 
@@ -3865,14 +3749,14 @@ void App::sched_BCD_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_ho
         else
             t_info.cluster = args.cluster;
         *t0 = new thread(&App::thread_color_convert, this,
-                color_convert_node, fine_init_barrier,
+                &color_convert_node, fine_init_barrier,
                 gpu_hog, cpu_hog, frames, t_info, g_idx);
 
         t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, cost_compute_scales);
         t_info.id = 1;
         t_info.phase = t_info.phase + bound_color_convert;
         *t1 = new thread(&cv::cuda::HOG::thread_fine_compute_scales, gpu_hog,
-                compute_scales_node, fine_init_barrier, t_info);
+                &compute_scales_node, fine_init_barrier, t_info);
 
         for (int i=0; i<NUM_SCALE_LEVELS; i++) {
             t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_resize[i]);
@@ -3904,10 +3788,10 @@ void App::sched_BCD_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_ho
         t_info.id = 3 * NUM_SCALE_LEVELS + 2;
         t_info.phase = t_info.phase + *std::max_element(bounds_classify, bounds_classify+NUM_SCALE_LEVELS);
         *t7 = new thread(&cv::cuda::HOG::thread_fine_collect_locations, gpu_hog,
-                collect_locations_node, fine_init_barrier, t_info);
+                &collect_locations_node, fine_init_barrier, t_info);
         //t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, cost_display);
         //t_info.phase;
-        *t8 = new thread(&App::thread_display, this, display_node,
+        *t8 = new thread(&App::thread_display, this, &display_node,
                 fine_init_barrier, g_idx == 0 && args.display);
     }
 
@@ -3961,21 +3845,6 @@ void App::sched_CDE_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_ho
     /* graph construction */
     graph_t arr_g                       [args.num_fine_graphs];
 
-    node_t arr_color_convert_node       [args.num_fine_graphs];
-    node_t arr_compute_scales_node      [args.num_fine_graphs];
-    node_t arr_resize_node              [args.num_fine_graphs][NUM_SCALE_LEVELS];
-    node_t arr_compute_gradients_node   [args.num_fine_graphs][NUM_SCALE_LEVELS];
-    node_t arr_CDE_node                 [args.num_fine_graphs][NUM_SCALE_LEVELS]; // compute-hists -> classify-hists
-    node_t arr_collect_locations_node   [args.num_fine_graphs];
-    node_t arr_display_node             [args.num_fine_graphs];
-
-    edge_t arr_e0_1[args.num_fine_graphs];
-    edge_t arr_e1_2[args.num_fine_graphs][NUM_SCALE_LEVELS];
-    edge_t arr_e2_3[args.num_fine_graphs][NUM_SCALE_LEVELS];
-    edge_t arr_e3_456[args.num_fine_graphs][NUM_SCALE_LEVELS];
-    edge_t arr_e456_7[args.num_fine_graphs][NUM_SCALE_LEVELS];
-    edge_t arr_e7_8[args.num_fine_graphs];
-
     struct sync_info arr_sync_info_resize             [args.num_fine_graphs][NUM_SCALE_LEVELS];
     struct sync_info arr_sync_info_compute_gradients  [args.num_fine_graphs][NUM_SCALE_LEVELS];
     struct sync_info arr_sync_info_CDE                 [args.num_fine_graphs][NUM_SCALE_LEVELS];
@@ -3998,20 +3867,20 @@ void App::sched_CDE_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_ho
 
         graph_t* g_ptr = arr_g + g_idx;
 
-        node_t* color_convert_node      = arr_color_convert_node + g_idx;
-        node_t* compute_scales_node     = arr_compute_scales_node + g_idx;
-        node_t* resize_node             = arr_resize_node[g_idx];
-        node_t* compute_gradients_node  = arr_compute_gradients_node[g_idx];
-        node_t* CDE_node                = arr_CDE_node[g_idx];
-        node_t* collect_locations_node  = arr_collect_locations_node + g_idx;
-        node_t* display_node            = arr_display_node + g_idx;
+        node_t color_convert_node;
+        node_t compute_scales_node;
+        node_t resize_node            [NUM_SCALE_LEVELS];
+        node_t compute_gradients_node [NUM_SCALE_LEVELS];
+        node_t CDE_node               [NUM_SCALE_LEVELS]; // compute-hists -> classify-hists
+        node_t collect_locations_node;
+        node_t display_node;
 
-        edge_t* e0_1 = arr_e0_1 + g_idx;
-        edge_t* e1_2 = arr_e1_2[g_idx];
-        edge_t* e2_3 = arr_e2_3[g_idx];
-        edge_t* e3_456 = arr_e3_456[g_idx];
-        edge_t* e456_7 = arr_e456_7[g_idx];
-        edge_t* e7_8 = arr_e7_8 + g_idx;
+        edge_t e0_1;
+        edge_t e1_2   [NUM_SCALE_LEVELS];
+        edge_t e2_3   [NUM_SCALE_LEVELS];
+        edge_t e3_456 [NUM_SCALE_LEVELS];
+        edge_t e456_7 [NUM_SCALE_LEVELS];
+        edge_t e7_8;
 
         thread** t0  = arr_t0 + g_idx;
         thread** t1  = arr_t1 + g_idx;
@@ -4043,15 +3912,15 @@ void App::sched_CDE_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_ho
         CheckError(pgm_init_graph(g_ptr, buf));
         graph_t g = *g_ptr;
 
-        CheckError(pgm_init_node(color_convert_node, g, "color_convert"));
-        CheckError(pgm_init_node(compute_scales_node, g, "compute_scales"));
+        CheckError(pgm_init_node(&color_convert_node, g, "color_convert"));
+        CheckError(pgm_init_node(&compute_scales_node, g, "compute_scales"));
         for (int i=0; i<NUM_SCALE_LEVELS; i++) {
             CheckError(pgm_init_node(resize_node + i, g, "resize"));
             CheckError(pgm_init_node(compute_gradients_node + i, g, "compute_gradients"));
             CheckError(pgm_init_node(CDE_node + i, g, "CDE"));
         }
-        CheckError(pgm_init_node(collect_locations_node, g, "collect_locations"));
-        CheckError(pgm_init_node(display_node, g, "display"));
+        CheckError(pgm_init_node(&collect_locations_node, g, "collect_locations"));
+        CheckError(pgm_init_node(&display_node, g, "display"));
 
         edge_attr_t fast_mq_attr;
         memset(&fast_mq_attr, 0, sizeof(fast_mq_attr));
@@ -4062,7 +3931,7 @@ void App::sched_CDE_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_ho
         fast_mq_attr.nr_produce = sizeof(struct params_compute);
         fast_mq_attr.nr_consume = sizeof(struct params_compute);
         fast_mq_attr.nr_threshold = sizeof(struct params_compute);
-        CheckError(pgm_init_edge(e0_1, *color_convert_node, *compute_scales_node, "e0_1", &fast_mq_attr));
+        CheckError(pgm_init_edge(&e0_1, color_convert_node, compute_scales_node, "e0_1", &fast_mq_attr));
 
         for (int i=0; i<NUM_SCALE_LEVELS; i++) {
             sprintf(buf, "e1_2_%d", i);
@@ -4070,7 +3939,7 @@ void App::sched_CDE_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_ho
             fast_mq_attr.nr_consume = sizeof(struct params_resize);
             fast_mq_attr.nr_threshold = sizeof(struct params_resize);
             CheckError(pgm_init_edge(e1_2 + i,
-                        *compute_scales_node,
+                        compute_scales_node,
                         resize_node[i], buf, &fast_mq_attr));
 
             sprintf(buf, "e2_3_%d", i);
@@ -4096,14 +3965,14 @@ void App::sched_CDE_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_ho
             fast_mq_attr.nr_threshold = sizeof(struct params_fine_collect_locations);
             CheckError(pgm_init_edge(e456_7 + i,
                         CDE_node[i],
-                        *collect_locations_node, buf,
+                        collect_locations_node, buf,
                         &fast_mq_attr));
         }
 
         fast_mq_attr.nr_produce = sizeof(struct params_display);
         fast_mq_attr.nr_consume = sizeof(struct params_display);
         fast_mq_attr.nr_threshold = sizeof(struct params_display);
-        CheckError(pgm_init_edge(e7_8, *collect_locations_node, *display_node, "e7_8", &fast_mq_attr));
+        CheckError(pgm_init_edge(&e7_8, collect_locations_node, display_node, "e7_8", &fast_mq_attr));
 
         pthread_barrier_init(fine_init_barrier, 0, 3 * NUM_SCALE_LEVELS + 4);
 
@@ -4170,14 +4039,14 @@ void App::sched_CDE_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_ho
         else
             t_info.cluster = args.cluster;
         *t0 = new thread(&App::thread_color_convert, this,
-                color_convert_node, fine_init_barrier,
+                &color_convert_node, fine_init_barrier,
                 gpu_hog, cpu_hog, frames, t_info, g_idx);
 
         t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, cost_compute_scales);
         t_info.id = 1;
         t_info.phase = t_info.phase + bound_color_convert;
         *t1 = new thread(&cv::cuda::HOG::thread_fine_compute_scales, gpu_hog,
-                compute_scales_node, fine_init_barrier, t_info);
+                &compute_scales_node, fine_init_barrier, t_info);
 
         for (int i=0; i<NUM_SCALE_LEVELS; i++) {
             t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_resize[i]);
@@ -4209,10 +4078,10 @@ void App::sched_CDE_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_ho
         t_info.id = 3 * NUM_SCALE_LEVELS + 2;
         t_info.phase = t_info.phase + *std::max_element(bounds_CDE, bounds_CDE+NUM_SCALE_LEVELS);
         *t7 = new thread(&cv::cuda::HOG::thread_fine_collect_locations, gpu_hog,
-                collect_locations_node, fine_init_barrier, t_info);
+                &collect_locations_node, fine_init_barrier, t_info);
         //t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, cost_display);
         //t_info.phase;
-        *t8 = new thread(&App::thread_display, this, display_node,
+        *t8 = new thread(&App::thread_display, this, &display_node,
                 fine_init_barrier, g_idx == 0 && args.display);
     }
 
@@ -4266,19 +4135,6 @@ void App::sched_ABCD_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_h
     /* graph construction */
     graph_t arr_g                       [args.num_fine_graphs];
 
-    node_t arr_color_convert_node       [args.num_fine_graphs];
-    node_t arr_compute_scales_node      [args.num_fine_graphs];
-    node_t arr_ABCD_node                [args.num_fine_graphs][NUM_SCALE_LEVELS]; // resize -> normalize-hists
-    node_t arr_classify_node            [args.num_fine_graphs][NUM_SCALE_LEVELS];
-    node_t arr_collect_locations_node   [args.num_fine_graphs];
-    node_t arr_display_node             [args.num_fine_graphs];
-
-    edge_t arr_e0_1[args.num_fine_graphs];
-    edge_t arr_e1_2345[args.num_fine_graphs][NUM_SCALE_LEVELS];
-    edge_t arr_e2345_6[args.num_fine_graphs][NUM_SCALE_LEVELS];
-    edge_t arr_e6_7[args.num_fine_graphs][NUM_SCALE_LEVELS];
-    edge_t arr_e7_8[args.num_fine_graphs];
-
     struct sync_info arr_sync_info_ABCD               [args.num_fine_graphs][NUM_SCALE_LEVELS];
     struct sync_info arr_sync_info_classify           [args.num_fine_graphs][NUM_SCALE_LEVELS];
 
@@ -4299,18 +4155,18 @@ void App::sched_ABCD_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_h
 
         graph_t* g_ptr = arr_g + g_idx;
 
-        node_t* color_convert_node      = arr_color_convert_node + g_idx;
-        node_t* compute_scales_node     = arr_compute_scales_node + g_idx;
-        node_t* ABCD_node               = arr_ABCD_node[g_idx];
-        node_t* classify_node           = arr_classify_node[g_idx];
-        node_t* collect_locations_node  = arr_collect_locations_node + g_idx;
-        node_t* display_node            = arr_display_node + g_idx;
+        node_t color_convert_node;
+        node_t compute_scales_node;
+        node_t ABCD_node               [NUM_SCALE_LEVELS]; // resize -> normalize-hists
+        node_t classify_node           [NUM_SCALE_LEVELS];
+        node_t collect_locations_node;
+        node_t display_node;
 
-        edge_t* e0_1 = arr_e0_1 + g_idx;
-        edge_t* e1_2345 = arr_e1_2345[g_idx];
-        edge_t* e2345_6 = arr_e2345_6[g_idx];
-        edge_t* e6_7 = arr_e6_7[g_idx];
-        edge_t* e7_8 = arr_e7_8 + g_idx;
+        edge_t e0_1;
+        edge_t e1_2345 [NUM_SCALE_LEVELS];
+        edge_t e2345_6 [NUM_SCALE_LEVELS];
+        edge_t e6_7    [NUM_SCALE_LEVELS];
+        edge_t e7_8;
 
         thread** t0  = arr_t0 + g_idx;
         thread** t1  = arr_t1 + g_idx;
@@ -4337,14 +4193,14 @@ void App::sched_ABCD_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_h
         CheckError(pgm_init_graph(g_ptr, buf));
         graph_t g = *g_ptr;
 
-        CheckError(pgm_init_node(color_convert_node, g, "color_convert"));
-        CheckError(pgm_init_node(compute_scales_node, g, "compute_scales"));
+        CheckError(pgm_init_node(&color_convert_node, g, "color_convert"));
+        CheckError(pgm_init_node(&compute_scales_node, g, "compute_scales"));
         for (int i=0; i<NUM_SCALE_LEVELS; i++) {
             CheckError(pgm_init_node(ABCD_node + i, g, "ABCD"));
             CheckError(pgm_init_node(classify_node + i, g, "classify"));
         }
-        CheckError(pgm_init_node(collect_locations_node, g, "collect_locations"));
-        CheckError(pgm_init_node(display_node, g, "display"));
+        CheckError(pgm_init_node(&collect_locations_node, g, "collect_locations"));
+        CheckError(pgm_init_node(&display_node, g, "display"));
 
         edge_attr_t fast_mq_attr;
         memset(&fast_mq_attr, 0, sizeof(fast_mq_attr));
@@ -4355,7 +4211,7 @@ void App::sched_ABCD_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_h
         fast_mq_attr.nr_produce = sizeof(struct params_compute);
         fast_mq_attr.nr_consume = sizeof(struct params_compute);
         fast_mq_attr.nr_threshold = sizeof(struct params_compute);
-        CheckError(pgm_init_edge(e0_1, *color_convert_node, *compute_scales_node, "e0_1", &fast_mq_attr));
+        CheckError(pgm_init_edge(&e0_1, color_convert_node, compute_scales_node, "e0_1", &fast_mq_attr));
 
         for (int i=0; i<NUM_SCALE_LEVELS; i++) {
             sprintf(buf, "e1_2345_%d", i);
@@ -4363,7 +4219,7 @@ void App::sched_ABCD_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_h
             fast_mq_attr.nr_consume = sizeof(struct params_resize);
             fast_mq_attr.nr_threshold = sizeof(struct params_resize);
             CheckError(pgm_init_edge(e1_2345 + i,
-                        *compute_scales_node,
+                        compute_scales_node,
                         ABCD_node[i], buf, &fast_mq_attr));
 
             sprintf(buf, "e2345_6_%d", i);
@@ -4380,14 +4236,14 @@ void App::sched_ABCD_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_h
             fast_mq_attr.nr_threshold = sizeof(struct params_fine_collect_locations);
             CheckError(pgm_init_edge(e6_7 + i,
                         classify_node[i],
-                        *collect_locations_node, buf,
+                        collect_locations_node, buf,
                         &fast_mq_attr));
         }
 
         fast_mq_attr.nr_produce = sizeof(struct params_display);
         fast_mq_attr.nr_consume = sizeof(struct params_display);
         fast_mq_attr.nr_threshold = sizeof(struct params_display);
-        CheckError(pgm_init_edge(e7_8, *collect_locations_node, *display_node, "e7_8", &fast_mq_attr));
+        CheckError(pgm_init_edge(&e7_8, collect_locations_node, display_node, "e7_8", &fast_mq_attr));
 
         pthread_barrier_init(fine_init_barrier, 0, 2 * NUM_SCALE_LEVELS + 4);
 
@@ -4454,14 +4310,14 @@ void App::sched_ABCD_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_h
         else
             t_info.cluster = args.cluster;
         *t0 = new thread(&App::thread_color_convert, this,
-                color_convert_node, fine_init_barrier,
+                &color_convert_node, fine_init_barrier,
                 gpu_hog, cpu_hog, frames, t_info, g_idx);
 
         t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, cost_compute_scales);
         t_info.id = 1;
         t_info.phase = t_info.phase + bound_color_convert;
         *t1 = new thread(&cv::cuda::HOG::thread_fine_compute_scales, gpu_hog,
-                compute_scales_node, fine_init_barrier, t_info);
+                &compute_scales_node, fine_init_barrier, t_info);
 
         for (int i=0; i<NUM_SCALE_LEVELS; i++) {
             t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_ABCD[i]);
@@ -4485,10 +4341,10 @@ void App::sched_ABCD_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_h
         t_info.id = 2 * NUM_SCALE_LEVELS + 2;
         t_info.phase = t_info.phase + *std::max_element(bounds_classify, bounds_classify+NUM_SCALE_LEVELS);
         *t7 = new thread(&cv::cuda::HOG::thread_fine_collect_locations, gpu_hog,
-                collect_locations_node, fine_init_barrier, t_info);
+                &collect_locations_node, fine_init_barrier, t_info);
         //t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, cost_display);
         //t_info.phase;
-        *t8 = new thread(&App::thread_display, this, display_node,
+        *t8 = new thread(&App::thread_display, this, &display_node,
                 fine_init_barrier, g_idx == 0 && args.display);
     }
 
@@ -4538,19 +4394,6 @@ void App::sched_BCDE_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_h
     /* graph construction */
     graph_t arr_g                       [args.num_fine_graphs];
 
-    node_t arr_color_convert_node       [args.num_fine_graphs];
-    node_t arr_compute_scales_node      [args.num_fine_graphs];
-    node_t arr_resize_node              [args.num_fine_graphs][NUM_SCALE_LEVELS];
-    node_t arr_BCDE_node                [args.num_fine_graphs][NUM_SCALE_LEVELS]; // compute-grads -> classify-hists
-    node_t arr_collect_locations_node   [args.num_fine_graphs];
-    node_t arr_display_node             [args.num_fine_graphs];
-
-    edge_t arr_e0_1[args.num_fine_graphs];
-    edge_t arr_e1_2[args.num_fine_graphs][NUM_SCALE_LEVELS];
-    edge_t arr_e2_3456[args.num_fine_graphs][NUM_SCALE_LEVELS];
-    edge_t arr_e3456_7[args.num_fine_graphs][NUM_SCALE_LEVELS];
-    edge_t arr_e7_8[args.num_fine_graphs];
-
     struct sync_info arr_sync_info_resize             [args.num_fine_graphs][NUM_SCALE_LEVELS];
     struct sync_info arr_sync_info_BCDE               [args.num_fine_graphs][NUM_SCALE_LEVELS];
 
@@ -4571,18 +4414,18 @@ void App::sched_BCDE_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_h
 
         graph_t* g_ptr = arr_g + g_idx;
 
-        node_t* color_convert_node      = arr_color_convert_node + g_idx;
-        node_t* compute_scales_node     = arr_compute_scales_node + g_idx;
-        node_t* resize_node             = arr_resize_node[g_idx];
-        node_t* BCDE_node               = arr_BCDE_node[g_idx];
-        node_t* collect_locations_node  = arr_collect_locations_node + g_idx;
-        node_t* display_node            = arr_display_node + g_idx;
+        node_t color_convert_node;
+        node_t compute_scales_node;
+        node_t resize_node             [NUM_SCALE_LEVELS];
+        node_t BCDE_node               [NUM_SCALE_LEVELS]; // compute-grads -> classify-hists
+        node_t collect_locations_node;
+        node_t display_node;
 
-        edge_t* e0_1 = arr_e0_1 + g_idx;
-        edge_t* e1_2 = arr_e1_2[g_idx];
-        edge_t* e2_3456 = arr_e2_3456[g_idx];
-        edge_t* e3456_7 = arr_e3456_7[g_idx];
-        edge_t* e7_8 = arr_e7_8 + g_idx;
+        edge_t e0_1;
+        edge_t e1_2    [NUM_SCALE_LEVELS];
+        edge_t e2_3456 [NUM_SCALE_LEVELS];
+        edge_t e3456_7 [NUM_SCALE_LEVELS];
+        edge_t e7_8;
 
         thread** t0    = arr_t0 + g_idx;
         thread** t1    = arr_t1 + g_idx;
@@ -4609,14 +4452,14 @@ void App::sched_BCDE_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_h
         CheckError(pgm_init_graph(g_ptr, buf));
         graph_t g = *g_ptr;
 
-        CheckError(pgm_init_node(color_convert_node, g, "color_convert"));
-        CheckError(pgm_init_node(compute_scales_node, g, "compute_scales"));
+        CheckError(pgm_init_node(&color_convert_node, g, "color_convert"));
+        CheckError(pgm_init_node(&compute_scales_node, g, "compute_scales"));
         for (int i=0; i<NUM_SCALE_LEVELS; i++) {
             CheckError(pgm_init_node(resize_node + i, g, "resize"));
             CheckError(pgm_init_node(BCDE_node + i, g, "BCD"));
         }
-        CheckError(pgm_init_node(collect_locations_node, g, "collect_locations"));
-        CheckError(pgm_init_node(display_node, g, "display"));
+        CheckError(pgm_init_node(&collect_locations_node, g, "collect_locations"));
+        CheckError(pgm_init_node(&display_node, g, "display"));
 
         edge_attr_t fast_mq_attr;
         memset(&fast_mq_attr, 0, sizeof(fast_mq_attr));
@@ -4627,7 +4470,7 @@ void App::sched_BCDE_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_h
         fast_mq_attr.nr_produce = sizeof(struct params_compute);
         fast_mq_attr.nr_consume = sizeof(struct params_compute);
         fast_mq_attr.nr_threshold = sizeof(struct params_compute);
-        CheckError(pgm_init_edge(e0_1, *color_convert_node, *compute_scales_node, "e0_1", &fast_mq_attr));
+        CheckError(pgm_init_edge(&e0_1, color_convert_node, compute_scales_node, "e0_1", &fast_mq_attr));
 
         for (int i=0; i<NUM_SCALE_LEVELS; i++) {
             sprintf(buf, "e1_2_%d", i);
@@ -4635,7 +4478,7 @@ void App::sched_BCDE_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_h
             fast_mq_attr.nr_consume = sizeof(struct params_resize);
             fast_mq_attr.nr_threshold = sizeof(struct params_resize);
             CheckError(pgm_init_edge(e1_2 + i,
-                        *compute_scales_node,
+                        compute_scales_node,
                         resize_node[i], buf, &fast_mq_attr));
 
             sprintf(buf, "e2_3456_%d", i);
@@ -4652,14 +4495,14 @@ void App::sched_BCDE_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_h
             fast_mq_attr.nr_threshold = sizeof(struct params_fine_collect_locations);
             CheckError(pgm_init_edge(e3456_7 + i,
                         BCDE_node[i],
-                        *collect_locations_node, buf,
+                        collect_locations_node, buf,
                         &fast_mq_attr));
         }
 
         fast_mq_attr.nr_produce = sizeof(struct params_display);
         fast_mq_attr.nr_consume = sizeof(struct params_display);
         fast_mq_attr.nr_threshold = sizeof(struct params_display);
-        CheckError(pgm_init_edge(e7_8, *collect_locations_node, *display_node, "e7_8", &fast_mq_attr));
+        CheckError(pgm_init_edge(&e7_8, collect_locations_node, display_node, "e7_8", &fast_mq_attr));
 
         pthread_barrier_init(fine_init_barrier, 0, 2 * NUM_SCALE_LEVELS + 4);
 
@@ -4726,14 +4569,14 @@ void App::sched_BCDE_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_h
         else
             t_info.cluster = args.cluster;
         *t0 = new thread(&App::thread_color_convert, this,
-                color_convert_node, fine_init_barrier,
+                &color_convert_node, fine_init_barrier,
                 gpu_hog, cpu_hog, frames, t_info, g_idx);
 
         t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, cost_compute_scales);
         t_info.id = 1;
         t_info.phase = t_info.phase + bound_color_convert;
         *t1 = new thread(&cv::cuda::HOG::thread_fine_compute_scales, gpu_hog,
-                compute_scales_node, fine_init_barrier, t_info);
+                &compute_scales_node, fine_init_barrier, t_info);
 
         for (int i=0; i<NUM_SCALE_LEVELS; i++) {
             t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_resize[i]);
@@ -4757,10 +4600,10 @@ void App::sched_BCDE_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_h
         t_info.id = 2 * NUM_SCALE_LEVELS + 2;
         t_info.phase = t_info.phase + *std::max_element(bounds_BCDE, bounds_BCDE+NUM_SCALE_LEVELS);
         *t7 = new thread(&cv::cuda::HOG::thread_fine_collect_locations, gpu_hog,
-                collect_locations_node, fine_init_barrier, t_info);
+                &collect_locations_node, fine_init_barrier, t_info);
         //t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, cost_display);
         //t_info.phase;
-        *t8 = new thread(&App::thread_display, this, display_node,
+        *t8 = new thread(&App::thread_display, this, &display_node,
                 fine_init_barrier, g_idx == 0 && args.display);
     }
 
@@ -4810,17 +4653,6 @@ void App::sched_ABCDE_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_
     /* graph construction */
     graph_t arr_g                       [args.num_fine_graphs];
 
-    node_t arr_color_convert_node       [args.num_fine_graphs];
-    node_t arr_compute_scales_node      [args.num_fine_graphs];
-    node_t arr_ABCDE_node               [args.num_fine_graphs][NUM_SCALE_LEVELS]; // resize -> classify-hists
-    node_t arr_collect_locations_node   [args.num_fine_graphs];
-    node_t arr_display_node             [args.num_fine_graphs];
-
-    edge_t arr_e0_1[args.num_fine_graphs];
-    edge_t arr_e1_23456[args.num_fine_graphs][NUM_SCALE_LEVELS];
-    edge_t arr_e23456_7[args.num_fine_graphs][NUM_SCALE_LEVELS];
-    edge_t arr_e7_8[args.num_fine_graphs];
-
     struct sync_info arr_sync_info_ABCDE              [args.num_fine_graphs][NUM_SCALE_LEVELS];
 
     thread** arr_t0     = (thread**) calloc(args.num_fine_graphs, sizeof(std::thread *));
@@ -4839,16 +4671,16 @@ void App::sched_ABCDE_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_
 
         graph_t* g_ptr = arr_g + g_idx;
 
-        node_t* color_convert_node      = arr_color_convert_node + g_idx;
-        node_t* compute_scales_node     = arr_compute_scales_node + g_idx;
-        node_t* ABCDE_node              = arr_ABCDE_node[g_idx];
-        node_t* collect_locations_node  = arr_collect_locations_node + g_idx;
-        node_t* display_node            = arr_display_node + g_idx;
+        node_t color_convert_node;
+        node_t compute_scales_node;
+        node_t ABCDE_node              [NUM_SCALE_LEVELS]; // resize -> classify-hists
+        node_t collect_locations_node;
+        node_t display_node;
 
-        edge_t* e0_1 = arr_e0_1 + g_idx;
-        edge_t* e1_23456 = arr_e1_23456[g_idx];
-        edge_t* e23456_7 = arr_e23456_7[g_idx];
-        edge_t* e7_8 = arr_e7_8 + g_idx;
+        edge_t e0_1;
+        edge_t e1_23456 [NUM_SCALE_LEVELS];
+        edge_t e23456_7 [NUM_SCALE_LEVELS];
+        edge_t e7_8;
 
         thread** t0  = arr_t0 + g_idx;
         thread** t1  = arr_t1 + g_idx;
@@ -4870,13 +4702,13 @@ void App::sched_ABCDE_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_
         CheckError(pgm_init_graph(g_ptr, buf));
         graph_t g = *g_ptr;
 
-        CheckError(pgm_init_node(color_convert_node, g, "color_convert"));
-        CheckError(pgm_init_node(compute_scales_node, g, "compute_scales"));
+        CheckError(pgm_init_node(&color_convert_node, g, "color_convert"));
+        CheckError(pgm_init_node(&compute_scales_node, g, "compute_scales"));
         for (int i=0; i<NUM_SCALE_LEVELS; i++) {
             CheckError(pgm_init_node(ABCDE_node + i, g, "ABCDE"));
         }
-        CheckError(pgm_init_node(collect_locations_node, g, "collect_locations"));
-        CheckError(pgm_init_node(display_node, g, "display"));
+        CheckError(pgm_init_node(&collect_locations_node, g, "collect_locations"));
+        CheckError(pgm_init_node(&display_node, g, "display"));
 
         edge_attr_t fast_mq_attr;
         memset(&fast_mq_attr, 0, sizeof(fast_mq_attr));
@@ -4887,7 +4719,7 @@ void App::sched_ABCDE_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_
         fast_mq_attr.nr_produce = sizeof(struct params_compute);
         fast_mq_attr.nr_consume = sizeof(struct params_compute);
         fast_mq_attr.nr_threshold = sizeof(struct params_compute);
-        CheckError(pgm_init_edge(e0_1, *color_convert_node, *compute_scales_node, "e0_1", &fast_mq_attr));
+        CheckError(pgm_init_edge(&e0_1, color_convert_node, compute_scales_node, "e0_1", &fast_mq_attr));
 
         for (int i=0; i<NUM_SCALE_LEVELS; i++) {
             sprintf(buf, "e1_23456_%d", i);
@@ -4895,7 +4727,7 @@ void App::sched_ABCDE_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_
             fast_mq_attr.nr_consume = sizeof(struct params_resize);
             fast_mq_attr.nr_threshold = sizeof(struct params_resize);
             CheckError(pgm_init_edge(e1_23456 + i,
-                        *compute_scales_node,
+                        compute_scales_node,
                         ABCDE_node[i], buf, &fast_mq_attr));
 
             sprintf(buf, "e23456_7_%d", i);
@@ -4904,14 +4736,14 @@ void App::sched_ABCDE_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_
             fast_mq_attr.nr_threshold = sizeof(struct params_fine_collect_locations);
             CheckError(pgm_init_edge(e23456_7 + i,
                         ABCDE_node[i],
-                        *collect_locations_node, buf,
+                        collect_locations_node, buf,
                         &fast_mq_attr));
         }
 
         fast_mq_attr.nr_produce = sizeof(struct params_display);
         fast_mq_attr.nr_consume = sizeof(struct params_display);
         fast_mq_attr.nr_threshold = sizeof(struct params_display);
-        CheckError(pgm_init_edge(e7_8, *collect_locations_node, *display_node, "e7_8", &fast_mq_attr));
+        CheckError(pgm_init_edge(&e7_8, collect_locations_node, display_node, "e7_8", &fast_mq_attr));
 
         pthread_barrier_init(fine_init_barrier, 0, 1 * NUM_SCALE_LEVELS + 4);
 
@@ -4978,14 +4810,14 @@ void App::sched_ABCDE_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_
         else
             t_info.cluster = args.cluster;
         *t0 = new thread(&App::thread_color_convert, this,
-                color_convert_node, fine_init_barrier,
+                &color_convert_node, fine_init_barrier,
                 gpu_hog, cpu_hog, frames, t_info, g_idx);
 
         t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, cost_compute_scales);
         t_info.id = 1;
         t_info.phase = t_info.phase + bound_color_convert;
         *t1 = new thread(&cv::cuda::HOG::thread_fine_compute_scales, gpu_hog,
-                compute_scales_node, fine_init_barrier, t_info);
+                &compute_scales_node, fine_init_barrier, t_info);
 
         for (int i=0; i<NUM_SCALE_LEVELS; i++) {
             t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_ABCDE[i]);
@@ -5001,10 +4833,10 @@ void App::sched_ABCDE_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_
         t_info.id = 1 * NUM_SCALE_LEVELS + 2;
         t_info.phase = t_info.phase + *std::max_element(bounds_ABCDE, bounds_ABCDE+NUM_SCALE_LEVELS);
         *t7 = new thread(&cv::cuda::HOG::thread_fine_collect_locations, gpu_hog,
-                collect_locations_node, fine_init_barrier, t_info);
+                &collect_locations_node, fine_init_barrier, t_info);
         //t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, cost_display);
         //t_info.phase;
-        *t8 = new thread(&App::thread_display, this, display_node,
+        *t8 = new thread(&App::thread_display, this, &display_node,
                 fine_init_barrier, g_idx == 0 && args.display);
     }
 
