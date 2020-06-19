@@ -2079,7 +2079,7 @@ go_ahead:
                     fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
 #endif
 
-                    if (t_info.sched == fine_grained && t_info.early)
+                    if (t_info.sched == fine_AB && t_info.early)
                         gpu_period_guard(t_info.s_info_in, t_info.s_info_out);
 
                     smaller_img = in_buf->smaller_img;
@@ -2096,7 +2096,7 @@ go_ahead:
                             case CV_8UC4: hog::resize_8UC4_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index); break;
                         }
                     }
-                    if (t_info.realtime && t_info.sched == fine_grained) {
+                    if (t_info.realtime && t_info.sched == fine_AB) {
                         CALL(get_current_deadline(&curr_deadline));
                         CALL(set_current_deadline(curr_deadline + param.period));
                     }
@@ -2137,7 +2137,7 @@ go_ahead:
                                     StreamAccessor::getStream(stream));
                             break;
                     }
-                    if (t_info.realtime && t_info.sched == fine_grained) {
+                    if (t_info.realtime && t_info.sched == fine_AB) {
                         CALL(get_current_deadline(&curr_deadline));
                         CALL(set_current_deadline(curr_deadline + param.period));
                     }
@@ -2159,7 +2159,7 @@ go_ahead:
                     out_buf->frame_index = in_buf->frame_index;
                     out_buf->start_time = in_buf->start_time;
                     CheckError(pgm_complete(node));
-                    if (t_info.realtime && t_info.sched == fine_grained) {
+                    if (t_info.realtime && t_info.sched == fine_AB) {
                         CALL(set_current_deadline(curr_deadline));
                     }
                     if (t_info.realtime)
@@ -2236,7 +2236,7 @@ go_ahead:
 #ifdef LOG_DEBUG
                     fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
 #endif
-                    if (t_info.sched == fine_grained && t_info.early)
+                    if (t_info.sched == fine_BC && t_info.early)
                         gpu_period_guard(t_info.s_info_in, t_info.s_info_out);
 
                     smaller_img = in_buf->smaller_img;
@@ -2271,7 +2271,7 @@ go_ahead:
                             break;
                     }
                     unsigned long long curr_deadline;
-                    if (t_info.realtime && t_info.sched == fine_grained) {
+                    if (t_info.realtime && t_info.sched == fine_BC) {
                         CALL(get_current_deadline(&curr_deadline));
                         CALL(set_current_deadline(curr_deadline + param.period));
                     }
@@ -2296,12 +2296,9 @@ go_ahead:
                             cell_size_.width, cell_size_.height,
                             cells_per_block_.width, cells_per_block_.height,
                             StreamAccessor::getStream(stream));
-                    if (t_info.realtime && t_info.sched == fine_grained) {
-                        // Mimic having two CPU nodes surrounding GPU nodes (one before,
-                        // and one after, which must have a later deadline by one period)
+                    if (t_info.realtime && t_info.sched == fine_BC) {
                         CALL(get_current_deadline(&curr_deadline));
                         CALL(set_current_deadline(curr_deadline + param.period));
-                        // Ming thinks maybe we should add the response-time of the GPU node
                     }
                     cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
 
@@ -2323,7 +2320,7 @@ go_ahead:
                     out_buf->start_time = in_buf->start_time;
                     out_buf->block_hists= block_hists;
                     CheckError(pgm_complete(node));
-                    if (t_info.realtime && t_info.sched == fine_grained) {
+                    if (t_info.realtime && t_info.sched == fine_BC) {
                         CALL(set_current_deadline(curr_deadline));
                     }
                     if (t_info.realtime)
@@ -2402,7 +2399,7 @@ go_ahead:
 #ifdef LOG_DEBUG
                     fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
 #endif
-                    if (t_info.sched == fine_grained && t_info.early)
+                    if (t_info.sched == fine_CD && t_info.early)
                         gpu_period_guard(t_info.s_info_in, t_info.s_info_out);
 
                     smaller_img = in_buf->smaller_img;
@@ -2426,7 +2423,7 @@ go_ahead:
                             cells_per_block_.width, cells_per_block_.height,
                             StreamAccessor::getStream(stream));
                     unsigned long long curr_deadline;
-                    if (t_info.realtime && t_info.sched == fine_grained) {
+                    if (t_info.realtime && t_info.sched == fine_CD) {
                         CALL(get_current_deadline(&curr_deadline));
                         CALL(set_current_deadline(curr_deadline + param.period));
                     }
@@ -2449,7 +2446,7 @@ go_ahead:
                             cell_size_.width, cell_size_.height,
                             cells_per_block_.width, cells_per_block_.height,
                             StreamAccessor::getStream(stream));
-                    if (t_info.realtime && t_info.sched == fine_grained) {
+                    if (t_info.realtime && t_info.sched == fine_CD) {
                         CALL(get_current_deadline(&curr_deadline));
                         CALL(set_current_deadline(curr_deadline + param.period));
                     }
@@ -2471,7 +2468,7 @@ go_ahead:
                     out_buf->block_hists = block_hists;
 
                     CheckError(pgm_complete(node));
-                    if (t_info.realtime && t_info.sched == fine_grained) {
+                    if (t_info.realtime && t_info.sched == fine_CD) {
                         CALL(set_current_deadline(curr_deadline));
                     }
                     if (t_info.realtime)
@@ -2550,7 +2547,7 @@ go_ahead:
 #ifdef LOG_DEBUG
                     fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
 #endif
-                    if (t_info.sched == fine_grained && t_info.early)
+                    if (t_info.sched == fine_DE && t_info.early)
                         gpu_period_guard(t_info.s_info_in, t_info.s_info_out);
 
                     smaller_img = in_buf->smaller_img;
@@ -2570,7 +2567,7 @@ go_ahead:
                             // &this->fzlp, in_buf->index, in_buf->frame_index);
 
                     unsigned long long curr_deadline;
-                    if (t_info.realtime && t_info.sched == fine_grained) {
+                    if (t_info.realtime && t_info.sched == fine_DE) {
                         CALL(get_current_deadline(&curr_deadline));
                         CALL(set_current_deadline(curr_deadline + param.period));
                     }
@@ -2587,14 +2584,14 @@ go_ahead:
                      */
                     wins_per_img = numPartsWithin(smaller_img->size(), win_size_, win_stride_);
 
-                    if (t_info.realtime && t_info.sched == fine_grained) {
+                    if (t_info.realtime && t_info.sched == fine_DE) {
                         CALL(get_current_deadline(&curr_deadline));
                     }
                     if (confidences == NULL)
                     {
                         *labels = pool.getBuffer(1, wins_per_img.area(), CV_8UC1);
 
-                        if (t_info.realtime && t_info.sched == fine_grained) {
+                        if (t_info.realtime && t_info.sched == fine_DE) {
                             CALL(set_current_deadline(curr_deadline + param.period));
                         }
                         hog::classify_hists(win_size_.height, win_size_.width,
@@ -2612,7 +2609,7 @@ go_ahead:
                     {
                         *labels = pool.getBuffer(1, wins_per_img.area(), CV_32FC1);
 
-                        if (t_info.realtime && t_info.sched == fine_grained) {
+                        if (t_info.realtime && t_info.sched == fine_DE) {
                             CALL(set_current_deadline(curr_deadline + param.period));
                         }
                         hog::compute_confidence_hists(win_size_.height, win_size_.width,
@@ -2644,7 +2641,7 @@ go_ahead:
                     out_buf->start_time = in_buf->start_time;
 
                     CheckError(pgm_complete(node));
-                    if (t_info.realtime && t_info.sched == fine_grained) {
+                    if (t_info.realtime && t_info.sched == fine_DE) {
                         CALL(set_current_deadline(curr_deadline));
                     }
                     if (t_info.realtime)
@@ -2726,7 +2723,7 @@ go_ahead:
                     fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
 #endif
 
-                    if (t_info.sched == fine_grained && t_info.early)
+                    if (t_info.sched == fine_ABC && t_info.early)
                         gpu_period_guard(t_info.s_info_in, t_info.s_info_out);
 
                     smaller_img = in_buf->smaller_img;
@@ -2743,7 +2740,7 @@ go_ahead:
                             case CV_8UC4: hog::resize_8UC4_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index); break;
                         }
                     }
-                    if (t_info.realtime && t_info.sched == fine_grained) {
+                    if (t_info.realtime && t_info.sched == fine_ABC) {
                         CALL(get_current_deadline(&curr_deadline));
                         CALL(set_current_deadline(curr_deadline + param.period));
                     }
@@ -2784,7 +2781,7 @@ go_ahead:
                                     StreamAccessor::getStream(stream));
                             break;
                     }
-                    if (t_info.realtime && t_info.sched == fine_grained) {
+                    if (t_info.realtime && t_info.sched == fine_ABC) {
                         CALL(get_current_deadline(&curr_deadline));
                         CALL(set_current_deadline(curr_deadline + param.period));
                     }
@@ -2809,12 +2806,9 @@ go_ahead:
                             cell_size_.width, cell_size_.height,
                             cells_per_block_.width, cells_per_block_.height,
                             StreamAccessor::getStream(stream));
-                    if (t_info.realtime && t_info.sched == fine_grained) {
-                        // Mimic having two CPU nodes surrounding GPU nodes (one before,
-                        // and one after, which must have a later deadline by one period)
+                    if (t_info.realtime && t_info.sched == fine_ABC) {
                         CALL(get_current_deadline(&curr_deadline));
                         CALL(set_current_deadline(curr_deadline + param.period));
-                        // Ming thinks maybe we should add the response-time of the GPU node
                     }
                     cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
 
@@ -2836,7 +2830,7 @@ go_ahead:
                     out_buf->start_time = in_buf->start_time;
                     out_buf->block_hists= block_hists;
                     CheckError(pgm_complete(node));
-                    if (t_info.realtime && t_info.sched == fine_grained) {
+                    if (t_info.realtime && t_info.sched == fine_ABC) {
                         CALL(set_current_deadline(curr_deadline));
                     }
                     if (t_info.realtime)
@@ -2915,7 +2909,7 @@ go_ahead:
 #ifdef LOG_DEBUG
                     fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
 #endif
-                    if (t_info.sched == fine_grained && t_info.early)
+                    if (t_info.sched == fine_BCD && t_info.early)
                         gpu_period_guard(t_info.s_info_in, t_info.s_info_out);
 
                     smaller_img = in_buf->smaller_img;
@@ -2950,7 +2944,7 @@ go_ahead:
                             break;
                     }
                     unsigned long long curr_deadline;
-                    if (t_info.realtime && t_info.sched == fine_grained) {
+                    if (t_info.realtime && t_info.sched == fine_BCD) {
                         CALL(get_current_deadline(&curr_deadline));
                         CALL(set_current_deadline(curr_deadline + param.period));
                     }
@@ -2975,7 +2969,7 @@ go_ahead:
                             cell_size_.width, cell_size_.height,
                             cells_per_block_.width, cells_per_block_.height,
                             StreamAccessor::getStream(stream));
-                    if (t_info.realtime && t_info.sched == fine_grained) {
+                    if (t_info.realtime && t_info.sched == fine_BCD) {
                         CALL(get_current_deadline(&curr_deadline));
                         CALL(set_current_deadline(curr_deadline + param.period));
                     }
@@ -2998,7 +2992,7 @@ go_ahead:
                             cell_size_.width, cell_size_.height,
                             cells_per_block_.width, cells_per_block_.height,
                             StreamAccessor::getStream(stream));
-                    if (t_info.realtime && t_info.sched == fine_grained) {
+                    if (t_info.realtime && t_info.sched == fine_BCD) {
                         CALL(get_current_deadline(&curr_deadline));
                         CALL(set_current_deadline(curr_deadline + param.period));
                     }
@@ -3019,7 +3013,7 @@ go_ahead:
                     out_buf->start_time = in_buf->start_time;
                     out_buf->block_hists = block_hists;
                     CheckError(pgm_complete(node));
-                    if (t_info.realtime && t_info.sched == fine_grained) {
+                    if (t_info.realtime && t_info.sched == fine_BCD) {
                         CALL(set_current_deadline(curr_deadline));
                     }
                     if (t_info.realtime)
@@ -3102,7 +3096,7 @@ go_ahead:
 #ifdef LOG_DEBUG
                     fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
 #endif
-                    if (t_info.sched == fine_grained && t_info.early)
+                    if (t_info.sched == fine_CDE && t_info.early)
                         gpu_period_guard(t_info.s_info_in, t_info.s_info_out);
 
                     smaller_img = in_buf->smaller_img;
@@ -3126,7 +3120,7 @@ go_ahead:
                             cells_per_block_.width, cells_per_block_.height,
                             StreamAccessor::getStream(stream));
                     unsigned long long curr_deadline;
-                    if (t_info.realtime && t_info.sched == fine_grained) {
+                    if (t_info.realtime && t_info.sched == fine_CDE) {
                         CALL(get_current_deadline(&curr_deadline));
                         CALL(set_current_deadline(curr_deadline + param.period));
                     }
@@ -3149,7 +3143,7 @@ go_ahead:
                             cell_size_.width, cell_size_.height,
                             cells_per_block_.width, cells_per_block_.height,
                             StreamAccessor::getStream(stream));
-                    if (t_info.realtime && t_info.sched == fine_grained) {
+                    if (t_info.realtime && t_info.sched == fine_CDE) {
                         CALL(get_current_deadline(&curr_deadline));
                         CALL(set_current_deadline(curr_deadline + param.period));
                     }
@@ -3166,14 +3160,14 @@ go_ahead:
                      */
                     wins_per_img = numPartsWithin(smaller_img->size(), win_size_, win_stride_);
 
-                    if (t_info.realtime && t_info.sched == fine_grained) {
+                    if (t_info.realtime && t_info.sched == fine_CDE) {
                         CALL(get_current_deadline(&curr_deadline));
                     }
                     if (confidences == NULL)
                     {
                         *labels = pool.getBuffer(1, wins_per_img.area(), CV_8UC1);
 
-                        if (t_info.realtime && t_info.sched == fine_grained) {
+                        if (t_info.realtime && t_info.sched == fine_CDE) {
                             CALL(set_current_deadline(curr_deadline + param.period));
                         }
                         hog::classify_hists(win_size_.height, win_size_.width,
@@ -3191,7 +3185,7 @@ go_ahead:
                     {
                         *labels = pool.getBuffer(1, wins_per_img.area(), CV_32FC1);
 
-                        if (t_info.realtime && t_info.sched == fine_grained) {
+                        if (t_info.realtime && t_info.sched == fine_CDE) {
                             CALL(set_current_deadline(curr_deadline + param.period));
                         }
                         hog::compute_confidence_hists(win_size_.height, win_size_.width,
@@ -3223,7 +3217,7 @@ go_ahead:
                     out_buf->start_time = in_buf->start_time;
 
                     CheckError(pgm_complete(node));
-                    if (t_info.realtime && t_info.sched == fine_grained) {
+                    if (t_info.realtime && t_info.sched == fine_CDE) {
                         CALL(set_current_deadline(curr_deadline));
                     }
                     if (t_info.realtime)
@@ -3306,7 +3300,7 @@ go_ahead:
                     fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
 #endif
 
-                    if (t_info.sched == fine_grained && t_info.early)
+                    if (t_info.sched == fine_ABCD && t_info.early)
                         gpu_period_guard(t_info.s_info_in, t_info.s_info_out);
 
                     smaller_img = in_buf->smaller_img;
@@ -3323,7 +3317,7 @@ go_ahead:
                             case CV_8UC4: hog::resize_8UC4_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index); break;
                         }
                     }
-                    if (t_info.realtime && t_info.sched == fine_grained) {
+                    if (t_info.realtime && t_info.sched == fine_ABCD) {
                         CALL(get_current_deadline(&curr_deadline));
                         CALL(set_current_deadline(curr_deadline + param.period));
                     }
@@ -3364,7 +3358,7 @@ go_ahead:
                                     StreamAccessor::getStream(stream));
                             break;
                     }
-                    if (t_info.realtime && t_info.sched == fine_grained) {
+                    if (t_info.realtime && t_info.sched == fine_ABCD) {
                         CALL(get_current_deadline(&curr_deadline));
                         CALL(set_current_deadline(curr_deadline + param.period));
                     }
@@ -3389,12 +3383,9 @@ go_ahead:
                             cell_size_.width, cell_size_.height,
                             cells_per_block_.width, cells_per_block_.height,
                             StreamAccessor::getStream(stream));
-                    if (t_info.realtime && t_info.sched == fine_grained) {
-                        // Mimic having two CPU nodes surrounding GPU nodes (one before,
-                        // and one after, which must have a later deadline by one period)
+                    if (t_info.realtime && t_info.sched == fine_ABCD) {
                         CALL(get_current_deadline(&curr_deadline));
                         CALL(set_current_deadline(curr_deadline + param.period));
-                        // Ming thinks maybe we should add the response-time of the GPU node
                     }
                     cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
 
@@ -3415,7 +3406,7 @@ go_ahead:
                             cell_size_.width, cell_size_.height,
                             cells_per_block_.width, cells_per_block_.height,
                             StreamAccessor::getStream(stream));
-                    if (t_info.realtime && t_info.sched == fine_grained) {
+                    if (t_info.realtime && t_info.sched == fine_ABCD) {
                         CALL(get_current_deadline(&curr_deadline));
                         CALL(set_current_deadline(curr_deadline + param.period));
                     }
@@ -3436,7 +3427,7 @@ go_ahead:
                     out_buf->start_time = in_buf->start_time;
                     out_buf->block_hists = block_hists;
                     CheckError(pgm_complete(node));
-                    if (t_info.realtime && t_info.sched == fine_grained) {
+                    if (t_info.realtime && t_info.sched == fine_ABCD) {
                         CALL(set_current_deadline(curr_deadline));
                     }
                     if (t_info.realtime)
@@ -3519,7 +3510,7 @@ go_ahead:
 #ifdef LOG_DEBUG
                     fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
 #endif
-                    if (t_info.sched == fine_grained && t_info.early)
+                    if (t_info.sched == fine_BCDE && t_info.early)
                         gpu_period_guard(t_info.s_info_in, t_info.s_info_out);
 
                     smaller_img = in_buf->smaller_img;
@@ -3554,7 +3545,7 @@ go_ahead:
                             break;
                     }
                     unsigned long long curr_deadline;
-                    if (t_info.realtime && t_info.sched == fine_grained) {
+                    if (t_info.realtime && t_info.sched == fine_BCDE) {
                         CALL(get_current_deadline(&curr_deadline));
                         CALL(set_current_deadline(curr_deadline + param.period));
                     }
@@ -3579,7 +3570,7 @@ go_ahead:
                             cell_size_.width, cell_size_.height,
                             cells_per_block_.width, cells_per_block_.height,
                             StreamAccessor::getStream(stream));
-                    if (t_info.realtime && t_info.sched == fine_grained) {
+                    if (t_info.realtime && t_info.sched == fine_BCDE) {
                         CALL(get_current_deadline(&curr_deadline));
                         CALL(set_current_deadline(curr_deadline + param.period));
                     }
@@ -3602,7 +3593,7 @@ go_ahead:
                             cell_size_.width, cell_size_.height,
                             cells_per_block_.width, cells_per_block_.height,
                             StreamAccessor::getStream(stream));
-                    if (t_info.realtime && t_info.sched == fine_grained) {
+                    if (t_info.realtime && t_info.sched == fine_BCDE) {
                         CALL(get_current_deadline(&curr_deadline));
                         CALL(set_current_deadline(curr_deadline + param.period));
                     }
@@ -3619,14 +3610,14 @@ go_ahead:
                      */
                     wins_per_img = numPartsWithin(smaller_img->size(), win_size_, win_stride_);
 
-                    if (t_info.realtime && t_info.sched == fine_grained) {
+                    if (t_info.realtime && t_info.sched == fine_BCDE) {
                         CALL(get_current_deadline(&curr_deadline));
                     }
                     if (confidences == NULL)
                     {
                         *labels = pool.getBuffer(1, wins_per_img.area(), CV_8UC1);
 
-                        if (t_info.realtime && t_info.sched == fine_grained) {
+                        if (t_info.realtime && t_info.sched == fine_BCDE) {
                             CALL(set_current_deadline(curr_deadline + param.period));
                         }
                         hog::classify_hists(win_size_.height, win_size_.width,
@@ -3644,7 +3635,7 @@ go_ahead:
                     {
                         *labels = pool.getBuffer(1, wins_per_img.area(), CV_32FC1);
 
-                        if (t_info.realtime && t_info.sched == fine_grained) {
+                        if (t_info.realtime && t_info.sched == fine_BCDE) {
                             CALL(set_current_deadline(curr_deadline + param.period));
                         }
                         hog::compute_confidence_hists(win_size_.height, win_size_.width,
@@ -3675,7 +3666,7 @@ go_ahead:
                     out_buf->frame_index = in_buf->frame_index;
                     out_buf->start_time = in_buf->start_time;
                     CheckError(pgm_complete(node));
-                    if (t_info.realtime && t_info.sched == fine_grained) {
+                    if (t_info.realtime && t_info.sched == fine_BCDE) {
                         CALL(set_current_deadline(curr_deadline));
                     }
                     if (t_info.realtime)
@@ -3762,7 +3753,7 @@ go_ahead:
                     fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
 #endif
 
-                    if (t_info.sched == fine_grained && t_info.early)
+                    if (t_info.sched == fine_ABCDE && t_info.early)
                         gpu_period_guard(t_info.s_info_in, t_info.s_info_out);
 
                     smaller_img = in_buf->smaller_img;
@@ -3779,7 +3770,7 @@ go_ahead:
                             case CV_8UC4: hog::resize_8UC4_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index); break;
                         }
                     }
-                    if (t_info.realtime && t_info.sched == fine_grained) {
+                    if (t_info.realtime && t_info.sched == fine_ABCDE) {
                         CALL(get_current_deadline(&curr_deadline));
                         CALL(set_current_deadline(curr_deadline + param.period));
                     }
@@ -3820,7 +3811,7 @@ go_ahead:
                                     StreamAccessor::getStream(stream));
                             break;
                     }
-                    if (t_info.realtime && t_info.sched == fine_grained) {
+                    if (t_info.realtime && t_info.sched == fine_ABCDE) {
                         CALL(get_current_deadline(&curr_deadline));
                         CALL(set_current_deadline(curr_deadline + param.period));
                     }
@@ -3845,12 +3836,9 @@ go_ahead:
                             cell_size_.width, cell_size_.height,
                             cells_per_block_.width, cells_per_block_.height,
                             StreamAccessor::getStream(stream));
-                    if (t_info.realtime && t_info.sched == fine_grained) {
-                        // Mimic having two CPU nodes surrounding GPU nodes (one before,
-                        // and one after, which must have a later deadline by one period)
+                    if (t_info.realtime && t_info.sched == fine_ABCDE) {
                         CALL(get_current_deadline(&curr_deadline));
                         CALL(set_current_deadline(curr_deadline + param.period));
-                        // Ming thinks maybe we should add the response-time of the GPU node
                     }
                     cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
 
@@ -3871,7 +3859,7 @@ go_ahead:
                             cell_size_.width, cell_size_.height,
                             cells_per_block_.width, cells_per_block_.height,
                             StreamAccessor::getStream(stream));
-                    if (t_info.realtime && t_info.sched == fine_grained) {
+                    if (t_info.realtime && t_info.sched == fine_ABCDE) {
                         CALL(get_current_deadline(&curr_deadline));
                         CALL(set_current_deadline(curr_deadline + param.period));
                     }
@@ -3888,14 +3876,14 @@ go_ahead:
                      */
                     wins_per_img = numPartsWithin(smaller_img->size(), win_size_, win_stride_);
 
-                    if (t_info.realtime && t_info.sched == fine_grained) {
+                    if (t_info.realtime && t_info.sched == fine_ABCDE) {
                         CALL(get_current_deadline(&curr_deadline));
                     }
                     if (confidences == NULL)
                     {
                         *labels = pool.getBuffer(1, wins_per_img.area(), CV_8UC1);
 
-                        if (t_info.realtime && t_info.sched == fine_grained) {
+                        if (t_info.realtime && t_info.sched == fine_ABCDE) {
                             CALL(set_current_deadline(curr_deadline + param.period));
                         }
                         hog::classify_hists(win_size_.height, win_size_.width,
@@ -3913,7 +3901,7 @@ go_ahead:
                     {
                         *labels = pool.getBuffer(1, wins_per_img.area(), CV_32FC1);
 
-                        if (t_info.realtime && t_info.sched == fine_grained) {
+                        if (t_info.realtime && t_info.sched == fine_ABCDE) {
                             CALL(set_current_deadline(curr_deadline + param.period));
                         }
                         hog::compute_confidence_hists(win_size_.height, win_size_.width,
@@ -3944,7 +3932,7 @@ go_ahead:
                     out_buf->frame_index = in_buf->frame_index;
                     out_buf->start_time = in_buf->start_time;
                     CheckError(pgm_complete(node));
-                    if (t_info.realtime && t_info.sched == fine_grained) {
+                    if (t_info.realtime && t_info.sched == fine_ABCDE) {
                         CALL(set_current_deadline(curr_deadline));
                     }
                     if (t_info.realtime)

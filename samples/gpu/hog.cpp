@@ -2227,7 +2227,7 @@ void App::sched_AB_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog
         struct task_info t_info;
         t_info.early = args.early;
         t_info.realtime = args.realtime;
-        t_info.sched = fine_grained;
+        t_info.sched = fine_AB;
         t_info.period = period;
         t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, cost_color_convert);
         t_info.phase = PERIOD * g_idx;
@@ -2560,7 +2560,7 @@ void App::sched_BC_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog
         struct task_info t_info;
         t_info.early = args.early;
         t_info.realtime = args.realtime;
-        t_info.sched = fine_grained;
+        t_info.sched = fine_BC;
         t_info.period = period;
         t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, cost_color_convert);
         t_info.phase = PERIOD * g_idx;
@@ -2897,7 +2897,7 @@ void App::sched_CD_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog
         struct task_info t_info;
         t_info.early = args.early;
         t_info.realtime = args.realtime;
-        t_info.sched = fine_grained;
+        t_info.sched = fine_CD;
         t_info.period = period;
         t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, cost_color_convert);
         t_info.phase = PERIOD * g_idx;
@@ -3234,7 +3234,7 @@ void App::sched_DE_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog
         struct task_info t_info;
         t_info.early = args.early;
         t_info.realtime = args.realtime;
-        t_info.sched = fine_grained;
+        t_info.sched = fine_DE;
         t_info.period = period;
         t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, cost_color_convert);
         t_info.phase = PERIOD * g_idx;
@@ -3551,7 +3551,7 @@ void App::sched_ABC_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_ho
         struct task_info t_info;
         t_info.early = args.early;
         t_info.realtime = args.realtime;
-        t_info.sched = fine_grained;
+        t_info.sched = fine_ABC;
         t_info.period = period;
         t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, cost_color_convert);
         t_info.phase = PERIOD * g_idx;
@@ -3855,7 +3855,7 @@ void App::sched_BCD_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_ho
         struct task_info t_info;
         t_info.early = args.early;
         t_info.realtime = args.realtime;
-        t_info.sched = fine_grained;
+        t_info.sched = fine_BCD;
         t_info.period = period;
         t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, cost_color_convert);
         t_info.phase = PERIOD * g_idx;
@@ -4160,7 +4160,7 @@ void App::sched_CDE_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_ho
         struct task_info t_info;
         t_info.early = args.early;
         t_info.realtime = args.realtime;
-        t_info.sched = fine_grained;
+        t_info.sched = fine_CDE;
         t_info.period = period;
         t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, cost_color_convert);
         t_info.phase = PERIOD * g_idx;
@@ -4444,7 +4444,7 @@ void App::sched_ABCD_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_h
         struct task_info t_info;
         t_info.early = args.early;
         t_info.realtime = args.realtime;
-        t_info.sched = fine_grained;
+        t_info.sched = fine_ABCD;
         t_info.period = period;
         t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, cost_color_convert);
         t_info.phase = PERIOD * g_idx;
@@ -4716,7 +4716,7 @@ void App::sched_BCDE_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_h
         struct task_info t_info;
         t_info.early = args.early;
         t_info.realtime = args.realtime;
-        t_info.sched = fine_grained;
+        t_info.sched = fine_BCDE;
         t_info.period = period;
         t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, cost_color_convert);
         t_info.phase = PERIOD * g_idx;
@@ -4968,7 +4968,7 @@ void App::sched_ABCDE_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_
         struct task_info t_info;
         t_info.early = args.early;
         t_info.realtime = args.realtime;
-        t_info.sched = fine_grained;
+        t_info.sched = fine_ABCDE;
         t_info.period = period;
         t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, cost_color_convert);
         t_info.phase = PERIOD * g_idx;
