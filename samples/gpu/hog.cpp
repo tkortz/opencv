@@ -302,6 +302,8 @@ public:
 
     void sched_ABCDE_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog, Mat* frames);
 
+    void sched_single_merge_in_level_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog, Mat* frames);
+
     void thread_color_convert(node_t *_node, pthread_barrier_t* init_barrier,
             cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog, Mat* frames, struct task_info t_info, int graph_idx);
 
@@ -1123,7 +1125,7 @@ void App::sched_fine_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
 {
     pthread_barrier_t arr_fine_init_barrier[args.num_fine_graphs];
     /* graph construction */
-    graph_t arr_g                       [args.num_fine_graphs];
+    graph_t arr_g [args.num_fine_graphs];
 
     struct sync_info arr_sync_info_resize             [args.num_fine_graphs][NUM_SCALE_LEVELS];
     struct sync_info arr_sync_info_compute_gradients  [args.num_fine_graphs][NUM_SCALE_LEVELS];
@@ -1882,6 +1884,9 @@ void App::run()
         case fine_ABCDE:
             sched_ABCDE_hog(gpu_hog, cpu_hog, frames);
             break;
+        case fine_single_merge_in_level:
+            sched_single_merge_in_level_hog(gpu_hog, cpu_hog, frames);
+            break;
         default:
             break;
     }
@@ -1997,7 +2002,7 @@ void App::sched_AB_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog
 {
     pthread_barrier_t arr_fine_init_barrier[args.num_fine_graphs];
     /* graph construction */
-    graph_t arr_g                       [args.num_fine_graphs];
+    graph_t arr_g [args.num_fine_graphs];
 
     struct sync_info arr_sync_info_AB                 [args.num_fine_graphs][NUM_SCALE_LEVELS];
     struct sync_info arr_sync_info_compute_histograms [args.num_fine_graphs][NUM_SCALE_LEVELS];
@@ -2310,12 +2315,12 @@ void App::sched_BC_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog
 {
     pthread_barrier_t arr_fine_init_barrier[args.num_fine_graphs];
     /* graph construction */
-    graph_t arr_g                       [args.num_fine_graphs];
+    graph_t arr_g [args.num_fine_graphs];
 
-    struct sync_info arr_sync_info_resize             [args.num_fine_graphs][NUM_SCALE_LEVELS];
-    struct sync_info arr_sync_info_BC                 [args.num_fine_graphs][NUM_SCALE_LEVELS];
-    struct sync_info arr_sync_info_normalize          [args.num_fine_graphs][NUM_SCALE_LEVELS];
-    struct sync_info arr_sync_info_classify           [args.num_fine_graphs][NUM_SCALE_LEVELS];
+    struct sync_info arr_sync_info_resize    [args.num_fine_graphs][NUM_SCALE_LEVELS];
+    struct sync_info arr_sync_info_BC        [args.num_fine_graphs][NUM_SCALE_LEVELS];
+    struct sync_info arr_sync_info_normalize [args.num_fine_graphs][NUM_SCALE_LEVELS];
+    struct sync_info arr_sync_info_classify  [args.num_fine_graphs][NUM_SCALE_LEVELS];
 
     thread** arr_t0  = (thread**) calloc(args.num_fine_graphs, sizeof(std::thread *));
     thread** arr_t1  = (thread**) calloc(args.num_fine_graphs, sizeof(std::thread *));
@@ -2626,12 +2631,12 @@ void App::sched_CD_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog
 {
     pthread_barrier_t arr_fine_init_barrier[args.num_fine_graphs];
     /* graph construction */
-    graph_t arr_g                       [args.num_fine_graphs];
+    graph_t arr_g [args.num_fine_graphs];
 
-    struct sync_info arr_sync_info_resize             [args.num_fine_graphs][NUM_SCALE_LEVELS];
-    struct sync_info arr_sync_info_compute_gradients  [args.num_fine_graphs][NUM_SCALE_LEVELS];
-    struct sync_info arr_sync_info_CD                 [args.num_fine_graphs][NUM_SCALE_LEVELS];
-    struct sync_info arr_sync_info_classify           [args.num_fine_graphs][NUM_SCALE_LEVELS];
+    struct sync_info arr_sync_info_resize            [args.num_fine_graphs][NUM_SCALE_LEVELS];
+    struct sync_info arr_sync_info_compute_gradients [args.num_fine_graphs][NUM_SCALE_LEVELS];
+    struct sync_info arr_sync_info_CD                [args.num_fine_graphs][NUM_SCALE_LEVELS];
+    struct sync_info arr_sync_info_classify          [args.num_fine_graphs][NUM_SCALE_LEVELS];
 
     thread** arr_t0  = (thread**) calloc(args.num_fine_graphs, sizeof(std::thread *));
     thread** arr_t1  = (thread**) calloc(args.num_fine_graphs, sizeof(std::thread *));
@@ -2946,7 +2951,7 @@ void App::sched_DE_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog
 {
     pthread_barrier_t arr_fine_init_barrier[args.num_fine_graphs];
     /* graph construction */
-    graph_t arr_g                       [args.num_fine_graphs];
+    graph_t arr_g [args.num_fine_graphs];
 
     struct sync_info arr_sync_info_resize             [args.num_fine_graphs][NUM_SCALE_LEVELS];
     struct sync_info arr_sync_info_compute_gradients  [args.num_fine_graphs][NUM_SCALE_LEVELS];
@@ -3267,11 +3272,11 @@ void App::sched_ABC_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_ho
 {
     pthread_barrier_t arr_fine_init_barrier[args.num_fine_graphs];
     /* graph construction */
-    graph_t arr_g                       [args.num_fine_graphs];
+    graph_t arr_g [args.num_fine_graphs];
 
-    struct sync_info arr_sync_info_ABC                [args.num_fine_graphs][NUM_SCALE_LEVELS];
-    struct sync_info arr_sync_info_normalize          [args.num_fine_graphs][NUM_SCALE_LEVELS];
-    struct sync_info arr_sync_info_classify           [args.num_fine_graphs][NUM_SCALE_LEVELS];
+    struct sync_info arr_sync_info_ABC       [args.num_fine_graphs][NUM_SCALE_LEVELS];
+    struct sync_info arr_sync_info_normalize [args.num_fine_graphs][NUM_SCALE_LEVELS];
+    struct sync_info arr_sync_info_classify  [args.num_fine_graphs][NUM_SCALE_LEVELS];
 
     thread** arr_t0   = (thread**) calloc(args.num_fine_graphs, sizeof(std::thread *));
     thread** arr_t1   = (thread**) calloc(args.num_fine_graphs, sizeof(std::thread *));
@@ -3557,11 +3562,11 @@ void App::sched_BCD_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_ho
 {
     pthread_barrier_t arr_fine_init_barrier[args.num_fine_graphs];
     /* graph construction */
-    graph_t arr_g                       [args.num_fine_graphs];
+    graph_t arr_g [args.num_fine_graphs];
 
-    struct sync_info arr_sync_info_resize             [args.num_fine_graphs][NUM_SCALE_LEVELS];
-    struct sync_info arr_sync_info_BCD                [args.num_fine_graphs][NUM_SCALE_LEVELS];
-    struct sync_info arr_sync_info_classify           [args.num_fine_graphs][NUM_SCALE_LEVELS];
+    struct sync_info arr_sync_info_resize   [args.num_fine_graphs][NUM_SCALE_LEVELS];
+    struct sync_info arr_sync_info_BCD      [args.num_fine_graphs][NUM_SCALE_LEVELS];
+    struct sync_info arr_sync_info_classify [args.num_fine_graphs][NUM_SCALE_LEVELS];
 
     thread** arr_t0   = (thread**) calloc(args.num_fine_graphs, sizeof(std::thread *));
     thread** arr_t1   = (thread**) calloc(args.num_fine_graphs, sizeof(std::thread *));
@@ -3847,11 +3852,11 @@ void App::sched_CDE_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_ho
 {
     pthread_barrier_t arr_fine_init_barrier[args.num_fine_graphs];
     /* graph construction */
-    graph_t arr_g                       [args.num_fine_graphs];
+    graph_t arr_g [args.num_fine_graphs];
 
-    struct sync_info arr_sync_info_resize             [args.num_fine_graphs][NUM_SCALE_LEVELS];
-    struct sync_info arr_sync_info_compute_gradients  [args.num_fine_graphs][NUM_SCALE_LEVELS];
-    struct sync_info arr_sync_info_CDE                 [args.num_fine_graphs][NUM_SCALE_LEVELS];
+    struct sync_info arr_sync_info_resize            [args.num_fine_graphs][NUM_SCALE_LEVELS];
+    struct sync_info arr_sync_info_compute_gradients [args.num_fine_graphs][NUM_SCALE_LEVELS];
+    struct sync_info arr_sync_info_CDE               [args.num_fine_graphs][NUM_SCALE_LEVELS];
 
     thread** arr_t0   = (thread**) calloc(args.num_fine_graphs, sizeof(std::thread *));
     thread** arr_t1   = (thread**) calloc(args.num_fine_graphs, sizeof(std::thread *));
@@ -4137,10 +4142,10 @@ void App::sched_ABCD_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_h
 {
     pthread_barrier_t arr_fine_init_barrier[args.num_fine_graphs];
     /* graph construction */
-    graph_t arr_g                       [args.num_fine_graphs];
+    graph_t arr_g [args.num_fine_graphs];
 
-    struct sync_info arr_sync_info_ABCD               [args.num_fine_graphs][NUM_SCALE_LEVELS];
-    struct sync_info arr_sync_info_classify           [args.num_fine_graphs][NUM_SCALE_LEVELS];
+    struct sync_info arr_sync_info_ABCD     [args.num_fine_graphs][NUM_SCALE_LEVELS];
+    struct sync_info arr_sync_info_classify [args.num_fine_graphs][NUM_SCALE_LEVELS];
 
     thread** arr_t0    = (thread**) calloc(args.num_fine_graphs, sizeof(std::thread *));
     thread** arr_t1    = (thread**) calloc(args.num_fine_graphs, sizeof(std::thread *));
@@ -4397,10 +4402,10 @@ void App::sched_BCDE_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_h
 {
     pthread_barrier_t arr_fine_init_barrier[args.num_fine_graphs];
     /* graph construction */
-    graph_t arr_g                       [args.num_fine_graphs];
+    graph_t arr_g [args.num_fine_graphs];
 
-    struct sync_info arr_sync_info_resize             [args.num_fine_graphs][NUM_SCALE_LEVELS];
-    struct sync_info arr_sync_info_BCDE               [args.num_fine_graphs][NUM_SCALE_LEVELS];
+    struct sync_info arr_sync_info_resize [args.num_fine_graphs][NUM_SCALE_LEVELS];
+    struct sync_info arr_sync_info_BCDE   [args.num_fine_graphs][NUM_SCALE_LEVELS];
 
     thread** arr_t0    = (thread**) calloc(args.num_fine_graphs, sizeof(std::thread *));
     thread** arr_t1    = (thread**) calloc(args.num_fine_graphs, sizeof(std::thread *));
@@ -4657,9 +4662,9 @@ void App::sched_ABCDE_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_
 {
     pthread_barrier_t arr_fine_init_barrier[args.num_fine_graphs];
     /* graph construction */
-    graph_t arr_g                       [args.num_fine_graphs];
+    graph_t arr_g [args.num_fine_graphs];
 
-    struct sync_info arr_sync_info_ABCDE              [args.num_fine_graphs][NUM_SCALE_LEVELS];
+    struct sync_info arr_sync_info_ABCDE [args.num_fine_graphs][NUM_SCALE_LEVELS];
 
     thread** arr_t0     = (thread**) calloc(args.num_fine_graphs, sizeof(std::thread *));
     thread** arr_t1     = (thread**) calloc(args.num_fine_graphs, sizeof(std::thread *));
@@ -4875,6 +4880,1078 @@ void App::sched_ABCDE_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_
     }
     free(arr_t1);
     free(arr_t23456);
+    free(arr_t7);
+    free(arr_t8);
+
+    //CheckError(pgm_destroy_graph(g));
+    CheckError(pgm_destroy());
+    fprintf(stdout, "cleaned up ...");
+}
+
+void App::sched_single_merge_in_level_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog, Mat* frames)
+{
+    // Each level has at most one merged node
+    scheduling_option level_options[13] = {
+        fine_grained, /* level  0 */
+        fine_grained, /* level  1 */
+        fine_AB,      /* level  2 */
+        fine_BC,      /* level  3 */
+        fine_CD,      /* level  4 */
+        fine_DE,      /* level  5 */
+        fine_ABC,     /* level  6 */
+        fine_BCD,     /* level  7 */
+        fine_CDE,     /* level  8 */
+        fine_ABCD,    /* level  9 */
+        fine_BCDE,    /* level 10 */
+        fine_ABCDE,   /* level 11 */
+        fine_ABCDE    /* level 12 */
+    };
+
+    // Gather statistics about the levels
+    int num_nodes_per_level[13] = {
+        5,
+        5,
+        4,
+        4,
+        4,
+        4,
+        3,
+        3,
+        3,
+        2,
+        2,
+        1,
+        1
+    };
+
+    int num_total_level_nodes = 0;
+    for (unsigned i = 0; i < NUM_SCALE_LEVELS; i++)
+    {
+        num_total_level_nodes += num_nodes_per_level[i];
+    }
+
+    pthread_barrier_t arr_fine_init_barrier[args.num_fine_graphs];
+    /* graph construction */
+    graph_t arr_g [args.num_fine_graphs];
+
+    // Not all sync info structs will be used
+    struct sync_info arr_sync_info_1st [args.num_fine_graphs][NUM_SCALE_LEVELS];
+    struct sync_info arr_sync_info_2nd [args.num_fine_graphs][NUM_SCALE_LEVELS];
+    struct sync_info arr_sync_info_3rd [args.num_fine_graphs][NUM_SCALE_LEVELS];
+    struct sync_info arr_sync_info_4th [args.num_fine_graphs][NUM_SCALE_LEVELS];
+    struct sync_info arr_sync_info_5th [args.num_fine_graphs][NUM_SCALE_LEVELS];
+
+    thread** arr_t0  = (thread**) calloc(args.num_fine_graphs, sizeof(std::thread *));
+    thread** arr_t1  = (thread**) calloc(args.num_fine_graphs, sizeof(std::thread *));
+    thread** arr_t1st = (thread**) calloc(args.num_fine_graphs * NUM_SCALE_LEVELS, sizeof(std::thread *));
+    thread** arr_t2nd = (thread**) calloc(args.num_fine_graphs * NUM_SCALE_LEVELS, sizeof(std::thread *));
+    thread** arr_t3rd = (thread**) calloc(args.num_fine_graphs * NUM_SCALE_LEVELS, sizeof(std::thread *));
+    thread** arr_t4th = (thread**) calloc(args.num_fine_graphs * NUM_SCALE_LEVELS, sizeof(std::thread *));
+    thread** arr_t5th = (thread**) calloc(args.num_fine_graphs * NUM_SCALE_LEVELS, sizeof(std::thread *));
+    thread** arr_t7  = (thread**) calloc(args.num_fine_graphs, sizeof(std::thread *));
+    thread** arr_t8  = (thread**) calloc(args.num_fine_graphs, sizeof(std::thread *));
+
+    char buf[30];
+    sprintf(buf, "/tmp/graph_t%d", args.task_id);
+    CheckError(pgm_init(buf, 1));
+
+    for (int g_idx = 0; g_idx < args.num_fine_graphs; g_idx++)
+    {
+        pthread_barrier_t* fine_init_barrier = arr_fine_init_barrier + g_idx;
+
+        // A graph consists of the graph itself, nodes, and edge
+        graph_t* g_ptr = arr_g + g_idx;
+
+        node_t color_convert_node;
+        node_t compute_scales_node;
+        node_t node_1st [NUM_SCALE_LEVELS];
+        node_t node_2nd [NUM_SCALE_LEVELS];
+        node_t node_3rd [NUM_SCALE_LEVELS];
+        node_t node_4th [NUM_SCALE_LEVELS];
+        node_t node_5th [NUM_SCALE_LEVELS];
+        node_t collect_locations_node;
+        node_t display_node;
+
+        edge_t e0_1;
+        edge_t e1_1st   [NUM_SCALE_LEVELS];
+        edge_t e1st_2nd [NUM_SCALE_LEVELS];
+        edge_t e2nd_3rd [NUM_SCALE_LEVELS];
+        edge_t e3rd_4th [NUM_SCALE_LEVELS];
+        edge_t e4th_5th [NUM_SCALE_LEVELS];
+        edge_t e5th_7   [NUM_SCALE_LEVELS];
+        edge_t e7_8;
+
+        // Initialize the graph
+        sprintf(buf, "hog_%d", g_idx);
+        CheckError(pgm_init_graph(g_ptr, buf));
+        graph_t g = *g_ptr;
+
+        // Initialize the nodes
+        CheckError(pgm_init_node(&color_convert_node, g, "color_convert"));
+        CheckError(pgm_init_node(&compute_scales_node, g, "compute_scales"));
+        for (int i=0; i<NUM_SCALE_LEVELS; i++) {
+            switch (level_options[i]) {
+                case fine_grained:
+                    CheckError(pgm_init_node(node_1st + i, g, "node_1st"));
+                    CheckError(pgm_init_node(node_2nd + i, g, "node_2nd"));
+                    CheckError(pgm_init_node(node_3rd + i, g, "node_3rd"));
+                    CheckError(pgm_init_node(node_4th + i, g, "node_4th"));
+                    CheckError(pgm_init_node(node_5th + i, g, "node_5th"));
+                    break;
+                case fine_AB:
+                case fine_BC:
+                case fine_CD:
+                case fine_DE:
+                    CheckError(pgm_init_node(node_1st + i, g, "node_1st"));
+                    CheckError(pgm_init_node(node_2nd + i, g, "node_2nd"));
+                    CheckError(pgm_init_node(node_3rd + i, g, "node_3rd"));
+                    CheckError(pgm_init_node(node_4th + i, g, "node_4th"));
+                    break;
+                case fine_ABC:
+                case fine_BCD:
+                case fine_CDE:
+                    CheckError(pgm_init_node(node_1st + i, g, "node_1st"));
+                    CheckError(pgm_init_node(node_2nd + i, g, "node_2nd"));
+                    CheckError(pgm_init_node(node_3rd + i, g, "node_3rd"));
+                    break;
+                case fine_ABCD:
+                case fine_BCDE:
+                    CheckError(pgm_init_node(node_1st + i, g, "node_1st"));
+                    CheckError(pgm_init_node(node_2nd + i, g, "node_2nd"));
+                    break;
+                case fine_ABCDE:
+                    CheckError(pgm_init_node(node_1st + i, g, "node_1st"));
+                    break;
+                default:
+                    break;
+            }
+        }
+        CheckError(pgm_init_node(&collect_locations_node, g, "collect_locations"));
+        CheckError(pgm_init_node(&display_node, g, "display"));
+
+        // Initialize the edges
+        edge_attr_t fast_mq_attr;
+        memset(&fast_mq_attr, 0, sizeof(fast_mq_attr));
+        fast_mq_attr.type = pgm_fast_fifo_edge;
+
+        fast_mq_attr.nr_produce = sizeof(struct params_compute);
+        fast_mq_attr.nr_consume = sizeof(struct params_compute);
+        fast_mq_attr.nr_threshold = sizeof(struct params_compute);
+        CheckError(pgm_init_edge(&e0_1, color_convert_node, compute_scales_node, "e0_1", &fast_mq_attr));
+
+        for (int i=0; i<NUM_SCALE_LEVELS; i++) {
+            switch (level_options[i]) {
+                case fine_grained:
+                    sprintf(buf, "e1_1st_%d", i);
+                    fast_mq_attr.nr_produce = sizeof(struct params_resize);
+                    fast_mq_attr.nr_consume = sizeof(struct params_resize);
+                    fast_mq_attr.nr_threshold = sizeof(struct params_resize);
+                    CheckError(pgm_init_edge(e1_1st + i,
+                                compute_scales_node,
+                                node_1st[i], buf, &fast_mq_attr));
+
+                    sprintf(buf, "e1st_2nd_%d", i);
+                    fast_mq_attr.nr_produce = sizeof(struct params_compute_gradients);
+                    fast_mq_attr.nr_consume = sizeof(struct params_compute_gradients);
+                    fast_mq_attr.nr_threshold = sizeof(struct params_compute_gradients);
+                    CheckError(pgm_init_edge(e1st_2nd + i,
+                                node_1st[i],
+                                node_2nd[i], buf, &fast_mq_attr));
+
+                    sprintf(buf, "e2nd_3rd_%d", i);
+                    fast_mq_attr.nr_produce = sizeof(struct params_compute_histograms);
+                    fast_mq_attr.nr_consume = sizeof(struct params_compute_histograms);
+                    fast_mq_attr.nr_threshold = sizeof(struct params_compute_histograms);
+                    CheckError(pgm_init_edge(e2nd_3rd + i,
+                                node_2nd[i],
+                                node_3rd[i], buf, &fast_mq_attr));
+
+                    sprintf(buf, "e3rd_4th_%d", i);
+                    fast_mq_attr.nr_produce = sizeof(struct params_fine_normalize);
+                    fast_mq_attr.nr_consume = sizeof(struct params_fine_normalize);
+                    fast_mq_attr.nr_threshold = sizeof(struct params_fine_normalize);
+                    CheckError(pgm_init_edge(e3rd_4th + i,
+                                node_3rd[i],
+                                node_4th[i], buf, &fast_mq_attr));
+
+                    sprintf(buf, "e4th_5th_%d", i);
+                    fast_mq_attr.nr_produce = sizeof(struct params_fine_classify);
+                    fast_mq_attr.nr_consume = sizeof(struct params_fine_classify);
+                    fast_mq_attr.nr_threshold = sizeof(struct params_fine_classify);
+                    CheckError(pgm_init_edge(e4th_5th + i,
+                                node_4th[i],
+                                node_5th[i], buf, &fast_mq_attr));
+
+                    sprintf(buf, "e5th_7_%d", i);
+                    fast_mq_attr.nr_produce = sizeof(struct params_fine_collect_locations);
+                    fast_mq_attr.nr_consume = sizeof(struct params_fine_collect_locations);
+                    fast_mq_attr.nr_threshold = sizeof(struct params_fine_collect_locations);
+                    CheckError(pgm_init_edge(e5th_7 + i,
+                                node_5th[i],
+                                collect_locations_node, buf, &fast_mq_attr));
+                    break;
+                case fine_AB:
+                    sprintf(buf, "e1_1st_%d", i);
+                    fast_mq_attr.nr_produce = sizeof(struct params_resize);
+                    fast_mq_attr.nr_consume = sizeof(struct params_resize);
+                    fast_mq_attr.nr_threshold = sizeof(struct params_resize);
+                    CheckError(pgm_init_edge(e1_1st + i,
+                                compute_scales_node,
+                                node_1st[i], buf, &fast_mq_attr));
+
+                    sprintf(buf, "e1st_2nd_%d", i);
+                    fast_mq_attr.nr_produce = sizeof(struct params_compute_histograms);
+                    fast_mq_attr.nr_consume = sizeof(struct params_compute_histograms);
+                    fast_mq_attr.nr_threshold = sizeof(struct params_compute_histograms);
+                    CheckError(pgm_init_edge(e1st_2nd + i,
+                                node_1st[i],
+                                node_2nd[i], buf, &fast_mq_attr));
+
+                    sprintf(buf, "e2nd_3rd_%d", i);
+                    fast_mq_attr.nr_produce = sizeof(struct params_fine_normalize);
+                    fast_mq_attr.nr_consume = sizeof(struct params_fine_normalize);
+                    fast_mq_attr.nr_threshold = sizeof(struct params_fine_normalize);
+                    CheckError(pgm_init_edge(e2nd_3rd + i,
+                                node_2nd[i],
+                                node_3rd[i], buf, &fast_mq_attr));
+
+                    sprintf(buf, "e3rd_4th_%d", i);
+                    fast_mq_attr.nr_produce = sizeof(struct params_fine_classify);
+                    fast_mq_attr.nr_consume = sizeof(struct params_fine_classify);
+                    fast_mq_attr.nr_threshold = sizeof(struct params_fine_classify);
+                    CheckError(pgm_init_edge(e3rd_4th + i,
+                                node_3rd[i],
+                                node_4th[i], buf, &fast_mq_attr));
+
+                    sprintf(buf, "e5th_7_%d", i);
+                    fast_mq_attr.nr_produce = sizeof(struct params_fine_collect_locations);
+                    fast_mq_attr.nr_consume = sizeof(struct params_fine_collect_locations);
+                    fast_mq_attr.nr_threshold = sizeof(struct params_fine_collect_locations);
+                    CheckError(pgm_init_edge(e5th_7 + i,
+                                node_4th[i],
+                                collect_locations_node, buf, &fast_mq_attr));
+                    break;
+                case fine_BC:
+                    sprintf(buf, "e1_1st_%d", i);
+                    fast_mq_attr.nr_produce = sizeof(struct params_resize);
+                    fast_mq_attr.nr_consume = sizeof(struct params_resize);
+                    fast_mq_attr.nr_threshold = sizeof(struct params_resize);
+                    CheckError(pgm_init_edge(e1_1st + i,
+                                compute_scales_node,
+                                node_1st[i], buf, &fast_mq_attr));
+
+                    sprintf(buf, "e1st_2nd_%d", i);
+                    fast_mq_attr.nr_produce = sizeof(struct params_compute_gradients);
+                    fast_mq_attr.nr_consume = sizeof(struct params_compute_gradients);
+                    fast_mq_attr.nr_threshold = sizeof(struct params_compute_gradients);
+                    CheckError(pgm_init_edge(e1st_2nd + i,
+                                node_1st[i],
+                                node_2nd[i], buf, &fast_mq_attr));
+
+                    sprintf(buf, "e2nd_3rd_%d", i);
+                    fast_mq_attr.nr_produce = sizeof(struct params_fine_normalize);
+                    fast_mq_attr.nr_consume = sizeof(struct params_fine_normalize);
+                    fast_mq_attr.nr_threshold = sizeof(struct params_fine_normalize);
+                    CheckError(pgm_init_edge(e2nd_3rd + i,
+                                node_2nd[i],
+                                node_3rd[i], buf, &fast_mq_attr));
+
+                    sprintf(buf, "e3rd_4th_%d", i);
+                    fast_mq_attr.nr_produce = sizeof(struct params_fine_classify);
+                    fast_mq_attr.nr_consume = sizeof(struct params_fine_classify);
+                    fast_mq_attr.nr_threshold = sizeof(struct params_fine_classify);
+                    CheckError(pgm_init_edge(e3rd_4th + i,
+                                node_3rd[i],
+                                node_4th[i], buf, &fast_mq_attr));
+
+                    sprintf(buf, "e5th_7_%d", i);
+                    fast_mq_attr.nr_produce = sizeof(struct params_fine_collect_locations);
+                    fast_mq_attr.nr_consume = sizeof(struct params_fine_collect_locations);
+                    fast_mq_attr.nr_threshold = sizeof(struct params_fine_collect_locations);
+                    CheckError(pgm_init_edge(e5th_7 + i,
+                                node_4th[i],
+                                collect_locations_node, buf, &fast_mq_attr));
+                    break;
+                case fine_CD:
+                    sprintf(buf, "e1_1st_%d", i);
+                    fast_mq_attr.nr_produce = sizeof(struct params_resize);
+                    fast_mq_attr.nr_consume = sizeof(struct params_resize);
+                    fast_mq_attr.nr_threshold = sizeof(struct params_resize);
+                    CheckError(pgm_init_edge(e1_1st + i,
+                                compute_scales_node,
+                                node_1st[i], buf, &fast_mq_attr));
+
+                    sprintf(buf, "e1st_2nd_%d", i);
+                    fast_mq_attr.nr_produce = sizeof(struct params_compute_gradients);
+                    fast_mq_attr.nr_consume = sizeof(struct params_compute_gradients);
+                    fast_mq_attr.nr_threshold = sizeof(struct params_compute_gradients);
+                    CheckError(pgm_init_edge(e1st_2nd + i,
+                                node_1st[i],
+                                node_2nd[i], buf, &fast_mq_attr));
+
+                    sprintf(buf, "e2nd_3rd_%d", i);
+                    fast_mq_attr.nr_produce = sizeof(struct params_compute_histograms);
+                    fast_mq_attr.nr_consume = sizeof(struct params_compute_histograms);
+                    fast_mq_attr.nr_threshold = sizeof(struct params_compute_histograms);
+                    CheckError(pgm_init_edge(e2nd_3rd + i,
+                                node_2nd[i],
+                                node_3rd[i], buf, &fast_mq_attr));
+
+                    sprintf(buf, "e3rd_4th_%d", i);
+                    fast_mq_attr.nr_produce = sizeof(struct params_fine_classify);
+                    fast_mq_attr.nr_consume = sizeof(struct params_fine_classify);
+                    fast_mq_attr.nr_threshold = sizeof(struct params_fine_classify);
+                    CheckError(pgm_init_edge(e3rd_4th + i,
+                                node_3rd[i],
+                                node_4th[i], buf, &fast_mq_attr));
+
+                    sprintf(buf, "e5th_7_%d", i);
+                    fast_mq_attr.nr_produce = sizeof(struct params_fine_collect_locations);
+                    fast_mq_attr.nr_consume = sizeof(struct params_fine_collect_locations);
+                    fast_mq_attr.nr_threshold = sizeof(struct params_fine_collect_locations);
+                    CheckError(pgm_init_edge(e5th_7 + i,
+                                node_4th[i],
+                                collect_locations_node, buf, &fast_mq_attr));
+                    break;
+                case fine_DE:
+                    sprintf(buf, "e1_1st_%d", i);
+                    fast_mq_attr.nr_produce = sizeof(struct params_resize);
+                    fast_mq_attr.nr_consume = sizeof(struct params_resize);
+                    fast_mq_attr.nr_threshold = sizeof(struct params_resize);
+                    CheckError(pgm_init_edge(e1_1st + i,
+                                compute_scales_node,
+                                node_1st[i], buf, &fast_mq_attr));
+
+                    sprintf(buf, "e1st_2nd_%d", i);
+                    fast_mq_attr.nr_produce = sizeof(struct params_compute_gradients);
+                    fast_mq_attr.nr_consume = sizeof(struct params_compute_gradients);
+                    fast_mq_attr.nr_threshold = sizeof(struct params_compute_gradients);
+                    CheckError(pgm_init_edge(e1st_2nd + i,
+                                node_1st[i],
+                                node_2nd[i], buf, &fast_mq_attr));
+
+                    sprintf(buf, "e2nd_3rd_%d", i);
+                    fast_mq_attr.nr_produce = sizeof(struct params_compute_histograms);
+                    fast_mq_attr.nr_consume = sizeof(struct params_compute_histograms);
+                    fast_mq_attr.nr_threshold = sizeof(struct params_compute_histograms);
+                    CheckError(pgm_init_edge(e2nd_3rd + i,
+                                node_2nd[i],
+                                node_3rd[i], buf, &fast_mq_attr));
+
+                    sprintf(buf, "e3rd_4th_%d", i);
+                    fast_mq_attr.nr_produce = sizeof(struct params_fine_normalize);
+                    fast_mq_attr.nr_consume = sizeof(struct params_fine_normalize);
+                    fast_mq_attr.nr_threshold = sizeof(struct params_fine_normalize);
+                    CheckError(pgm_init_edge(e3rd_4th + i,
+                                node_3rd[i],
+                                node_4th[i], buf, &fast_mq_attr));
+
+                    sprintf(buf, "e5th_7_%d", i);
+                    fast_mq_attr.nr_produce = sizeof(struct params_fine_collect_locations);
+                    fast_mq_attr.nr_consume = sizeof(struct params_fine_collect_locations);
+                    fast_mq_attr.nr_threshold = sizeof(struct params_fine_collect_locations);
+                    CheckError(pgm_init_edge(e5th_7 + i,
+                                node_4th[i],
+                                collect_locations_node, buf, &fast_mq_attr));
+                    break;
+                case fine_ABC:
+                    sprintf(buf, "e1_1st_%d", i);
+                    fast_mq_attr.nr_produce = sizeof(struct params_resize);
+                    fast_mq_attr.nr_consume = sizeof(struct params_resize);
+                    fast_mq_attr.nr_threshold = sizeof(struct params_resize);
+                    CheckError(pgm_init_edge(e1_1st + i,
+                                compute_scales_node,
+                                node_1st[i], buf, &fast_mq_attr));
+
+                    sprintf(buf, "e1st_2nd_%d", i);
+                    fast_mq_attr.nr_produce = sizeof(struct params_fine_normalize);
+                    fast_mq_attr.nr_consume = sizeof(struct params_fine_normalize);
+                    fast_mq_attr.nr_threshold = sizeof(struct params_fine_normalize);
+                    CheckError(pgm_init_edge(e1st_2nd + i,
+                                node_1st[i],
+                                node_2nd[i], buf, &fast_mq_attr));
+
+                    sprintf(buf, "e2nd_3rd_%d", i);
+                    fast_mq_attr.nr_produce = sizeof(struct params_fine_classify);
+                    fast_mq_attr.nr_consume = sizeof(struct params_fine_classify);
+                    fast_mq_attr.nr_threshold = sizeof(struct params_fine_classify);
+                    CheckError(pgm_init_edge(e2nd_3rd + i,
+                                node_2nd[i],
+                                node_3rd[i], buf, &fast_mq_attr));
+
+                    sprintf(buf, "e5th_7_%d", i);
+                    fast_mq_attr.nr_produce = sizeof(struct params_fine_collect_locations);
+                    fast_mq_attr.nr_consume = sizeof(struct params_fine_collect_locations);
+                    fast_mq_attr.nr_threshold = sizeof(struct params_fine_collect_locations);
+                    CheckError(pgm_init_edge(e5th_7 + i,
+                                node_3rd[i],
+                                collect_locations_node, buf, &fast_mq_attr));
+                    break;
+                case fine_BCD:
+                    sprintf(buf, "e1_1st_%d", i);
+                    fast_mq_attr.nr_produce = sizeof(struct params_resize);
+                    fast_mq_attr.nr_consume = sizeof(struct params_resize);
+                    fast_mq_attr.nr_threshold = sizeof(struct params_resize);
+                    CheckError(pgm_init_edge(e1_1st + i,
+                                compute_scales_node,
+                                node_1st[i], buf, &fast_mq_attr));
+
+                    sprintf(buf, "e1st_2nd_%d", i);
+                    fast_mq_attr.nr_produce = sizeof(struct params_compute_gradients);
+                    fast_mq_attr.nr_consume = sizeof(struct params_compute_gradients);
+                    fast_mq_attr.nr_threshold = sizeof(struct params_compute_gradients);
+                    CheckError(pgm_init_edge(e1st_2nd + i,
+                                node_1st[i],
+                                node_2nd[i], buf, &fast_mq_attr));
+
+                    sprintf(buf, "e2nd_3rd_%d", i);
+                    fast_mq_attr.nr_produce = sizeof(struct params_fine_classify);
+                    fast_mq_attr.nr_consume = sizeof(struct params_fine_classify);
+                    fast_mq_attr.nr_threshold = sizeof(struct params_fine_classify);
+                    CheckError(pgm_init_edge(e2nd_3rd + i,
+                                node_2nd[i],
+                                node_3rd[i], buf, &fast_mq_attr));
+
+                    sprintf(buf, "e5th_7_%d", i);
+                    fast_mq_attr.nr_produce = sizeof(struct params_fine_collect_locations);
+                    fast_mq_attr.nr_consume = sizeof(struct params_fine_collect_locations);
+                    fast_mq_attr.nr_threshold = sizeof(struct params_fine_collect_locations);
+                    CheckError(pgm_init_edge(e5th_7 + i,
+                                node_3rd[i],
+                                collect_locations_node, buf, &fast_mq_attr));
+                    break;
+                case fine_CDE:
+                    sprintf(buf, "e1_1st_%d", i);
+                    fast_mq_attr.nr_produce = sizeof(struct params_resize);
+                    fast_mq_attr.nr_consume = sizeof(struct params_resize);
+                    fast_mq_attr.nr_threshold = sizeof(struct params_resize);
+                    CheckError(pgm_init_edge(e1_1st + i,
+                                compute_scales_node,
+                                node_1st[i], buf, &fast_mq_attr));
+
+                    sprintf(buf, "e1st_2nd_%d", i);
+                    fast_mq_attr.nr_produce = sizeof(struct params_compute_gradients);
+                    fast_mq_attr.nr_consume = sizeof(struct params_compute_gradients);
+                    fast_mq_attr.nr_threshold = sizeof(struct params_compute_gradients);
+                    CheckError(pgm_init_edge(e1st_2nd + i,
+                                node_1st[i],
+                                node_2nd[i], buf, &fast_mq_attr));
+
+                    sprintf(buf, "e2nd_3rd_%d", i);
+                    fast_mq_attr.nr_produce = sizeof(struct params_compute_histograms);
+                    fast_mq_attr.nr_consume = sizeof(struct params_compute_histograms);
+                    fast_mq_attr.nr_threshold = sizeof(struct params_compute_histograms);
+                    CheckError(pgm_init_edge(e2nd_3rd + i,
+                                node_2nd[i],
+                                node_3rd[i], buf, &fast_mq_attr));
+
+                    sprintf(buf, "e5th_7_%d", i);
+                    fast_mq_attr.nr_produce = sizeof(struct params_fine_collect_locations);
+                    fast_mq_attr.nr_consume = sizeof(struct params_fine_collect_locations);
+                    fast_mq_attr.nr_threshold = sizeof(struct params_fine_collect_locations);
+                    CheckError(pgm_init_edge(e5th_7 + i,
+                                node_3rd[i],
+                                collect_locations_node, buf, &fast_mq_attr));
+                    break;
+                case fine_ABCD:
+                    sprintf(buf, "e1_1st_%d", i);
+                    fast_mq_attr.nr_produce = sizeof(struct params_resize);
+                    fast_mq_attr.nr_consume = sizeof(struct params_resize);
+                    fast_mq_attr.nr_threshold = sizeof(struct params_resize);
+                    CheckError(pgm_init_edge(e1_1st + i,
+                                compute_scales_node,
+                                node_1st[i], buf, &fast_mq_attr));
+
+                    sprintf(buf, "e1st_2nd_%d", i);
+                    fast_mq_attr.nr_produce = sizeof(struct params_fine_classify);
+                    fast_mq_attr.nr_consume = sizeof(struct params_fine_classify);
+                    fast_mq_attr.nr_threshold = sizeof(struct params_fine_classify);
+                    CheckError(pgm_init_edge(e1st_2nd + i,
+                                node_1st[i],
+                                node_2nd[i], buf, &fast_mq_attr));
+
+                    sprintf(buf, "e5th_7_%d", i);
+                    fast_mq_attr.nr_produce = sizeof(struct params_fine_collect_locations);
+                    fast_mq_attr.nr_consume = sizeof(struct params_fine_collect_locations);
+                    fast_mq_attr.nr_threshold = sizeof(struct params_fine_collect_locations);
+                    CheckError(pgm_init_edge(e5th_7 + i,
+                                node_2nd[i],
+                                collect_locations_node, buf, &fast_mq_attr));
+                    break;
+                case fine_BCDE:
+                    sprintf(buf, "e1_1st_%d", i);
+                    fast_mq_attr.nr_produce = sizeof(struct params_resize);
+                    fast_mq_attr.nr_consume = sizeof(struct params_resize);
+                    fast_mq_attr.nr_threshold = sizeof(struct params_resize);
+                    CheckError(pgm_init_edge(e1_1st + i,
+                                compute_scales_node,
+                                node_1st[i], buf, &fast_mq_attr));
+
+                    sprintf(buf, "e1st_2nd_%d", i);
+                    fast_mq_attr.nr_produce = sizeof(struct params_compute_gradients);
+                    fast_mq_attr.nr_consume = sizeof(struct params_compute_gradients);
+                    fast_mq_attr.nr_threshold = sizeof(struct params_compute_gradients);
+                    CheckError(pgm_init_edge(e1st_2nd + i,
+                                node_1st[i],
+                                node_2nd[i], buf, &fast_mq_attr));
+
+                    sprintf(buf, "e5th_7_%d", i);
+                    fast_mq_attr.nr_produce = sizeof(struct params_fine_collect_locations);
+                    fast_mq_attr.nr_consume = sizeof(struct params_fine_collect_locations);
+                    fast_mq_attr.nr_threshold = sizeof(struct params_fine_collect_locations);
+                    CheckError(pgm_init_edge(e5th_7 + i,
+                                node_2nd[i],
+                                collect_locations_node, buf, &fast_mq_attr));
+                    break;
+                case fine_ABCDE:
+                    sprintf(buf, "e1_1st_%d", i);
+                    fast_mq_attr.nr_produce = sizeof(struct params_resize);
+                    fast_mq_attr.nr_consume = sizeof(struct params_resize);
+                    fast_mq_attr.nr_threshold = sizeof(struct params_resize);
+                    CheckError(pgm_init_edge(e1_1st + i,
+                                compute_scales_node,
+                                node_1st[i], buf, &fast_mq_attr));
+
+                    sprintf(buf, "e5th_7_%d", i);
+                    fast_mq_attr.nr_produce = sizeof(struct params_fine_collect_locations);
+                    fast_mq_attr.nr_consume = sizeof(struct params_fine_collect_locations);
+                    fast_mq_attr.nr_threshold = sizeof(struct params_fine_collect_locations);
+                    CheckError(pgm_init_edge(e5th_7 + i,
+                                node_1st[i],
+                                collect_locations_node, buf, &fast_mq_attr));
+                    break;
+                default:
+                    break;
+            }
+        }
+
+        fast_mq_attr.nr_produce = sizeof(struct params_display);
+        fast_mq_attr.nr_consume = sizeof(struct params_display);
+        fast_mq_attr.nr_threshold = sizeof(struct params_display);
+        CheckError(pgm_init_edge(&e7_8, collect_locations_node, display_node, "e7_8", &fast_mq_attr));
+
+        pthread_barrier_init(fine_init_barrier, 0, num_total_level_nodes + 4);
+
+        thread** t0   = arr_t0 + g_idx;
+        thread** t1   = arr_t1 + g_idx;
+        thread** t1st = arr_t1st + g_idx * NUM_SCALE_LEVELS;
+        thread** t2nd = arr_t2nd + g_idx * NUM_SCALE_LEVELS;
+        thread** t3rd = arr_t3rd + g_idx * NUM_SCALE_LEVELS;
+        thread** t4th = arr_t4th + g_idx * NUM_SCALE_LEVELS;
+        thread** t5th = arr_t5th + g_idx * NUM_SCALE_LEVELS;
+        thread** t7   = arr_t7 + g_idx;
+        thread** t8   = arr_t8 + g_idx;
+
+        struct sync_info* in_sync_info_1st = arr_sync_info_1st[((g_idx + args.num_fine_graphs - 1) % args.num_fine_graphs)];
+        struct sync_info* in_sync_info_2nd = arr_sync_info_2nd[((g_idx + args.num_fine_graphs - 1) % args.num_fine_graphs)];
+        struct sync_info* in_sync_info_3rd = arr_sync_info_3rd[((g_idx + args.num_fine_graphs - 1) % args.num_fine_graphs)];
+        struct sync_info* in_sync_info_4th = arr_sync_info_4th[((g_idx + args.num_fine_graphs - 1) % args.num_fine_graphs)];
+        struct sync_info* in_sync_info_5th = arr_sync_info_5th[((g_idx + args.num_fine_graphs - 1) % args.num_fine_graphs)];
+
+        struct sync_info* out_sync_info_1st = arr_sync_info_1st[g_idx];
+        struct sync_info* out_sync_info_2nd = arr_sync_info_2nd[g_idx];
+        struct sync_info* out_sync_info_3rd = arr_sync_info_3rd[g_idx];
+        struct sync_info* out_sync_info_4th = arr_sync_info_4th[g_idx];
+        struct sync_info* out_sync_info_5th = arr_sync_info_5th[g_idx];
+
+        for (int i=0; i<NUM_SCALE_LEVELS; i++) {
+            switch (level_options[i]) {
+                case fine_grained:
+                    sync_info_init(i + in_sync_info_1st);
+                    sync_info_init(i + in_sync_info_2nd);
+                    sync_info_init(i + in_sync_info_3rd);
+                    sync_info_init(i + in_sync_info_4th);
+                    sync_info_init(i + in_sync_info_5th);
+
+                    sync_info_init(i + out_sync_info_1st);
+                    sync_info_init(i + out_sync_info_2nd);
+                    sync_info_init(i + out_sync_info_3rd);
+                    sync_info_init(i + out_sync_info_4th);
+                    sync_info_init(i + out_sync_info_5th);
+                    break;
+                case fine_AB:
+                case fine_BC:
+                case fine_CD:
+                case fine_DE:
+                    sync_info_init(i + in_sync_info_1st);
+                    sync_info_init(i + in_sync_info_2nd);
+                    sync_info_init(i + in_sync_info_3rd);
+                    sync_info_init(i + in_sync_info_4th);
+
+                    sync_info_init(i + out_sync_info_1st);
+                    sync_info_init(i + out_sync_info_2nd);
+                    sync_info_init(i + out_sync_info_3rd);
+                    sync_info_init(i + out_sync_info_4th);
+                    break;
+                case fine_ABC:
+                case fine_BCD:
+                case fine_CDE:
+                    sync_info_init(i + in_sync_info_1st);
+                    sync_info_init(i + in_sync_info_2nd);
+                    sync_info_init(i + in_sync_info_3rd);
+
+                    sync_info_init(i + out_sync_info_1st);
+                    sync_info_init(i + out_sync_info_2nd);
+                    sync_info_init(i + out_sync_info_3rd);
+                    break;
+                case fine_ABCD:
+                case fine_BCDE:
+                    sync_info_init(i + in_sync_info_1st);
+                    sync_info_init(i + in_sync_info_2nd);
+
+                    sync_info_init(i + out_sync_info_1st);
+                    sync_info_init(i + out_sync_info_2nd);
+                    break;
+                case fine_ABCDE:
+                    sync_info_init(i + in_sync_info_1st);
+
+                    sync_info_init(i + out_sync_info_1st);
+                    break;
+                default:
+                    break;
+            }
+        }
+
+        float bound_color_convert           = 31.0194960215;
+        float bound_compute_scales          = 30.5688293615;
+        float bounds_1st [NUM_SCALE_LEVELS] = {30.2419972231,30.3148010256,30.2936775569,30.3079650324,30.2963991483,30.3058228698,30.3005336032,30.2888197835,30.293491626,30.2840584057,30.3013304497,30.3016323015,30.3111116087};
+        float bounds_2nd [NUM_SCALE_LEVELS] = {30.4902863291,30.44552396,30.4706995604,30.4291495557,30.4171804989,30.4135009326,30.3785928987,30.4059076714,30.3816881109,30.3627509567,30.3564101342,30.3519205285,30.3405616838};
+        float bounds_3rd [NUM_SCALE_LEVELS] = {30.5326861275,30.4951636278,30.5415047381,30.4958614402,30.5149987735,30.4750125581,30.5373623676,30.522424222,30.4851937235,30.4577396346,30.4263855713,30.4118414514,30.5202006157};
+        float bounds_4th [NUM_SCALE_LEVELS] = {30.2903383654,30.3080869341,30.2928467608,30.3064130287,30.3114078316,30.3120987837,30.2985990076,30.2803770804,30.3099685825,30.3123524377,30.2989110618,30.2943410679,30.3081075149};
+        float bounds_5th [NUM_SCALE_LEVELS] = {30.4792191337,30.4948973087,30.4540269983,30.429525815,30.5229441951,30.5070612675,30.497249677,30.4955912512,30.4267037822,30.4508744413,30.430038752,30.3991297266,30.3767439685};
+
+        float cost_color_convert           = 4.509346;
+        float cost_compute_scales          = 1.947347;
+        float costs_1st [NUM_SCALE_LEVELS] = {0.089336,0.503219,0.383134,0.464357,0.398606,0.452179,0.42211,0.355518,0.382077,0.32845,0.42664,0.428356,0.482245};
+        float costs_2nd [NUM_SCALE_LEVELS] = {1.500837,1.246367,1.389488,1.15328,1.085237,1.064319,0.86587,1.021152,0.883466,0.77581,0.739763,0.71424,0.649666};
+        float costs_3rd [NUM_SCALE_LEVELS] = {1.741876,1.528564,1.792009,1.532531,1.641325,1.414007,1.76846,1.683538,1.471886,1.315812,1.137567,1.054885,1.670897};
+        float costs_4th [NUM_SCALE_LEVELS] = {0.364151,0.46505,0.378411,0.455534,0.483929,0.487857,0.411112,0.307522,0.475747,0.489299,0.412886,0.386906,0.465167};
+        float costs_5th [NUM_SCALE_LEVELS] = {1.437921,1.52705,1.294706,1.155419,1.686494,1.596201,1.540423,1.530995,1.139376,1.276784,1.158335,0.98262,0.855359};
+        float cost_collect_locations       = 4.307423;
+
+        /* | first graph release      | second graph release     | first graph release again
+         *  <---------PERIOD--------->
+         *  <--------------- PERIOD * args.num_fine_graphs ---------->
+         */
+        unsigned task_id = 0;
+        int period = PERIOD * args.num_fine_graphs;
+        int m_cpus = 16;
+        struct task_info t_info;
+        t_info.early = args.early;
+        t_info.realtime = args.realtime;
+        t_info.sched = fine_AB;
+        t_info.period = period;
+        t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, cost_color_convert);
+        t_info.phase = PERIOD * g_idx;
+        t_info.id = task_id++;
+        if (args.cluster != -1)
+            t_info.cluster = args.cluster;
+        else
+            t_info.cluster = args.cluster;
+        *t0 = new thread(&App::thread_color_convert, this,
+                &color_convert_node, fine_init_barrier,
+                gpu_hog, cpu_hog, frames, t_info, g_idx);
+
+        t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, cost_compute_scales);
+        t_info.id = task_id++;
+        t_info.phase = t_info.phase + bound_color_convert;
+        *t1 = new thread(&cv::cuda::HOG::thread_fine_compute_scales, gpu_hog,
+                &compute_scales_node, fine_init_barrier, t_info);
+
+        for (int i=0; i<NUM_SCALE_LEVELS; i++) {
+            switch (level_options[i]) {
+                case fine_grained:
+                    t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_1st[i]);
+                    t_info.id = task_id++;
+                    t_info.phase = PERIOD * g_idx + bound_color_convert + bound_compute_scales;
+                    t_info.s_info_in = in_sync_info_1st + i;
+                    t_info.s_info_out = out_sync_info_1st + i;
+                    t1st[i] = new thread(&cv::cuda::HOG::thread_fine_resize, gpu_hog,
+                            node_1st + i, fine_init_barrier, t_info);
+
+                    t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_2nd[i]);
+                    t_info.id = task_id++;
+                    t_info.phase = t_info.phase + bounds_1st[i];
+                    t_info.s_info_in = in_sync_info_2nd + i;
+                    t_info.s_info_out = out_sync_info_2nd + i;
+                    t2nd[i] = new thread(&cv::cuda::HOG::thread_fine_compute_gradients,
+                            gpu_hog, node_2nd + i, fine_init_barrier,
+                            t_info);
+
+                    t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_3rd[i]);
+                    t_info.id = task_id++;
+                    t_info.phase = t_info.phase + bounds_2nd[i];
+                    t_info.s_info_in = in_sync_info_3rd + i;
+                    t_info.s_info_out = out_sync_info_3rd + i;
+                    t3rd[i] = new thread(&cv::cuda::HOG::thread_fine_compute_histograms,
+                            gpu_hog, node_3rd + i, fine_init_barrier, t_info);
+
+                    t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_4th[i]);
+                    t_info.id = task_id++;
+                    t_info.phase = t_info.phase + bounds_3rd[i];
+                    t_info.s_info_in = in_sync_info_4th + i;
+                    t_info.s_info_out = out_sync_info_4th + i;
+                    t4th[i] = new thread(&cv::cuda::HOG::thread_fine_normalize_histograms, gpu_hog,
+                            node_4th + i, fine_init_barrier, t_info);
+
+                    t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_5th[i]);
+                    t_info.id = task_id++;
+                    t_info.phase = t_info.phase + bounds_4th[i];
+                    t_info.s_info_in = in_sync_info_5th + i;
+                    t_info.s_info_out = out_sync_info_5th + i;
+                    t5th[i] = new thread(&cv::cuda::HOG::thread_fine_classify, gpu_hog,
+                            node_5th + i, fine_init_barrier, t_info);
+                    break;
+                case fine_AB:
+                    t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_1st[i]);
+                    t_info.id = task_id++;
+                    t_info.phase = PERIOD * g_idx + bound_color_convert + bound_compute_scales;
+                    t_info.s_info_in = in_sync_info_1st + i;
+                    t_info.s_info_out = out_sync_info_1st + i;
+                    t1st[i] = new thread(&cv::cuda::HOG::thread_fine_AB, gpu_hog,
+                            node_1st + i, fine_init_barrier, t_info);
+
+                    t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_2nd[i]);
+                    t_info.id = task_id++;
+                    t_info.phase = t_info.phase + bounds_1st[i];
+                    t_info.s_info_in = in_sync_info_2nd + i;
+                    t_info.s_info_out = out_sync_info_2nd + i;
+                    t2nd[i] = new thread(&cv::cuda::HOG::thread_fine_compute_histograms,
+                            gpu_hog, node_2nd + i, fine_init_barrier,
+                            t_info);
+
+                    t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_3rd[i]);
+                    t_info.id = task_id++;
+                    t_info.phase = t_info.phase + bounds_2nd[i];
+                    t_info.s_info_in = in_sync_info_3rd + i;
+                    t_info.s_info_out = out_sync_info_3rd + i;
+                    t3rd[i] = new thread(&cv::cuda::HOG::thread_fine_normalize_histograms,
+                            gpu_hog, node_3rd + i, fine_init_barrier, t_info);
+
+                    t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_4th[i]);
+                    t_info.id = task_id++;
+                    t_info.phase = t_info.phase + bounds_3rd[i];
+                    t_info.s_info_in = in_sync_info_4th + i;
+                    t_info.s_info_out = out_sync_info_4th + i;
+                    t4th[i] = new thread(&cv::cuda::HOG::thread_fine_classify, gpu_hog,
+                            node_4th + i, fine_init_barrier, t_info);
+                    break;
+                case fine_BC:
+                    t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_1st[i]);
+                    t_info.id = task_id++;
+                    t_info.phase = PERIOD * g_idx + bound_color_convert + bound_compute_scales;
+                    t_info.s_info_in = in_sync_info_1st + i;
+                    t_info.s_info_out = out_sync_info_1st + i;
+                    t1st[i] = new thread(&cv::cuda::HOG::thread_fine_resize, gpu_hog,
+                            node_1st + i, fine_init_barrier, t_info);
+
+                    t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_2nd[i]);
+                    t_info.id = task_id++;
+                    t_info.phase = t_info.phase + bounds_1st[i];
+                    t_info.s_info_in = in_sync_info_2nd + i;
+                    t_info.s_info_out = out_sync_info_2nd + i;
+                    t2nd[i] = new thread(&cv::cuda::HOG::thread_fine_BC,
+                            gpu_hog, node_2nd + i, fine_init_barrier,
+                            t_info);
+
+                    t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_3rd[i]);
+                    t_info.id = task_id++;
+                    t_info.phase = t_info.phase + bounds_2nd[i];
+                    t_info.s_info_in = in_sync_info_3rd + i;
+                    t_info.s_info_out = out_sync_info_3rd + i;
+                    t3rd[i] = new thread(&cv::cuda::HOG::thread_fine_normalize_histograms,
+                            gpu_hog, node_3rd + i, fine_init_barrier, t_info);
+
+                    t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_4th[i]);
+                    t_info.id = task_id++;
+                    t_info.phase = t_info.phase + bounds_3rd[i];
+                    t_info.s_info_in = in_sync_info_4th + i;
+                    t_info.s_info_out = out_sync_info_4th + i;
+                    t4th[i] = new thread(&cv::cuda::HOG::thread_fine_classify, gpu_hog,
+                            node_4th + i, fine_init_barrier, t_info);
+                    break;
+                case fine_CD:
+                    t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_1st[i]);
+                    t_info.id = task_id++;
+                    t_info.phase = PERIOD * g_idx + bound_color_convert + bound_compute_scales;
+                    t_info.s_info_in = in_sync_info_1st + i;
+                    t_info.s_info_out = out_sync_info_1st + i;
+                    t1st[i] = new thread(&cv::cuda::HOG::thread_fine_resize, gpu_hog,
+                            node_1st + i, fine_init_barrier, t_info);
+
+                    t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_2nd[i]);
+                    t_info.id = task_id++;
+                    t_info.phase = t_info.phase + bounds_1st[i];
+                    t_info.s_info_in = in_sync_info_2nd + i;
+                    t_info.s_info_out = out_sync_info_2nd + i;
+                    t2nd[i] = new thread(&cv::cuda::HOG::thread_fine_compute_gradients,
+                            gpu_hog, node_2nd + i, fine_init_barrier,
+                            t_info);
+
+                    t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_3rd[i]);
+                    t_info.id = task_id++;
+                    t_info.phase = t_info.phase + bounds_2nd[i];
+                    t_info.s_info_in = in_sync_info_3rd + i;
+                    t_info.s_info_out = out_sync_info_3rd + i;
+                    t3rd[i] = new thread(&cv::cuda::HOG::thread_fine_CD,
+                            gpu_hog, node_3rd + i, fine_init_barrier, t_info);
+
+                    t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_4th[i]);
+                    t_info.id = task_id++;
+                    t_info.phase = t_info.phase + bounds_3rd[i];
+                    t_info.s_info_in = in_sync_info_4th + i;
+                    t_info.s_info_out = out_sync_info_4th + i;
+                    t4th[i] = new thread(&cv::cuda::HOG::thread_fine_classify, gpu_hog,
+                            node_4th + i, fine_init_barrier, t_info);
+                    break;
+                case fine_DE:
+                    t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_1st[i]);
+                    t_info.id = task_id++;
+                    t_info.phase = PERIOD * g_idx + bound_color_convert + bound_compute_scales;
+                    t_info.s_info_in = in_sync_info_1st + i;
+                    t_info.s_info_out = out_sync_info_1st + i;
+                    t1st[i] = new thread(&cv::cuda::HOG::thread_fine_resize, gpu_hog,
+                            node_1st + i, fine_init_barrier, t_info);
+
+                    t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_2nd[i]);
+                    t_info.id = task_id++;
+                    t_info.phase = t_info.phase + bounds_1st[i];
+                    t_info.s_info_in = in_sync_info_2nd + i;
+                    t_info.s_info_out = out_sync_info_2nd + i;
+                    t2nd[i] = new thread(&cv::cuda::HOG::thread_fine_compute_gradients,
+                            gpu_hog, node_2nd + i, fine_init_barrier,
+                            t_info);
+
+                    t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_3rd[i]);
+                    t_info.id = task_id++;
+                    t_info.phase = t_info.phase + bounds_2nd[i];
+                    t_info.s_info_in = in_sync_info_3rd + i;
+                    t_info.s_info_out = out_sync_info_3rd + i;
+                    t3rd[i] = new thread(&cv::cuda::HOG::thread_fine_compute_histograms,
+                            gpu_hog, node_3rd + i, fine_init_barrier, t_info);
+
+                    t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_4th[i]);
+                    t_info.id = task_id++;
+                    t_info.phase = t_info.phase + bounds_3rd[i];
+                    t_info.s_info_in = in_sync_info_4th + i;
+                    t_info.s_info_out = out_sync_info_4th + i;
+                    t4th[i] = new thread(&cv::cuda::HOG::thread_fine_DE, gpu_hog,
+                            node_4th + i, fine_init_barrier, t_info);
+                    break;
+                case fine_ABC:
+                    t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_1st[i]);
+                    t_info.id = task_id++;
+                    t_info.phase = PERIOD * g_idx + bound_color_convert + bound_compute_scales;
+                    t_info.s_info_in = in_sync_info_1st + i;
+                    t_info.s_info_out = out_sync_info_1st + i;
+                    t1st[i] = new thread(&cv::cuda::HOG::thread_fine_ABC, gpu_hog,
+                            node_1st + i, fine_init_barrier, t_info);
+
+                    t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_2nd[i]);
+                    t_info.id = task_id++;
+                    t_info.phase = t_info.phase + bounds_1st[i];
+                    t_info.s_info_in = in_sync_info_2nd + i;
+                    t_info.s_info_out = out_sync_info_2nd + i;
+                    t2nd[i] = new thread(&cv::cuda::HOG::thread_fine_normalize_histograms,
+                            gpu_hog, node_2nd + i, fine_init_barrier,
+                            t_info);
+
+                    t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_3rd[i]);
+                    t_info.id = task_id++;
+                    t_info.phase = t_info.phase + bounds_2nd[i];
+                    t_info.s_info_in = in_sync_info_3rd + i;
+                    t_info.s_info_out = out_sync_info_3rd + i;
+                    t3rd[i] = new thread(&cv::cuda::HOG::thread_fine_classify,
+                            gpu_hog, node_3rd + i, fine_init_barrier, t_info);
+                    break;
+                case fine_BCD:
+                    t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_1st[i]);
+                    t_info.id = task_id++;
+                    t_info.phase = PERIOD * g_idx + bound_color_convert + bound_compute_scales;
+                    t_info.s_info_in = in_sync_info_1st + i;
+                    t_info.s_info_out = out_sync_info_1st + i;
+                    t1st[i] = new thread(&cv::cuda::HOG::thread_fine_resize, gpu_hog,
+                            node_1st + i, fine_init_barrier, t_info);
+
+                    t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_2nd[i]);
+                    t_info.id = task_id++;
+                    t_info.phase = t_info.phase + bounds_1st[i];
+                    t_info.s_info_in = in_sync_info_2nd + i;
+                    t_info.s_info_out = out_sync_info_2nd + i;
+                    t2nd[i] = new thread(&cv::cuda::HOG::thread_fine_BCD,
+                            gpu_hog, node_2nd + i, fine_init_barrier,
+                            t_info);
+
+                    t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_3rd[i]);
+                    t_info.id = task_id++;
+                    t_info.phase = t_info.phase + bounds_2nd[i];
+                    t_info.s_info_in = in_sync_info_3rd + i;
+                    t_info.s_info_out = out_sync_info_3rd + i;
+                    t3rd[i] = new thread(&cv::cuda::HOG::thread_fine_classify,
+                            gpu_hog, node_3rd + i, fine_init_barrier, t_info);
+                    break;
+                case fine_CDE:
+                    t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_1st[i]);
+                    t_info.id = task_id++;
+                    t_info.phase = PERIOD * g_idx + bound_color_convert + bound_compute_scales;
+                    t_info.s_info_in = in_sync_info_1st + i;
+                    t_info.s_info_out = out_sync_info_1st + i;
+                    t1st[i] = new thread(&cv::cuda::HOG::thread_fine_resize, gpu_hog,
+                            node_1st + i, fine_init_barrier, t_info);
+
+                    t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_2nd[i]);
+                    t_info.id = task_id++;
+                    t_info.phase = t_info.phase + bounds_1st[i];
+                    t_info.s_info_in = in_sync_info_2nd + i;
+                    t_info.s_info_out = out_sync_info_2nd + i;
+                    t2nd[i] = new thread(&cv::cuda::HOG::thread_fine_compute_gradients,
+                            gpu_hog, node_2nd + i, fine_init_barrier,
+                            t_info);
+
+                    t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_3rd[i]);
+                    t_info.id = task_id++;
+                    t_info.phase = t_info.phase + bounds_2nd[i];
+                    t_info.s_info_in = in_sync_info_3rd + i;
+                    t_info.s_info_out = out_sync_info_3rd + i;
+                    t3rd[i] = new thread(&cv::cuda::HOG::thread_fine_CDE,
+                            gpu_hog, node_3rd + i, fine_init_barrier, t_info);
+                    break;
+                case fine_ABCD:
+                    t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_1st[i]);
+                    t_info.id = task_id++;
+                    t_info.phase = PERIOD * g_idx + bound_color_convert + bound_compute_scales;
+                    t_info.s_info_in = in_sync_info_1st + i;
+                    t_info.s_info_out = out_sync_info_1st + i;
+                    t1st[i] = new thread(&cv::cuda::HOG::thread_fine_ABCD, gpu_hog,
+                            node_1st + i, fine_init_barrier, t_info);
+
+                    t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_2nd[i]);
+                    t_info.id = task_id++;
+                    t_info.phase = t_info.phase + bounds_1st[i];
+                    t_info.s_info_in = in_sync_info_2nd + i;
+                    t_info.s_info_out = out_sync_info_2nd + i;
+                    t2nd[i] = new thread(&cv::cuda::HOG::thread_fine_classify,
+                            gpu_hog, node_2nd + i, fine_init_barrier,
+                            t_info);
+                    break;
+                case fine_BCDE:
+                    t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_1st[i]);
+                    t_info.id = task_id++;
+                    t_info.phase = PERIOD * g_idx + bound_color_convert + bound_compute_scales;
+                    t_info.s_info_in = in_sync_info_1st + i;
+                    t_info.s_info_out = out_sync_info_1st + i;
+                    t1st[i] = new thread(&cv::cuda::HOG::thread_fine_resize, gpu_hog,
+                            node_1st + i, fine_init_barrier, t_info);
+
+                    t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_2nd[i]);
+                    t_info.id = task_id++;
+                    t_info.phase = t_info.phase + bounds_1st[i];
+                    t_info.s_info_in = in_sync_info_2nd + i;
+                    t_info.s_info_out = out_sync_info_2nd + i;
+                    t2nd[i] = new thread(&cv::cuda::HOG::thread_fine_BCDE,
+                            gpu_hog, node_2nd + i, fine_init_barrier,
+                            t_info);
+                    break;
+                case fine_ABCDE:
+                    t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_1st[i]);
+                    t_info.id = task_id++;
+                    t_info.phase = PERIOD * g_idx + bound_color_convert + bound_compute_scales;
+                    t_info.s_info_in = in_sync_info_1st + i;
+                    t_info.s_info_out = out_sync_info_1st + i;
+                    t1st[i] = new thread(&cv::cuda::HOG::thread_fine_ABCDE, gpu_hog,
+                            node_1st + i, fine_init_barrier, t_info);
+                    break;
+                default:
+                    break;
+            }
+        }
+
+        t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, cost_collect_locations);
+        t_info.id = task_id++;
+        // TODO: fix this computation
+        t_info.phase = t_info.phase + *std::max_element(bounds_5th, bounds_5th+NUM_SCALE_LEVELS);
+        *t7 = new thread(&cv::cuda::HOG::thread_fine_collect_locations, gpu_hog,
+                &collect_locations_node, fine_init_barrier, t_info);
+
+        *t8 = new thread(&App::thread_display, this, &display_node,
+                fine_init_barrier, g_idx == 0 && args.display);
+    }
+
+    /* graph construction finishes */
+
+    printf("Joining pthreads...\n");
+
+    for (int g_idx = 0; g_idx < args.num_fine_graphs; g_idx++) {
+        graph_t g = arr_g[g_idx];
+
+
+        thread* t0 = arr_t0[g_idx];
+        thread* t1 = arr_t1[g_idx];
+        thread** t1st = arr_t1st + g_idx * NUM_SCALE_LEVELS;
+        thread** t2nd = arr_t2nd + g_idx * NUM_SCALE_LEVELS;
+        thread** t3rd = arr_t3rd + g_idx * NUM_SCALE_LEVELS;
+        thread** t4th = arr_t4th + g_idx * NUM_SCALE_LEVELS;
+        thread** t5th = arr_t5th + g_idx * NUM_SCALE_LEVELS;
+        thread* t7 = arr_t7[g_idx];
+        thread* t8 = arr_t8[g_idx];
+        t0->join();
+        t1->join();
+        delete t0;
+        delete t1;
+        for (int i=0; i<NUM_SCALE_LEVELS; i++) {
+            switch (level_options[i]) {
+                case fine_grained:
+                    if (t1st[i]->joinable()) t1st[i]->join();
+                    if (t2nd[i]->joinable()) t2nd[i]->join();
+                    if (t3rd[i]->joinable()) t3rd[i]->join();
+                    if (t4th[i]->joinable()) t4th[i]->join();
+                    if (t5th[i]->joinable()) t5th[i]->join();
+                    break;
+                case fine_AB:
+                case fine_BC:
+                case fine_CD:
+                case fine_DE:
+                    if (t1st[i]->joinable()) t1st[i]->join();
+                    if (t2nd[i]->joinable()) t2nd[i]->join();
+                    if (t3rd[i]->joinable()) t3rd[i]->join();
+                    if (t4th[i]->joinable()) t4th[i]->join();
+                    break;
+                case fine_ABC:
+                case fine_BCD:
+                case fine_CDE:
+                    if (t1st[i]->joinable()) t1st[i]->join();
+                    if (t2nd[i]->joinable()) t2nd[i]->join();
+                    if (t3rd[i]->joinable()) t3rd[i]->join();
+                    break;
+                case fine_ABCD:
+                case fine_BCDE:
+                    if (t1st[i]->joinable()) t1st[i]->join();
+                    if (t2nd[i]->joinable()) t2nd[i]->join();
+                    break;
+                case fine_ABCDE:
+                    if (t1st[i]->joinable()) t1st[i]->join();
+                    break;
+                default:
+                    break;
+            }
+            delete t1st[i];
+            delete t2nd[i];
+            delete t3rd[i];
+            delete t4th[i];
+            delete t5th[i];
+        }
+        t7->join();
+        t8->join();
+        delete t7;
+        delete t8;
+        CheckError(pgm_destroy_graph(g));
+    }
+    free(arr_t1);
+    free(arr_t1st);
+    free(arr_t2nd);
+    free(arr_t3rd);
+    free(arr_t4th);
+    free(arr_t5th);
     free(arr_t7);
     free(arr_t8);
 

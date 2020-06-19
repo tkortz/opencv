@@ -67,6 +67,7 @@ enum scheduling_option
     fine_ABCD,  // 11
     fine_BCDE,  // 12
     fine_ABCDE, // 13
+    fine_single_merge_in_level, // 14
     scheduling_option_end,
 };
 
