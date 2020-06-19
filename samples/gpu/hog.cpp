@@ -4908,7 +4908,7 @@ void App::sched_single_merge_in_level_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HO
     };
 
     // Gather statistics about the levels
-    int num_nodes_per_level[13] = {
+    unsigned num_nodes_per_level[13] = {
         5,
         5,
         4,
@@ -4968,15 +4968,8 @@ void App::sched_single_merge_in_level_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HO
         node_t collect_locations_node;
         node_t display_node;
 
-        char* node_names[] = { "node_1st", "node_2nd", "node_3rd", "node_4th", "node_5th" };
-
         edge_t e0_1;
-        edge_t e1_1st   [NUM_SCALE_LEVELS];
-        edge_t e1st_2nd [NUM_SCALE_LEVELS];
-        edge_t e2nd_3rd [NUM_SCALE_LEVELS];
-        edge_t e3rd_4th [NUM_SCALE_LEVELS];
-        edge_t e4th_5th [NUM_SCALE_LEVELS];
-        edge_t e5th_7   [NUM_SCALE_LEVELS];
+        edge_t level_edges [NUM_SCALE_LEVELS][6];
         edge_t e7_8;
 
         // Initialize the graph
@@ -4985,19 +4978,21 @@ void App::sched_single_merge_in_level_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HO
         graph_t g = *g_ptr;
 
         // Initialize the nodes
+        const char* level_node_names[] = { "node_1st", "node_2nd", "node_3rd", "node_4th", "node_5th" };
         CheckError(pgm_init_node(&color_convert_node, g, "color_convert"));
         CheckError(pgm_init_node(&compute_scales_node, g, "compute_scales"));
         for (int i=0; i<NUM_SCALE_LEVELS; i++) {
             unsigned int num_nodes = num_nodes_per_level[i];
             for (unsigned node_idx = 0; node_idx < num_nodes; node_idx++)
             {
-                CheckError(pgm_init_node(&(level_nodes[i][node_idx]), g, node_names[node_idx]));
+                CheckError(pgm_init_node(&(level_nodes[i][node_idx]), g, level_node_names[node_idx]));
             }
         }
         CheckError(pgm_init_node(&collect_locations_node, g, "collect_locations"));
         CheckError(pgm_init_node(&display_node, g, "display"));
 
         // Initialize the edges
+        const char* level_edge_name_formats[] = { "e1_1st_%d", "e1st_2nd_%d", "e2nd_3rd_%d", "e3rd_4th_%d", "e4th_5th_%d", "e5th_7_%d" };
         edge_attr_t fast_mq_attr;
         memset(&fast_mq_attr, 0, sizeof(fast_mq_attr));
         fast_mq_attr.type = pgm_fast_fifo_edge;
@@ -5008,388 +5003,95 @@ void App::sched_single_merge_in_level_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HO
         CheckError(pgm_init_edge(&e0_1, color_convert_node, compute_scales_node, "e0_1", &fast_mq_attr));
 
         for (int i=0; i<NUM_SCALE_LEVELS; i++) {
+            size_t params_sizes[num_nodes_per_level[i]];
+
             switch (level_options[i]) {
                 case fine_grained:
-                    sprintf(buf, "e1_1st_%d", i);
-                    fast_mq_attr.nr_produce = sizeof(struct params_resize);
-                    fast_mq_attr.nr_consume = sizeof(struct params_resize);
-                    fast_mq_attr.nr_threshold = sizeof(struct params_resize);
-                    CheckError(pgm_init_edge(e1_1st + i,
-                                compute_scales_node,
-                                level_nodes[i][0], buf, &fast_mq_attr));
-
-                    sprintf(buf, "e1st_2nd_%d", i);
-                    fast_mq_attr.nr_produce = sizeof(struct params_compute_gradients);
-                    fast_mq_attr.nr_consume = sizeof(struct params_compute_gradients);
-                    fast_mq_attr.nr_threshold = sizeof(struct params_compute_gradients);
-                    CheckError(pgm_init_edge(e1st_2nd + i,
-                                level_nodes[i][0],
-                                level_nodes[i][1], buf, &fast_mq_attr));
-
-                    sprintf(buf, "e2nd_3rd_%d", i);
-                    fast_mq_attr.nr_produce = sizeof(struct params_compute_histograms);
-                    fast_mq_attr.nr_consume = sizeof(struct params_compute_histograms);
-                    fast_mq_attr.nr_threshold = sizeof(struct params_compute_histograms);
-                    CheckError(pgm_init_edge(e2nd_3rd + i,
-                                level_nodes[i][1],
-                                level_nodes[i][2], buf, &fast_mq_attr));
-
-                    sprintf(buf, "e3rd_4th_%d", i);
-                    fast_mq_attr.nr_produce = sizeof(struct params_fine_normalize);
-                    fast_mq_attr.nr_consume = sizeof(struct params_fine_normalize);
-                    fast_mq_attr.nr_threshold = sizeof(struct params_fine_normalize);
-                    CheckError(pgm_init_edge(e3rd_4th + i,
-                                level_nodes[i][2],
-                                level_nodes[i][3], buf, &fast_mq_attr));
-
-                    sprintf(buf, "e4th_5th_%d", i);
-                    fast_mq_attr.nr_produce = sizeof(struct params_fine_classify);
-                    fast_mq_attr.nr_consume = sizeof(struct params_fine_classify);
-                    fast_mq_attr.nr_threshold = sizeof(struct params_fine_classify);
-                    CheckError(pgm_init_edge(e4th_5th + i,
-                                level_nodes[i][3],
-                                level_nodes[i][4], buf, &fast_mq_attr));
-
-                    sprintf(buf, "e5th_7_%d", i);
-                    fast_mq_attr.nr_produce = sizeof(struct params_fine_collect_locations);
-                    fast_mq_attr.nr_consume = sizeof(struct params_fine_collect_locations);
-                    fast_mq_attr.nr_threshold = sizeof(struct params_fine_collect_locations);
-                    CheckError(pgm_init_edge(e5th_7 + i,
-                                level_nodes[i][4],
-                                collect_locations_node, buf, &fast_mq_attr));
+                    params_sizes[0] = sizeof(struct params_resize);
+                    params_sizes[1] = sizeof(struct params_compute_gradients);
+                    params_sizes[2] = sizeof(struct params_compute_histograms);
+                    params_sizes[3] = sizeof(struct params_fine_normalize);
+                    params_sizes[4] = sizeof(struct params_fine_classify);
+                    params_sizes[5] = sizeof(struct params_fine_collect_locations);
                     break;
                 case fine_AB:
-                    sprintf(buf, "e1_1st_%d", i);
-                    fast_mq_attr.nr_produce = sizeof(struct params_resize);
-                    fast_mq_attr.nr_consume = sizeof(struct params_resize);
-                    fast_mq_attr.nr_threshold = sizeof(struct params_resize);
-                    CheckError(pgm_init_edge(e1_1st + i,
-                                compute_scales_node,
-                                level_nodes[i][0], buf, &fast_mq_attr));
-
-                    sprintf(buf, "e1st_2nd_%d", i);
-                    fast_mq_attr.nr_produce = sizeof(struct params_compute_histograms);
-                    fast_mq_attr.nr_consume = sizeof(struct params_compute_histograms);
-                    fast_mq_attr.nr_threshold = sizeof(struct params_compute_histograms);
-                    CheckError(pgm_init_edge(e1st_2nd + i,
-                                level_nodes[i][0],
-                                level_nodes[i][1], buf, &fast_mq_attr));
-
-                    sprintf(buf, "e2nd_3rd_%d", i);
-                    fast_mq_attr.nr_produce = sizeof(struct params_fine_normalize);
-                    fast_mq_attr.nr_consume = sizeof(struct params_fine_normalize);
-                    fast_mq_attr.nr_threshold = sizeof(struct params_fine_normalize);
-                    CheckError(pgm_init_edge(e2nd_3rd + i,
-                                level_nodes[i][1],
-                                level_nodes[i][2], buf, &fast_mq_attr));
-
-                    sprintf(buf, "e3rd_4th_%d", i);
-                    fast_mq_attr.nr_produce = sizeof(struct params_fine_classify);
-                    fast_mq_attr.nr_consume = sizeof(struct params_fine_classify);
-                    fast_mq_attr.nr_threshold = sizeof(struct params_fine_classify);
-                    CheckError(pgm_init_edge(e3rd_4th + i,
-                                level_nodes[i][2],
-                                level_nodes[i][3], buf, &fast_mq_attr));
-
-                    sprintf(buf, "e5th_7_%d", i);
-                    fast_mq_attr.nr_produce = sizeof(struct params_fine_collect_locations);
-                    fast_mq_attr.nr_consume = sizeof(struct params_fine_collect_locations);
-                    fast_mq_attr.nr_threshold = sizeof(struct params_fine_collect_locations);
-                    CheckError(pgm_init_edge(e5th_7 + i,
-                                level_nodes[i][3],
-                                collect_locations_node, buf, &fast_mq_attr));
+                    params_sizes[0] = sizeof(struct params_resize);
+                    params_sizes[1] = sizeof(struct params_compute_histograms);
+                    params_sizes[2] = sizeof(struct params_fine_normalize);
+                    params_sizes[3] = sizeof(struct params_fine_classify);
+                    params_sizes[4] = sizeof(struct params_fine_collect_locations);
                     break;
                 case fine_BC:
-                    sprintf(buf, "e1_1st_%d", i);
-                    fast_mq_attr.nr_produce = sizeof(struct params_resize);
-                    fast_mq_attr.nr_consume = sizeof(struct params_resize);
-                    fast_mq_attr.nr_threshold = sizeof(struct params_resize);
-                    CheckError(pgm_init_edge(e1_1st + i,
-                                compute_scales_node,
-                                level_nodes[i][0], buf, &fast_mq_attr));
-
-                    sprintf(buf, "e1st_2nd_%d", i);
-                    fast_mq_attr.nr_produce = sizeof(struct params_compute_gradients);
-                    fast_mq_attr.nr_consume = sizeof(struct params_compute_gradients);
-                    fast_mq_attr.nr_threshold = sizeof(struct params_compute_gradients);
-                    CheckError(pgm_init_edge(e1st_2nd + i,
-                                level_nodes[i][0],
-                                level_nodes[i][1], buf, &fast_mq_attr));
-
-                    sprintf(buf, "e2nd_3rd_%d", i);
-                    fast_mq_attr.nr_produce = sizeof(struct params_fine_normalize);
-                    fast_mq_attr.nr_consume = sizeof(struct params_fine_normalize);
-                    fast_mq_attr.nr_threshold = sizeof(struct params_fine_normalize);
-                    CheckError(pgm_init_edge(e2nd_3rd + i,
-                                level_nodes[i][1],
-                                level_nodes[i][2], buf, &fast_mq_attr));
-
-                    sprintf(buf, "e3rd_4th_%d", i);
-                    fast_mq_attr.nr_produce = sizeof(struct params_fine_classify);
-                    fast_mq_attr.nr_consume = sizeof(struct params_fine_classify);
-                    fast_mq_attr.nr_threshold = sizeof(struct params_fine_classify);
-                    CheckError(pgm_init_edge(e3rd_4th + i,
-                                level_nodes[i][2],
-                                level_nodes[i][3], buf, &fast_mq_attr));
-
-                    sprintf(buf, "e5th_7_%d", i);
-                    fast_mq_attr.nr_produce = sizeof(struct params_fine_collect_locations);
-                    fast_mq_attr.nr_consume = sizeof(struct params_fine_collect_locations);
-                    fast_mq_attr.nr_threshold = sizeof(struct params_fine_collect_locations);
-                    CheckError(pgm_init_edge(e5th_7 + i,
-                                level_nodes[i][3],
-                                collect_locations_node, buf, &fast_mq_attr));
+                    params_sizes[0] = sizeof(struct params_resize);
+                    params_sizes[1] = sizeof(struct params_compute_gradients);
+                    params_sizes[2] = sizeof(struct params_fine_normalize);
+                    params_sizes[3] = sizeof(struct params_fine_classify);
+                    params_sizes[4] = sizeof(struct params_fine_collect_locations);
                     break;
                 case fine_CD:
-                    sprintf(buf, "e1_1st_%d", i);
-                    fast_mq_attr.nr_produce = sizeof(struct params_resize);
-                    fast_mq_attr.nr_consume = sizeof(struct params_resize);
-                    fast_mq_attr.nr_threshold = sizeof(struct params_resize);
-                    CheckError(pgm_init_edge(e1_1st + i,
-                                compute_scales_node,
-                                level_nodes[i][0], buf, &fast_mq_attr));
-
-                    sprintf(buf, "e1st_2nd_%d", i);
-                    fast_mq_attr.nr_produce = sizeof(struct params_compute_gradients);
-                    fast_mq_attr.nr_consume = sizeof(struct params_compute_gradients);
-                    fast_mq_attr.nr_threshold = sizeof(struct params_compute_gradients);
-                    CheckError(pgm_init_edge(e1st_2nd + i,
-                                level_nodes[i][0],
-                                level_nodes[i][1], buf, &fast_mq_attr));
-
-                    sprintf(buf, "e2nd_3rd_%d", i);
-                    fast_mq_attr.nr_produce = sizeof(struct params_compute_histograms);
-                    fast_mq_attr.nr_consume = sizeof(struct params_compute_histograms);
-                    fast_mq_attr.nr_threshold = sizeof(struct params_compute_histograms);
-                    CheckError(pgm_init_edge(e2nd_3rd + i,
-                                level_nodes[i][1],
-                                level_nodes[i][2], buf, &fast_mq_attr));
-
-                    sprintf(buf, "e3rd_4th_%d", i);
-                    fast_mq_attr.nr_produce = sizeof(struct params_fine_classify);
-                    fast_mq_attr.nr_consume = sizeof(struct params_fine_classify);
-                    fast_mq_attr.nr_threshold = sizeof(struct params_fine_classify);
-                    CheckError(pgm_init_edge(e3rd_4th + i,
-                                level_nodes[i][2],
-                                level_nodes[i][3], buf, &fast_mq_attr));
-
-                    sprintf(buf, "e5th_7_%d", i);
-                    fast_mq_attr.nr_produce = sizeof(struct params_fine_collect_locations);
-                    fast_mq_attr.nr_consume = sizeof(struct params_fine_collect_locations);
-                    fast_mq_attr.nr_threshold = sizeof(struct params_fine_collect_locations);
-                    CheckError(pgm_init_edge(e5th_7 + i,
-                                level_nodes[i][3],
-                                collect_locations_node, buf, &fast_mq_attr));
+                    params_sizes[0] = sizeof(struct params_resize);
+                    params_sizes[1] = sizeof(struct params_compute_gradients);
+                    params_sizes[2] = sizeof(struct params_compute_histograms);
+                    params_sizes[3] = sizeof(struct params_fine_classify);
+                    params_sizes[4] = sizeof(struct params_fine_collect_locations);
                     break;
                 case fine_DE:
-                    sprintf(buf, "e1_1st_%d", i);
-                    fast_mq_attr.nr_produce = sizeof(struct params_resize);
-                    fast_mq_attr.nr_consume = sizeof(struct params_resize);
-                    fast_mq_attr.nr_threshold = sizeof(struct params_resize);
-                    CheckError(pgm_init_edge(e1_1st + i,
-                                compute_scales_node,
-                                level_nodes[i][0], buf, &fast_mq_attr));
-
-                    sprintf(buf, "e1st_2nd_%d", i);
-                    fast_mq_attr.nr_produce = sizeof(struct params_compute_gradients);
-                    fast_mq_attr.nr_consume = sizeof(struct params_compute_gradients);
-                    fast_mq_attr.nr_threshold = sizeof(struct params_compute_gradients);
-                    CheckError(pgm_init_edge(e1st_2nd + i,
-                                level_nodes[i][0],
-                                level_nodes[i][1], buf, &fast_mq_attr));
-
-                    sprintf(buf, "e2nd_3rd_%d", i);
-                    fast_mq_attr.nr_produce = sizeof(struct params_compute_histograms);
-                    fast_mq_attr.nr_consume = sizeof(struct params_compute_histograms);
-                    fast_mq_attr.nr_threshold = sizeof(struct params_compute_histograms);
-                    CheckError(pgm_init_edge(e2nd_3rd + i,
-                                level_nodes[i][1],
-                                level_nodes[i][2], buf, &fast_mq_attr));
-
-                    sprintf(buf, "e3rd_4th_%d", i);
-                    fast_mq_attr.nr_produce = sizeof(struct params_fine_normalize);
-                    fast_mq_attr.nr_consume = sizeof(struct params_fine_normalize);
-                    fast_mq_attr.nr_threshold = sizeof(struct params_fine_normalize);
-                    CheckError(pgm_init_edge(e3rd_4th + i,
-                                level_nodes[i][2],
-                                level_nodes[i][3], buf, &fast_mq_attr));
-
-                    sprintf(buf, "e5th_7_%d", i);
-                    fast_mq_attr.nr_produce = sizeof(struct params_fine_collect_locations);
-                    fast_mq_attr.nr_consume = sizeof(struct params_fine_collect_locations);
-                    fast_mq_attr.nr_threshold = sizeof(struct params_fine_collect_locations);
-                    CheckError(pgm_init_edge(e5th_7 + i,
-                                level_nodes[i][3],
-                                collect_locations_node, buf, &fast_mq_attr));
+                    params_sizes[0] = sizeof(struct params_resize);
+                    params_sizes[1] = sizeof(struct params_compute_gradients);
+                    params_sizes[2] = sizeof(struct params_compute_histograms);
+                    params_sizes[3] = sizeof(struct params_fine_normalize);
+                    params_sizes[4] = sizeof(struct params_fine_collect_locations);
                     break;
                 case fine_ABC:
-                    sprintf(buf, "e1_1st_%d", i);
-                    fast_mq_attr.nr_produce = sizeof(struct params_resize);
-                    fast_mq_attr.nr_consume = sizeof(struct params_resize);
-                    fast_mq_attr.nr_threshold = sizeof(struct params_resize);
-                    CheckError(pgm_init_edge(e1_1st + i,
-                                compute_scales_node,
-                                level_nodes[i][0], buf, &fast_mq_attr));
-
-                    sprintf(buf, "e1st_2nd_%d", i);
-                    fast_mq_attr.nr_produce = sizeof(struct params_fine_normalize);
-                    fast_mq_attr.nr_consume = sizeof(struct params_fine_normalize);
-                    fast_mq_attr.nr_threshold = sizeof(struct params_fine_normalize);
-                    CheckError(pgm_init_edge(e1st_2nd + i,
-                                level_nodes[i][0],
-                                level_nodes[i][1], buf, &fast_mq_attr));
-
-                    sprintf(buf, "e2nd_3rd_%d", i);
-                    fast_mq_attr.nr_produce = sizeof(struct params_fine_classify);
-                    fast_mq_attr.nr_consume = sizeof(struct params_fine_classify);
-                    fast_mq_attr.nr_threshold = sizeof(struct params_fine_classify);
-                    CheckError(pgm_init_edge(e2nd_3rd + i,
-                                level_nodes[i][1],
-                                level_nodes[i][2], buf, &fast_mq_attr));
-
-                    sprintf(buf, "e5th_7_%d", i);
-                    fast_mq_attr.nr_produce = sizeof(struct params_fine_collect_locations);
-                    fast_mq_attr.nr_consume = sizeof(struct params_fine_collect_locations);
-                    fast_mq_attr.nr_threshold = sizeof(struct params_fine_collect_locations);
-                    CheckError(pgm_init_edge(e5th_7 + i,
-                                level_nodes[i][2],
-                                collect_locations_node, buf, &fast_mq_attr));
+                    params_sizes[0] = sizeof(struct params_resize);
+                    params_sizes[1] = sizeof(struct params_fine_normalize);
+                    params_sizes[2] = sizeof(struct params_fine_classify);
+                    params_sizes[3] = sizeof(struct params_fine_collect_locations);
                     break;
                 case fine_BCD:
-                    sprintf(buf, "e1_1st_%d", i);
-                    fast_mq_attr.nr_produce = sizeof(struct params_resize);
-                    fast_mq_attr.nr_consume = sizeof(struct params_resize);
-                    fast_mq_attr.nr_threshold = sizeof(struct params_resize);
-                    CheckError(pgm_init_edge(e1_1st + i,
-                                compute_scales_node,
-                                level_nodes[i][0], buf, &fast_mq_attr));
-
-                    sprintf(buf, "e1st_2nd_%d", i);
-                    fast_mq_attr.nr_produce = sizeof(struct params_compute_gradients);
-                    fast_mq_attr.nr_consume = sizeof(struct params_compute_gradients);
-                    fast_mq_attr.nr_threshold = sizeof(struct params_compute_gradients);
-                    CheckError(pgm_init_edge(e1st_2nd + i,
-                                level_nodes[i][0],
-                                level_nodes[i][1], buf, &fast_mq_attr));
-
-                    sprintf(buf, "e2nd_3rd_%d", i);
-                    fast_mq_attr.nr_produce = sizeof(struct params_fine_classify);
-                    fast_mq_attr.nr_consume = sizeof(struct params_fine_classify);
-                    fast_mq_attr.nr_threshold = sizeof(struct params_fine_classify);
-                    CheckError(pgm_init_edge(e2nd_3rd + i,
-                                level_nodes[i][1],
-                                level_nodes[i][2], buf, &fast_mq_attr));
-
-                    sprintf(buf, "e5th_7_%d", i);
-                    fast_mq_attr.nr_produce = sizeof(struct params_fine_collect_locations);
-                    fast_mq_attr.nr_consume = sizeof(struct params_fine_collect_locations);
-                    fast_mq_attr.nr_threshold = sizeof(struct params_fine_collect_locations);
-                    CheckError(pgm_init_edge(e5th_7 + i,
-                                level_nodes[i][2],
-                                collect_locations_node, buf, &fast_mq_attr));
+                    params_sizes[0] = sizeof(struct params_resize);
+                    params_sizes[1] = sizeof(struct params_compute_gradients);
+                    params_sizes[2] = sizeof(struct params_fine_classify);
+                    params_sizes[3] = sizeof(struct params_fine_collect_locations);
                     break;
                 case fine_CDE:
-                    sprintf(buf, "e1_1st_%d", i);
-                    fast_mq_attr.nr_produce = sizeof(struct params_resize);
-                    fast_mq_attr.nr_consume = sizeof(struct params_resize);
-                    fast_mq_attr.nr_threshold = sizeof(struct params_resize);
-                    CheckError(pgm_init_edge(e1_1st + i,
-                                compute_scales_node,
-                                level_nodes[i][0], buf, &fast_mq_attr));
-
-                    sprintf(buf, "e1st_2nd_%d", i);
-                    fast_mq_attr.nr_produce = sizeof(struct params_compute_gradients);
-                    fast_mq_attr.nr_consume = sizeof(struct params_compute_gradients);
-                    fast_mq_attr.nr_threshold = sizeof(struct params_compute_gradients);
-                    CheckError(pgm_init_edge(e1st_2nd + i,
-                                level_nodes[i][0],
-                                level_nodes[i][1], buf, &fast_mq_attr));
-
-                    sprintf(buf, "e2nd_3rd_%d", i);
-                    fast_mq_attr.nr_produce = sizeof(struct params_compute_histograms);
-                    fast_mq_attr.nr_consume = sizeof(struct params_compute_histograms);
-                    fast_mq_attr.nr_threshold = sizeof(struct params_compute_histograms);
-                    CheckError(pgm_init_edge(e2nd_3rd + i,
-                                level_nodes[i][1],
-                                level_nodes[i][2], buf, &fast_mq_attr));
-
-                    sprintf(buf, "e5th_7_%d", i);
-                    fast_mq_attr.nr_produce = sizeof(struct params_fine_collect_locations);
-                    fast_mq_attr.nr_consume = sizeof(struct params_fine_collect_locations);
-                    fast_mq_attr.nr_threshold = sizeof(struct params_fine_collect_locations);
-                    CheckError(pgm_init_edge(e5th_7 + i,
-                                level_nodes[i][2],
-                                collect_locations_node, buf, &fast_mq_attr));
+                    params_sizes[0] = sizeof(struct params_resize);
+                    params_sizes[1] = sizeof(struct params_compute_gradients);
+                    params_sizes[2] = sizeof(struct params_compute_histograms);
+                    params_sizes[3] = sizeof(struct params_fine_collect_locations);
                     break;
                 case fine_ABCD:
-                    sprintf(buf, "e1_1st_%d", i);
-                    fast_mq_attr.nr_produce = sizeof(struct params_resize);
-                    fast_mq_attr.nr_consume = sizeof(struct params_resize);
-                    fast_mq_attr.nr_threshold = sizeof(struct params_resize);
-                    CheckError(pgm_init_edge(e1_1st + i,
-                                compute_scales_node,
-                                level_nodes[i][0], buf, &fast_mq_attr));
-
-                    sprintf(buf, "e1st_2nd_%d", i);
-                    fast_mq_attr.nr_produce = sizeof(struct params_fine_classify);
-                    fast_mq_attr.nr_consume = sizeof(struct params_fine_classify);
-                    fast_mq_attr.nr_threshold = sizeof(struct params_fine_classify);
-                    CheckError(pgm_init_edge(e1st_2nd + i,
-                                level_nodes[i][0],
-                                level_nodes[i][1], buf, &fast_mq_attr));
-
-                    sprintf(buf, "e5th_7_%d", i);
-                    fast_mq_attr.nr_produce = sizeof(struct params_fine_collect_locations);
-                    fast_mq_attr.nr_consume = sizeof(struct params_fine_collect_locations);
-                    fast_mq_attr.nr_threshold = sizeof(struct params_fine_collect_locations);
-                    CheckError(pgm_init_edge(e5th_7 + i,
-                                level_nodes[i][1],
-                                collect_locations_node, buf, &fast_mq_attr));
+                    params_sizes[0] = sizeof(struct params_resize);
+                    params_sizes[1] = sizeof(struct params_fine_classify);
+                    params_sizes[2] = sizeof(struct params_fine_collect_locations);
                     break;
                 case fine_BCDE:
-                    sprintf(buf, "e1_1st_%d", i);
-                    fast_mq_attr.nr_produce = sizeof(struct params_resize);
-                    fast_mq_attr.nr_consume = sizeof(struct params_resize);
-                    fast_mq_attr.nr_threshold = sizeof(struct params_resize);
-                    CheckError(pgm_init_edge(e1_1st + i,
-                                compute_scales_node,
-                                level_nodes[i][0], buf, &fast_mq_attr));
-
-                    sprintf(buf, "e1st_2nd_%d", i);
-                    fast_mq_attr.nr_produce = sizeof(struct params_compute_gradients);
-                    fast_mq_attr.nr_consume = sizeof(struct params_compute_gradients);
-                    fast_mq_attr.nr_threshold = sizeof(struct params_compute_gradients);
-                    CheckError(pgm_init_edge(e1st_2nd + i,
-                                level_nodes[i][0],
-                                level_nodes[i][1], buf, &fast_mq_attr));
-
-                    sprintf(buf, "e5th_7_%d", i);
-                    fast_mq_attr.nr_produce = sizeof(struct params_fine_collect_locations);
-                    fast_mq_attr.nr_consume = sizeof(struct params_fine_collect_locations);
-                    fast_mq_attr.nr_threshold = sizeof(struct params_fine_collect_locations);
-                    CheckError(pgm_init_edge(e5th_7 + i,
-                                level_nodes[i][1],
-                                collect_locations_node, buf, &fast_mq_attr));
+                    params_sizes[0] = sizeof(struct params_resize);
+                    params_sizes[1] = sizeof(struct params_compute_gradients);
+                    params_sizes[2] = sizeof(struct params_fine_collect_locations);
                     break;
                 case fine_ABCDE:
-                    sprintf(buf, "e1_1st_%d", i);
-                    fast_mq_attr.nr_produce = sizeof(struct params_resize);
-                    fast_mq_attr.nr_consume = sizeof(struct params_resize);
-                    fast_mq_attr.nr_threshold = sizeof(struct params_resize);
-                    CheckError(pgm_init_edge(e1_1st + i,
-                                compute_scales_node,
-                                level_nodes[i][0], buf, &fast_mq_attr));
-
-                    sprintf(buf, "e5th_7_%d", i);
-                    fast_mq_attr.nr_produce = sizeof(struct params_fine_collect_locations);
-                    fast_mq_attr.nr_consume = sizeof(struct params_fine_collect_locations);
-                    fast_mq_attr.nr_threshold = sizeof(struct params_fine_collect_locations);
-                    CheckError(pgm_init_edge(e5th_7 + i,
-                                level_nodes[i][0],
-                                collect_locations_node, buf, &fast_mq_attr));
+                    params_sizes[0] = sizeof(struct params_resize);
+                    params_sizes[1] = sizeof(struct params_fine_collect_locations);
                     break;
                 default:
                     break;
+            }
+
+            for (unsigned edge_idx = 0; edge_idx < num_nodes_per_level[i]+1; edge_idx++)
+            {
+                // Edge parameters: name, token counts
+                sprintf(buf, level_edge_name_formats[edge_idx], i);
+                fast_mq_attr.nr_produce = params_sizes[edge_idx];
+                fast_mq_attr.nr_consume = params_sizes[edge_idx];
+                fast_mq_attr.nr_threshold = params_sizes[edge_idx];
+
+                // Choose the nodes connected by the edge and initialize the edge
+                node_t node_start = edge_idx == 0                      ? compute_scales_node    : level_nodes[i][edge_idx-1];
+                node_t node_end   = edge_idx == num_nodes_per_level[i] ? collect_locations_node : level_nodes[i][edge_idx];
+                CheckError(pgm_init_edge(&(level_edges[i][edge_idx]),
+                                            node_start, node_end,
+                                            buf, &fast_mq_attr));
             }
         }
 
