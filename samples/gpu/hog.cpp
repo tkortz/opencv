@@ -1145,10 +1145,11 @@ void App::sched_fine_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
     sprintf(buf, "/tmp/graph_t%d", args.task_id);
     CheckError(pgm_init(buf, 1));
 
-    for (int g_idx = 0; g_idx < args.num_fine_graphs; g_idx++) {
-
+    for (int g_idx = 0; g_idx < args.num_fine_graphs; g_idx++)
+    {
         pthread_barrier_t* fine_init_barrier = arr_fine_init_barrier + g_idx;
 
+        // A graph consists of the graph itself, nodes, and edge
         graph_t* g_ptr = arr_g + g_idx;
 
         node_t color_convert_node;
@@ -1169,6 +1170,93 @@ void App::sched_fine_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
         edge_t e5_6 [NUM_SCALE_LEVELS];
         edge_t e6_7 [NUM_SCALE_LEVELS];
         edge_t e7_8;
+
+        // Initialize the graph
+        sprintf(buf, "hog_%d", g_idx);
+        CheckError(pgm_init_graph(g_ptr, buf));
+        graph_t g = *g_ptr;
+
+        // Initialize the nodes
+        CheckError(pgm_init_node(&color_convert_node, g, "color_convert"));
+        CheckError(pgm_init_node(&compute_scales_node, g, "compute_scales"));
+        for (int i=0; i<NUM_SCALE_LEVELS; i++) {
+            CheckError(pgm_init_node(resize_node + i, g, "resize"));
+            CheckError(pgm_init_node(compute_gradients_node + i, g, "compute_gradients"));
+            CheckError(pgm_init_node(compute_histograms_node + i, g, "compute_histograms"));
+            CheckError(pgm_init_node(normalize_node + i, g, "normalize"));
+            CheckError(pgm_init_node(classify_node + i, g, "classify"));
+        }
+        CheckError(pgm_init_node(&collect_locations_node, g, "collect_locations"));
+        CheckError(pgm_init_node(&display_node, g, "display"));
+
+        // Initialize the edges
+        edge_attr_t fast_mq_attr;
+        memset(&fast_mq_attr, 0, sizeof(fast_mq_attr));
+        //fast_mq_attr.mq_maxmsg = 20; /* root required for values larger than 10 */
+        //fast_mq_attr.type = pgm_fast_mq_edge;
+        fast_mq_attr.type = pgm_fast_fifo_edge;
+
+        fast_mq_attr.nr_produce = sizeof(struct params_compute);
+        fast_mq_attr.nr_consume = sizeof(struct params_compute);
+        fast_mq_attr.nr_threshold = sizeof(struct params_compute);
+        CheckError(pgm_init_edge(&e0_1, color_convert_node, compute_scales_node, "e0_1", &fast_mq_attr));
+
+        for (int i=0; i<NUM_SCALE_LEVELS; i++) {
+            sprintf(buf, "e1_2_%d", i);
+            fast_mq_attr.nr_produce = sizeof(struct params_resize);
+            fast_mq_attr.nr_consume = sizeof(struct params_resize);
+            fast_mq_attr.nr_threshold = sizeof(struct params_resize);
+            CheckError(pgm_init_edge(e1_2 + i,
+                        compute_scales_node,
+                        resize_node[i], buf, &fast_mq_attr));
+
+            sprintf(buf, "e2_3_%d", i);
+            fast_mq_attr.nr_produce = sizeof(struct params_compute_gradients);
+            fast_mq_attr.nr_consume = sizeof(struct params_compute_gradients);
+            fast_mq_attr.nr_threshold = sizeof(struct params_compute_gradients);
+            CheckError(pgm_init_edge(e2_3 + i,
+                        resize_node[i],
+                        compute_gradients_node[i], buf, &fast_mq_attr));
+
+            sprintf(buf, "e3_4_%d", i);
+            fast_mq_attr.nr_produce = sizeof(struct params_compute_histograms);
+            fast_mq_attr.nr_consume = sizeof(struct params_compute_histograms);
+            fast_mq_attr.nr_threshold = sizeof(struct params_compute_histograms);
+            CheckError(pgm_init_edge(e3_4 + i,
+                        compute_gradients_node[i],
+                        compute_histograms_node[i], buf, &fast_mq_attr));
+
+            sprintf(buf, "e4_5_%d", i);
+            fast_mq_attr.nr_produce = sizeof(struct params_fine_normalize);
+            fast_mq_attr.nr_consume = sizeof(struct params_fine_normalize);
+            fast_mq_attr.nr_threshold = sizeof(struct params_fine_normalize);
+            CheckError(pgm_init_edge(e4_5 + i,
+                        compute_histograms_node[i],
+                        normalize_node[i], buf, &fast_mq_attr));
+
+            sprintf(buf, "e5_6_%d", i);
+            fast_mq_attr.nr_produce = sizeof(struct params_fine_classify);
+            fast_mq_attr.nr_consume = sizeof(struct params_fine_classify);
+            fast_mq_attr.nr_threshold = sizeof(struct params_fine_classify);
+            CheckError(pgm_init_edge(e5_6 + i,
+                        normalize_node[i],
+                        classify_node[i], buf, &fast_mq_attr));
+
+            sprintf(buf, "e6_7_%d", i);
+            fast_mq_attr.nr_produce = sizeof(struct params_fine_collect_locations);
+            fast_mq_attr.nr_consume = sizeof(struct params_fine_collect_locations);
+            fast_mq_attr.nr_threshold = sizeof(struct params_fine_collect_locations);
+            CheckError(pgm_init_edge(e6_7 + i,
+                        classify_node[i],
+                        collect_locations_node, buf, &fast_mq_attr));
+        }
+
+        fast_mq_attr.nr_produce = sizeof(struct params_display);
+        fast_mq_attr.nr_consume = sizeof(struct params_display);
+        fast_mq_attr.nr_threshold = sizeof(struct params_display);
+        CheckError(pgm_init_edge(&e7_8, collect_locations_node, display_node, "e7_8", &fast_mq_attr));
+
+        pthread_barrier_init(fine_init_barrier, 0, 5 * NUM_SCALE_LEVELS + 4);
 
         thread** t0 = arr_t0 + g_idx;
         thread** t1 = arr_t1 + g_idx;
@@ -1205,93 +1293,6 @@ void App::sched_fine_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
             sync_info_init(i + out_sync_info_normalize);
             sync_info_init(i + out_sync_info_classify);
         }
-
-        sprintf(buf, "hog_%d", g_idx);
-        CheckError(pgm_init_graph(g_ptr, buf));
-        graph_t g = *g_ptr;
-
-        CheckError(pgm_init_node(&color_convert_node, g, "color_convert"));
-        CheckError(pgm_init_node(&compute_scales_node, g, "compute_scales"));
-        for (int i=0; i<NUM_SCALE_LEVELS; i++) {
-            CheckError(pgm_init_node(resize_node + i, g, "resize"));
-            CheckError(pgm_init_node(compute_gradients_node + i, g, "compute_gradients"));
-            CheckError(pgm_init_node(compute_histograms_node + i, g, "compute_histograms"));
-            CheckError(pgm_init_node(normalize_node + i, g, "normalize"));
-            CheckError(pgm_init_node(classify_node + i, g, "classify"));
-        }
-        CheckError(pgm_init_node(&collect_locations_node, g, "collect_locations"));
-        CheckError(pgm_init_node(&display_node, g, "display"));
-
-        edge_attr_t fast_mq_attr;
-        memset(&fast_mq_attr, 0, sizeof(fast_mq_attr));
-        //fast_mq_attr.mq_maxmsg = 20; /* root required for values larger than 10 */
-        //fast_mq_attr.type = pgm_fast_mq_edge;
-        fast_mq_attr.type = pgm_fast_fifo_edge;
-
-        fast_mq_attr.nr_produce = sizeof(struct params_compute);
-        fast_mq_attr.nr_consume = sizeof(struct params_compute);
-        fast_mq_attr.nr_threshold = sizeof(struct params_compute);
-        CheckError(pgm_init_edge(&e0_1, color_convert_node, compute_scales_node, "e0_1", &fast_mq_attr));
-
-        for (int i=0; i<NUM_SCALE_LEVELS; i++) {
-            sprintf(buf, "e1_2_%d", i);
-            fast_mq_attr.nr_produce = sizeof(struct params_resize);
-            fast_mq_attr.nr_consume = sizeof(struct params_resize);
-            fast_mq_attr.nr_threshold = sizeof(struct params_resize);
-            CheckError(pgm_init_edge(e1_2 + i,
-                        compute_scales_node,
-                        resize_node[i], buf, &fast_mq_attr));
-
-            sprintf(buf, "e2_3_%d", i);
-            fast_mq_attr.nr_produce = sizeof(struct params_compute_gradients);
-            fast_mq_attr.nr_consume = sizeof(struct params_compute_gradients);
-            fast_mq_attr.nr_threshold = sizeof(struct params_compute_gradients);
-            CheckError(pgm_init_edge(e2_3 + i,
-                        resize_node[i],
-                        compute_gradients_node[i], buf,
-                        &fast_mq_attr));
-
-            sprintf(buf, "e3_4_%d", i);
-            fast_mq_attr.nr_produce = sizeof(struct params_compute_histograms);
-            fast_mq_attr.nr_consume = sizeof(struct params_compute_histograms);
-            fast_mq_attr.nr_threshold = sizeof(struct params_compute_histograms);
-            CheckError(pgm_init_edge(e3_4 + i,
-                        compute_gradients_node[i],
-                        compute_histograms_node[i], buf,
-                        &fast_mq_attr));
-
-            sprintf(buf, "e4_5_%d", i);
-            fast_mq_attr.nr_produce = sizeof(struct params_fine_normalize);
-            fast_mq_attr.nr_consume = sizeof(struct params_fine_normalize);
-            fast_mq_attr.nr_threshold = sizeof(struct params_fine_normalize);
-            CheckError(pgm_init_edge(e4_5 + i,
-                        compute_histograms_node[i],
-                        normalize_node[i], buf, &fast_mq_attr));
-
-            sprintf(buf, "e5_6_%d", i);
-            fast_mq_attr.nr_produce = sizeof(struct params_fine_classify);
-            fast_mq_attr.nr_consume = sizeof(struct params_fine_classify);
-            fast_mq_attr.nr_threshold = sizeof(struct params_fine_classify);
-            CheckError(pgm_init_edge(e5_6 + i,
-                        normalize_node[i],
-                        classify_node[i], buf, &fast_mq_attr));
-
-            sprintf(buf, "e6_7_%d", i);
-            fast_mq_attr.nr_produce = sizeof(struct params_fine_collect_locations);
-            fast_mq_attr.nr_consume = sizeof(struct params_fine_collect_locations);
-            fast_mq_attr.nr_threshold = sizeof(struct params_fine_collect_locations);
-            CheckError(pgm_init_edge(e6_7 + i,
-                        classify_node[i],
-                        collect_locations_node, buf,
-                        &fast_mq_attr));
-        }
-
-        fast_mq_attr.nr_produce = sizeof(struct params_display);
-        fast_mq_attr.nr_consume = sizeof(struct params_display);
-        fast_mq_attr.nr_threshold = sizeof(struct params_display);
-        CheckError(pgm_init_edge(&e7_8, collect_locations_node, display_node, "e7_8", &fast_mq_attr));
-
-        pthread_barrier_init(fine_init_barrier, 0, 5 * NUM_SCALE_LEVELS + 4);
 
         /* G-FL fine-grained HOG */
         float bound_color_convert                   = 31.0194960215;
@@ -2016,10 +2017,11 @@ void App::sched_AB_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog
     sprintf(buf, "/tmp/graph_t%d", args.task_id);
     CheckError(pgm_init(buf, 1));
 
-    for (int g_idx = 0; g_idx < args.num_fine_graphs; g_idx++) {
-
+    for (int g_idx = 0; g_idx < args.num_fine_graphs; g_idx++)
+    {
         pthread_barrier_t* fine_init_barrier = arr_fine_init_barrier + g_idx;
 
+        // A graph consists of the graph itself, nodes, and edge
         graph_t* g_ptr = arr_g + g_idx;
 
         node_t color_convert_node;
@@ -2038,6 +2040,82 @@ void App::sched_AB_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog
         edge_t e5_6  [NUM_SCALE_LEVELS];
         edge_t e6_7  [NUM_SCALE_LEVELS];
         edge_t e7_8;
+
+        // Initialize the graph
+        sprintf(buf, "hog_%d", g_idx);
+        CheckError(pgm_init_graph(g_ptr, buf));
+        graph_t g = *g_ptr;
+
+        // Initialize the nodes
+        CheckError(pgm_init_node(&color_convert_node, g, "color_convert"));
+        CheckError(pgm_init_node(&compute_scales_node, g, "compute_scales"));
+        for (int i=0; i<NUM_SCALE_LEVELS; i++) {
+            CheckError(pgm_init_node(AB_node + i, g, "AB"));
+            CheckError(pgm_init_node(compute_histograms_node + i, g, "compute_histograms"));
+            CheckError(pgm_init_node(normalize_node + i, g, "normalize"));
+            CheckError(pgm_init_node(classify_node + i, g, "classify"));
+        }
+        CheckError(pgm_init_node(&collect_locations_node, g, "collect_locations"));
+        CheckError(pgm_init_node(&display_node, g, "display"));
+
+        // Initialize the edges
+        edge_attr_t fast_mq_attr;
+        memset(&fast_mq_attr, 0, sizeof(fast_mq_attr));
+        fast_mq_attr.type = pgm_fast_fifo_edge;
+
+        fast_mq_attr.nr_produce = sizeof(struct params_compute);
+        fast_mq_attr.nr_consume = sizeof(struct params_compute);
+        fast_mq_attr.nr_threshold = sizeof(struct params_compute);
+        CheckError(pgm_init_edge(&e0_1, color_convert_node, compute_scales_node, "e0_1", &fast_mq_attr));
+
+        for (int i=0; i<NUM_SCALE_LEVELS; i++) {
+            sprintf(buf, "e1_23_%d", i);
+            fast_mq_attr.nr_produce = sizeof(struct params_resize);
+            fast_mq_attr.nr_consume = sizeof(struct params_resize);
+            fast_mq_attr.nr_threshold = sizeof(struct params_resize);
+            CheckError(pgm_init_edge(e1_23 + i,
+                        compute_scales_node,
+                        AB_node[i], buf, &fast_mq_attr));
+
+            sprintf(buf, "e23_4_%d", i);
+            fast_mq_attr.nr_produce = sizeof(struct params_compute_histograms);
+            fast_mq_attr.nr_consume = sizeof(struct params_compute_histograms);
+            fast_mq_attr.nr_threshold = sizeof(struct params_compute_histograms);
+            CheckError(pgm_init_edge(e23_4 + i,
+                        AB_node[i],
+                        compute_histograms_node[i], buf, &fast_mq_attr));
+
+            sprintf(buf, "e4_5_%d", i);
+            fast_mq_attr.nr_produce = sizeof(struct params_fine_normalize);
+            fast_mq_attr.nr_consume = sizeof(struct params_fine_normalize);
+            fast_mq_attr.nr_threshold = sizeof(struct params_fine_normalize);
+            CheckError(pgm_init_edge(e4_5 + i,
+                        compute_histograms_node[i],
+                        normalize_node[i], buf, &fast_mq_attr));
+
+            sprintf(buf, "e5_6_%d", i);
+            fast_mq_attr.nr_produce = sizeof(struct params_fine_classify);
+            fast_mq_attr.nr_consume = sizeof(struct params_fine_classify);
+            fast_mq_attr.nr_threshold = sizeof(struct params_fine_classify);
+            CheckError(pgm_init_edge(e5_6 + i,
+                        normalize_node[i],
+                        classify_node[i], buf, &fast_mq_attr));
+
+            sprintf(buf, "e6_7_%d", i);
+            fast_mq_attr.nr_produce = sizeof(struct params_fine_collect_locations);
+            fast_mq_attr.nr_consume = sizeof(struct params_fine_collect_locations);
+            fast_mq_attr.nr_threshold = sizeof(struct params_fine_collect_locations);
+            CheckError(pgm_init_edge(e6_7 + i,
+                        classify_node[i],
+                        collect_locations_node, buf, &fast_mq_attr));
+        }
+
+        fast_mq_attr.nr_produce = sizeof(struct params_display);
+        fast_mq_attr.nr_consume = sizeof(struct params_display);
+        fast_mq_attr.nr_threshold = sizeof(struct params_display);
+        CheckError(pgm_init_edge(&e7_8, collect_locations_node, display_node, "e7_8", &fast_mq_attr));
+
+        pthread_barrier_init(fine_init_barrier, 0, 4 * NUM_SCALE_LEVELS + 4);
 
         thread** t0  = arr_t0 + g_idx;
         thread** t1  = arr_t1 + g_idx;
@@ -2069,83 +2147,6 @@ void App::sched_AB_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog
             sync_info_init(i + out_sync_info_normalize);
             sync_info_init(i + out_sync_info_classify);
         }
-
-        sprintf(buf, "hog_%d", g_idx);
-        CheckError(pgm_init_graph(g_ptr, buf));
-        graph_t g = *g_ptr;
-
-        CheckError(pgm_init_node(&color_convert_node, g, "color_convert"));
-        CheckError(pgm_init_node(&compute_scales_node, g, "compute_scales"));
-        for (int i=0; i<NUM_SCALE_LEVELS; i++) {
-            CheckError(pgm_init_node(AB_node + i, g, "AB"));
-            CheckError(pgm_init_node(compute_histograms_node + i, g, "compute_histograms"));
-            CheckError(pgm_init_node(normalize_node + i, g, "normalize"));
-            CheckError(pgm_init_node(classify_node + i, g, "classify"));
-        }
-        CheckError(pgm_init_node(&collect_locations_node, g, "collect_locations"));
-        CheckError(pgm_init_node(&display_node, g, "display"));
-
-        edge_attr_t fast_mq_attr;
-        memset(&fast_mq_attr, 0, sizeof(fast_mq_attr));
-        //fast_mq_attr.mq_maxmsg = 20; /* root required for values larger than 10 */
-        //fast_mq_attr.type = pgm_fast_mq_edge;
-        fast_mq_attr.type = pgm_fast_fifo_edge;
-
-        fast_mq_attr.nr_produce = sizeof(struct params_compute);
-        fast_mq_attr.nr_consume = sizeof(struct params_compute);
-        fast_mq_attr.nr_threshold = sizeof(struct params_compute);
-        CheckError(pgm_init_edge(&e0_1, color_convert_node, compute_scales_node, "e0_1", &fast_mq_attr));
-
-        for (int i=0; i<NUM_SCALE_LEVELS; i++) {
-            sprintf(buf, "e1_23_%d", i);
-            fast_mq_attr.nr_produce = sizeof(struct params_resize);
-            fast_mq_attr.nr_consume = sizeof(struct params_resize);
-            fast_mq_attr.nr_threshold = sizeof(struct params_resize);
-            CheckError(pgm_init_edge(e1_23 + i,
-                        compute_scales_node,
-                        AB_node[i], buf, &fast_mq_attr));
-
-            sprintf(buf, "e23_4_%d", i);
-            fast_mq_attr.nr_produce = sizeof(struct params_compute_histograms);
-            fast_mq_attr.nr_consume = sizeof(struct params_compute_histograms);
-            fast_mq_attr.nr_threshold = sizeof(struct params_compute_histograms);
-            CheckError(pgm_init_edge(e23_4 + i,
-                        AB_node[i],
-                        compute_histograms_node[i], buf,
-                        &fast_mq_attr));
-
-            sprintf(buf, "e4_5_%d", i);
-            fast_mq_attr.nr_produce = sizeof(struct params_fine_normalize);
-            fast_mq_attr.nr_consume = sizeof(struct params_fine_normalize);
-            fast_mq_attr.nr_threshold = sizeof(struct params_fine_normalize);
-            CheckError(pgm_init_edge(e4_5 + i,
-                        compute_histograms_node[i],
-                        normalize_node[i], buf, &fast_mq_attr));
-
-            sprintf(buf, "e5_6_%d", i);
-            fast_mq_attr.nr_produce = sizeof(struct params_fine_classify);
-            fast_mq_attr.nr_consume = sizeof(struct params_fine_classify);
-            fast_mq_attr.nr_threshold = sizeof(struct params_fine_classify);
-            CheckError(pgm_init_edge(e5_6 + i,
-                        normalize_node[i],
-                        classify_node[i], buf, &fast_mq_attr));
-
-            sprintf(buf, "e6_7_%d", i);
-            fast_mq_attr.nr_produce = sizeof(struct params_fine_collect_locations);
-            fast_mq_attr.nr_consume = sizeof(struct params_fine_collect_locations);
-            fast_mq_attr.nr_threshold = sizeof(struct params_fine_collect_locations);
-            CheckError(pgm_init_edge(e6_7 + i,
-                        classify_node[i],
-                        collect_locations_node, buf,
-                        &fast_mq_attr));
-        }
-
-        fast_mq_attr.nr_produce = sizeof(struct params_display);
-        fast_mq_attr.nr_consume = sizeof(struct params_display);
-        fast_mq_attr.nr_threshold = sizeof(struct params_display);
-        CheckError(pgm_init_edge(&e7_8, collect_locations_node, display_node, "e7_8", &fast_mq_attr));
-
-        pthread_barrier_init(fine_init_barrier, 0, 4 * NUM_SCALE_LEVELS + 4);
 
         /* G-FL fine-grained HOG */
         float bound_color_convert                   = 31.0194960215;
@@ -2329,10 +2330,11 @@ void App::sched_BC_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog
     sprintf(buf, "/tmp/graph_t%d", args.task_id);
     CheckError(pgm_init(buf, 1));
 
-    for (int g_idx = 0; g_idx < args.num_fine_graphs; g_idx++) {
-
+    for (int g_idx = 0; g_idx < args.num_fine_graphs; g_idx++)
+    {
         pthread_barrier_t* fine_init_barrier = arr_fine_init_barrier + g_idx;
 
+        // A graph consists of the graph itself, nodes, and edge
         graph_t* g_ptr = arr_g + g_idx;
 
         node_t color_convert_node;
@@ -2352,41 +2354,12 @@ void App::sched_BC_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog
         edge_t e6_7  [NUM_SCALE_LEVELS];
         edge_t e7_8;
 
-        thread** t0  = arr_t0 + g_idx;
-        thread** t1  = arr_t1 + g_idx;
-        thread** t2  = arr_t2 + g_idx * NUM_SCALE_LEVELS;
-        thread** t34 = arr_t34 + g_idx * NUM_SCALE_LEVELS;
-        thread** t5  = arr_t5 + g_idx * NUM_SCALE_LEVELS;
-        thread** t6  = arr_t6 + g_idx * NUM_SCALE_LEVELS;
-        thread** t7  = arr_t7 + g_idx;
-        thread** t8  = arr_t8 + g_idx;
-
-        struct sync_info* in_sync_info_resize             = arr_sync_info_resize            [((g_idx + args.num_fine_graphs - 1) % args.num_fine_graphs)];
-        struct sync_info* in_sync_info_BC                 = arr_sync_info_BC                [((g_idx + args.num_fine_graphs - 1) % args.num_fine_graphs)];
-        struct sync_info* in_sync_info_normalize          = arr_sync_info_normalize         [((g_idx + args.num_fine_graphs - 1) % args.num_fine_graphs)];
-        struct sync_info* in_sync_info_classify           = arr_sync_info_classify          [((g_idx + args.num_fine_graphs - 1) % args.num_fine_graphs)];
-
-        struct sync_info* out_sync_info_resize             = arr_sync_info_resize            [g_idx];
-        struct sync_info* out_sync_info_BC                 = arr_sync_info_BC                [g_idx];
-        struct sync_info* out_sync_info_normalize          = arr_sync_info_normalize         [g_idx];
-        struct sync_info* out_sync_info_classify           = arr_sync_info_classify          [g_idx];
-
-        for (int i=0; i<NUM_SCALE_LEVELS; i++) {
-            sync_info_init(i + in_sync_info_resize);
-            sync_info_init(i + in_sync_info_BC);
-            sync_info_init(i + in_sync_info_normalize);
-            sync_info_init(i + in_sync_info_classify);
-
-            sync_info_init(i + out_sync_info_resize);
-            sync_info_init(i + out_sync_info_BC);
-            sync_info_init(i + out_sync_info_normalize);
-            sync_info_init(i + out_sync_info_classify);
-        }
-
+        // Initialize the graph
         sprintf(buf, "hog_%d", g_idx);
         CheckError(pgm_init_graph(g_ptr, buf));
         graph_t g = *g_ptr;
 
+        // Initialize the nodes
         CheckError(pgm_init_node(&color_convert_node, g, "color_convert"));
         CheckError(pgm_init_node(&compute_scales_node, g, "compute_scales"));
         for (int i=0; i<NUM_SCALE_LEVELS; i++) {
@@ -2398,10 +2371,9 @@ void App::sched_BC_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog
         CheckError(pgm_init_node(&collect_locations_node, g, "collect_locations"));
         CheckError(pgm_init_node(&display_node, g, "display"));
 
+        // Initialize the edges
         edge_attr_t fast_mq_attr;
         memset(&fast_mq_attr, 0, sizeof(fast_mq_attr));
-        //fast_mq_attr.mq_maxmsg = 20; /* root required for values larger than 10 */
-        //fast_mq_attr.type = pgm_fast_mq_edge;
         fast_mq_attr.type = pgm_fast_fifo_edge;
 
         fast_mq_attr.nr_produce = sizeof(struct params_compute);
@@ -2448,8 +2420,7 @@ void App::sched_BC_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog
             fast_mq_attr.nr_threshold = sizeof(struct params_fine_collect_locations);
             CheckError(pgm_init_edge(e6_7 + i,
                         classify_node[i],
-                        collect_locations_node, buf,
-                        &fast_mq_attr));
+                        collect_locations_node, buf, &fast_mq_attr));
         }
 
         fast_mq_attr.nr_produce = sizeof(struct params_display);
@@ -2458,6 +2429,37 @@ void App::sched_BC_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog
         CheckError(pgm_init_edge(&e7_8, collect_locations_node, display_node, "e7_8", &fast_mq_attr));
 
         pthread_barrier_init(fine_init_barrier, 0, 4 * NUM_SCALE_LEVELS + 4);
+
+        thread** t0  = arr_t0 + g_idx;
+        thread** t1  = arr_t1 + g_idx;
+        thread** t2  = arr_t2 + g_idx * NUM_SCALE_LEVELS;
+        thread** t34 = arr_t34 + g_idx * NUM_SCALE_LEVELS;
+        thread** t5  = arr_t5 + g_idx * NUM_SCALE_LEVELS;
+        thread** t6  = arr_t6 + g_idx * NUM_SCALE_LEVELS;
+        thread** t7  = arr_t7 + g_idx;
+        thread** t8  = arr_t8 + g_idx;
+
+        struct sync_info* in_sync_info_resize             = arr_sync_info_resize            [((g_idx + args.num_fine_graphs - 1) % args.num_fine_graphs)];
+        struct sync_info* in_sync_info_BC                 = arr_sync_info_BC                [((g_idx + args.num_fine_graphs - 1) % args.num_fine_graphs)];
+        struct sync_info* in_sync_info_normalize          = arr_sync_info_normalize         [((g_idx + args.num_fine_graphs - 1) % args.num_fine_graphs)];
+        struct sync_info* in_sync_info_classify           = arr_sync_info_classify          [((g_idx + args.num_fine_graphs - 1) % args.num_fine_graphs)];
+
+        struct sync_info* out_sync_info_resize             = arr_sync_info_resize            [g_idx];
+        struct sync_info* out_sync_info_BC                 = arr_sync_info_BC                [g_idx];
+        struct sync_info* out_sync_info_normalize          = arr_sync_info_normalize         [g_idx];
+        struct sync_info* out_sync_info_classify           = arr_sync_info_classify          [g_idx];
+
+        for (int i=0; i<NUM_SCALE_LEVELS; i++) {
+            sync_info_init(i + in_sync_info_resize);
+            sync_info_init(i + in_sync_info_BC);
+            sync_info_init(i + in_sync_info_normalize);
+            sync_info_init(i + in_sync_info_classify);
+
+            sync_info_init(i + out_sync_info_resize);
+            sync_info_init(i + out_sync_info_BC);
+            sync_info_init(i + out_sync_info_normalize);
+            sync_info_init(i + out_sync_info_classify);
+        }
 
         /* G-FL fine-grained HOG */
         float bound_color_convert                   = 31.0194960215;
@@ -2644,10 +2646,11 @@ void App::sched_CD_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog
     sprintf(buf, "/tmp/graph_t%d", args.task_id);
     CheckError(pgm_init(buf, 1));
 
-    for (int g_idx = 0; g_idx < args.num_fine_graphs; g_idx++) {
-
+    for (int g_idx = 0; g_idx < args.num_fine_graphs; g_idx++)
+    {
         pthread_barrier_t* fine_init_barrier = arr_fine_init_barrier + g_idx;
 
+        // A graph consists of the graph itself, nodes, and edge
         graph_t* g_ptr = arr_g + g_idx;
 
         node_t color_convert_node;
@@ -2666,6 +2669,82 @@ void App::sched_CD_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog
         edge_t e45_6 [NUM_SCALE_LEVELS];
         edge_t e6_7  [NUM_SCALE_LEVELS];
         edge_t e7_8;
+
+        // Initialize the graph
+        sprintf(buf, "hog_%d", g_idx);
+        CheckError(pgm_init_graph(g_ptr, buf));
+        graph_t g = *g_ptr;
+
+        // Initialize the nodes
+        CheckError(pgm_init_node(&color_convert_node, g, "color_convert"));
+        CheckError(pgm_init_node(&compute_scales_node, g, "compute_scales"));
+        for (int i=0; i<NUM_SCALE_LEVELS; i++) {
+            CheckError(pgm_init_node(resize_node + i, g, "resize"));
+            CheckError(pgm_init_node(compute_gradients_node + i, g, "compute_gradients"));
+            CheckError(pgm_init_node(CD_node + i, g, "CD"));
+            CheckError(pgm_init_node(classify_node + i, g, "classify"));
+        }
+        CheckError(pgm_init_node(&collect_locations_node, g, "collect_locations"));
+        CheckError(pgm_init_node(&display_node, g, "display"));
+
+        // Initialize the edges
+        edge_attr_t fast_mq_attr;
+        memset(&fast_mq_attr, 0, sizeof(fast_mq_attr));
+        fast_mq_attr.type = pgm_fast_fifo_edge;
+
+        fast_mq_attr.nr_produce = sizeof(struct params_compute);
+        fast_mq_attr.nr_consume = sizeof(struct params_compute);
+        fast_mq_attr.nr_threshold = sizeof(struct params_compute);
+        CheckError(pgm_init_edge(&e0_1, color_convert_node, compute_scales_node, "e0_1", &fast_mq_attr));
+
+        for (int i=0; i<NUM_SCALE_LEVELS; i++) {
+            sprintf(buf, "e1_2_%d", i);
+            fast_mq_attr.nr_produce = sizeof(struct params_resize);
+            fast_mq_attr.nr_consume = sizeof(struct params_resize);
+            fast_mq_attr.nr_threshold = sizeof(struct params_resize);
+            CheckError(pgm_init_edge(e1_2 + i,
+                        compute_scales_node,
+                        resize_node[i], buf, &fast_mq_attr));
+
+            sprintf(buf, "e2_3_%d", i);
+            fast_mq_attr.nr_produce = sizeof(struct params_compute_gradients);
+            fast_mq_attr.nr_consume = sizeof(struct params_compute_gradients);
+            fast_mq_attr.nr_threshold = sizeof(struct params_compute_gradients);
+            CheckError(pgm_init_edge(e2_3 + i,
+                        resize_node[i],
+                        compute_gradients_node[i], buf, &fast_mq_attr));
+
+            sprintf(buf, "e3_45_%d", i);
+            fast_mq_attr.nr_produce = sizeof(struct params_compute_histograms);
+            fast_mq_attr.nr_consume = sizeof(struct params_compute_histograms);
+            fast_mq_attr.nr_threshold = sizeof(struct params_compute_histograms);
+            CheckError(pgm_init_edge(e3_45 + i,
+                        compute_gradients_node[i],
+                        CD_node[i], buf, &fast_mq_attr));
+
+            sprintf(buf, "e45_6_%d", i);
+            fast_mq_attr.nr_produce = sizeof(struct params_fine_classify);
+            fast_mq_attr.nr_consume = sizeof(struct params_fine_classify);
+            fast_mq_attr.nr_threshold = sizeof(struct params_fine_classify);
+            CheckError(pgm_init_edge(e45_6 + i,
+                        CD_node[i],
+                        classify_node[i], buf, &fast_mq_attr));
+
+            sprintf(buf, "e6_7_%d", i);
+            fast_mq_attr.nr_produce = sizeof(struct params_fine_collect_locations);
+            fast_mq_attr.nr_consume = sizeof(struct params_fine_collect_locations);
+            fast_mq_attr.nr_threshold = sizeof(struct params_fine_collect_locations);
+            CheckError(pgm_init_edge(e6_7 + i,
+                        classify_node[i],
+                        collect_locations_node, buf, &fast_mq_attr));
+        }
+
+        fast_mq_attr.nr_produce = sizeof(struct params_display);
+        fast_mq_attr.nr_consume = sizeof(struct params_display);
+        fast_mq_attr.nr_threshold = sizeof(struct params_display);
+        CheckError(pgm_init_edge(&e7_8, collect_locations_node, display_node, "e7_8", &fast_mq_attr));
+
+        pthread_barrier_init(fine_init_barrier, 0, 4 * NUM_SCALE_LEVELS + 4);
 
         thread** t0  = arr_t0 + g_idx;
         thread** t1  = arr_t1 + g_idx;
@@ -2697,83 +2776,6 @@ void App::sched_CD_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog
             sync_info_init(i + out_sync_info_CD);
             sync_info_init(i + out_sync_info_classify);
         }
-
-        sprintf(buf, "hog_%d", g_idx);
-        CheckError(pgm_init_graph(g_ptr, buf));
-        graph_t g = *g_ptr;
-
-        CheckError(pgm_init_node(&color_convert_node, g, "color_convert"));
-        CheckError(pgm_init_node(&compute_scales_node, g, "compute_scales"));
-        for (int i=0; i<NUM_SCALE_LEVELS; i++) {
-            CheckError(pgm_init_node(resize_node + i, g, "resize"));
-            CheckError(pgm_init_node(compute_gradients_node + i, g, "compute_gradients"));
-            CheckError(pgm_init_node(CD_node + i, g, "CD"));
-            CheckError(pgm_init_node(classify_node + i, g, "classify"));
-        }
-        CheckError(pgm_init_node(&collect_locations_node, g, "collect_locations"));
-        CheckError(pgm_init_node(&display_node, g, "display"));
-
-        edge_attr_t fast_mq_attr;
-        memset(&fast_mq_attr, 0, sizeof(fast_mq_attr));
-        //fast_mq_attr.mq_maxmsg = 20; /* root required for values larger than 10 */
-        //fast_mq_attr.type = pgm_fast_mq_edge;
-        fast_mq_attr.type = pgm_fast_fifo_edge;
-
-        fast_mq_attr.nr_produce = sizeof(struct params_compute);
-        fast_mq_attr.nr_consume = sizeof(struct params_compute);
-        fast_mq_attr.nr_threshold = sizeof(struct params_compute);
-        CheckError(pgm_init_edge(&e0_1, color_convert_node, compute_scales_node, "e0_1", &fast_mq_attr));
-
-        for (int i=0; i<NUM_SCALE_LEVELS; i++) {
-            sprintf(buf, "e1_2_%d", i);
-            fast_mq_attr.nr_produce = sizeof(struct params_resize);
-            fast_mq_attr.nr_consume = sizeof(struct params_resize);
-            fast_mq_attr.nr_threshold = sizeof(struct params_resize);
-            CheckError(pgm_init_edge(e1_2 + i,
-                        compute_scales_node,
-                        resize_node[i], buf, &fast_mq_attr));
-
-            sprintf(buf, "e2_3_%d", i);
-            fast_mq_attr.nr_produce = sizeof(struct params_compute_gradients);
-            fast_mq_attr.nr_consume = sizeof(struct params_compute_gradients);
-            fast_mq_attr.nr_threshold = sizeof(struct params_compute_gradients);
-            CheckError(pgm_init_edge(e2_3 + i,
-                        resize_node[i],
-                        compute_gradients_node[i], buf, &fast_mq_attr));
-
-            sprintf(buf, "e3_45_%d", i);
-            fast_mq_attr.nr_produce = sizeof(struct params_compute_histograms);
-            fast_mq_attr.nr_consume = sizeof(struct params_compute_histograms);
-            fast_mq_attr.nr_threshold = sizeof(struct params_compute_histograms);
-            CheckError(pgm_init_edge(e3_45 + i,
-                        compute_gradients_node[i],
-                        CD_node[i], buf,
-                        &fast_mq_attr));
-
-            sprintf(buf, "e45_6_%d", i);
-            fast_mq_attr.nr_produce = sizeof(struct params_fine_classify);
-            fast_mq_attr.nr_consume = sizeof(struct params_fine_classify);
-            fast_mq_attr.nr_threshold = sizeof(struct params_fine_classify);
-            CheckError(pgm_init_edge(e45_6 + i,
-                        CD_node[i],
-                        classify_node[i], buf, &fast_mq_attr));
-
-            sprintf(buf, "e6_7_%d", i);
-            fast_mq_attr.nr_produce = sizeof(struct params_fine_collect_locations);
-            fast_mq_attr.nr_consume = sizeof(struct params_fine_collect_locations);
-            fast_mq_attr.nr_threshold = sizeof(struct params_fine_collect_locations);
-            CheckError(pgm_init_edge(e6_7 + i,
-                        classify_node[i],
-                        collect_locations_node, buf,
-                        &fast_mq_attr));
-        }
-
-        fast_mq_attr.nr_produce = sizeof(struct params_display);
-        fast_mq_attr.nr_consume = sizeof(struct params_display);
-        fast_mq_attr.nr_threshold = sizeof(struct params_display);
-        CheckError(pgm_init_edge(&e7_8, collect_locations_node, display_node, "e7_8", &fast_mq_attr));
-
-        pthread_barrier_init(fine_init_barrier, 0, 4 * NUM_SCALE_LEVELS + 4);
 
         /* G-FL fine-grained HOG */
         float bound_color_convert                   = 31.0194960215;
@@ -2964,10 +2966,11 @@ void App::sched_DE_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog
     sprintf(buf, "/tmp/graph_t%d", args.task_id);
     CheckError(pgm_init(buf, 1));
 
-    for (int g_idx = 0; g_idx < args.num_fine_graphs; g_idx++) {
-
+    for (int g_idx = 0; g_idx < args.num_fine_graphs; g_idx++)
+    {
         pthread_barrier_t* fine_init_barrier = arr_fine_init_barrier + g_idx;
 
+        // A graph consists of the graph itself, nodes, and edge
         graph_t* g_ptr = arr_g + g_idx;
 
         node_t color_convert_node;
@@ -2986,6 +2989,82 @@ void App::sched_DE_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog
         edge_t e4_56 [NUM_SCALE_LEVELS];
         edge_t e56_7  [NUM_SCALE_LEVELS];
         edge_t e7_8;
+
+        // Initialize the graph
+        sprintf(buf, "hog_%d", g_idx);
+        CheckError(pgm_init_graph(g_ptr, buf));
+        graph_t g = *g_ptr;
+
+        // Initialize the nodes
+        CheckError(pgm_init_node(&color_convert_node, g, "color_convert"));
+        CheckError(pgm_init_node(&compute_scales_node, g, "compute_scales"));
+        for (int i=0; i<NUM_SCALE_LEVELS; i++) {
+            CheckError(pgm_init_node(resize_node + i, g, "resize"));
+            CheckError(pgm_init_node(compute_gradients_node + i, g, "compute_gradients"));
+            CheckError(pgm_init_node(compute_histograms_node + i, g, "compute_histograms"));
+            CheckError(pgm_init_node(DE_node + i, g, "DE"));
+        }
+        CheckError(pgm_init_node(&collect_locations_node, g, "collect_locations"));
+        CheckError(pgm_init_node(&display_node, g, "display"));
+
+        // Initialize the edges
+        edge_attr_t fast_mq_attr;
+        memset(&fast_mq_attr, 0, sizeof(fast_mq_attr));
+        fast_mq_attr.type = pgm_fast_fifo_edge;
+
+        fast_mq_attr.nr_produce = sizeof(struct params_compute);
+        fast_mq_attr.nr_consume = sizeof(struct params_compute);
+        fast_mq_attr.nr_threshold = sizeof(struct params_compute);
+        CheckError(pgm_init_edge(&e0_1, color_convert_node, compute_scales_node, "e0_1", &fast_mq_attr));
+
+        for (int i=0; i<NUM_SCALE_LEVELS; i++) {
+            sprintf(buf, "e1_2_%d", i);
+            fast_mq_attr.nr_produce = sizeof(struct params_resize);
+            fast_mq_attr.nr_consume = sizeof(struct params_resize);
+            fast_mq_attr.nr_threshold = sizeof(struct params_resize);
+            CheckError(pgm_init_edge(e1_2 + i,
+                        compute_scales_node,
+                        resize_node[i], buf, &fast_mq_attr));
+
+            sprintf(buf, "e2_3_%d", i);
+            fast_mq_attr.nr_produce = sizeof(struct params_compute_gradients);
+            fast_mq_attr.nr_consume = sizeof(struct params_compute_gradients);
+            fast_mq_attr.nr_threshold = sizeof(struct params_compute_gradients);
+            CheckError(pgm_init_edge(e2_3 + i,
+                        resize_node[i],
+                        compute_gradients_node[i], buf, &fast_mq_attr));
+
+            sprintf(buf, "e3_4_%d", i);
+            fast_mq_attr.nr_produce = sizeof(struct params_compute_histograms);
+            fast_mq_attr.nr_consume = sizeof(struct params_compute_histograms);
+            fast_mq_attr.nr_threshold = sizeof(struct params_compute_histograms);
+            CheckError(pgm_init_edge(e3_4 + i,
+                        compute_gradients_node[i],
+                        compute_histograms_node[i], buf, &fast_mq_attr));
+
+            sprintf(buf, "e4_56_%d", i);
+            fast_mq_attr.nr_produce = sizeof(struct params_fine_normalize);
+            fast_mq_attr.nr_consume = sizeof(struct params_fine_normalize);
+            fast_mq_attr.nr_threshold = sizeof(struct params_fine_normalize);
+            CheckError(pgm_init_edge(e4_56 + i,
+                        compute_histograms_node[i],
+                        DE_node[i], buf, &fast_mq_attr));
+
+            sprintf(buf, "e56_7_%d", i);
+            fast_mq_attr.nr_produce = sizeof(struct params_fine_collect_locations);
+            fast_mq_attr.nr_consume = sizeof(struct params_fine_collect_locations);
+            fast_mq_attr.nr_threshold = sizeof(struct params_fine_collect_locations);
+            CheckError(pgm_init_edge(e56_7 + i,
+                        DE_node[i],
+                        collect_locations_node, buf, &fast_mq_attr));
+        }
+
+        fast_mq_attr.nr_produce = sizeof(struct params_display);
+        fast_mq_attr.nr_consume = sizeof(struct params_display);
+        fast_mq_attr.nr_threshold = sizeof(struct params_display);
+        CheckError(pgm_init_edge(&e7_8, collect_locations_node, display_node, "e7_8", &fast_mq_attr));
+
+        pthread_barrier_init(fine_init_barrier, 0, 4 * NUM_SCALE_LEVELS + 4);
 
         thread** t0  = arr_t0 + g_idx;
         thread** t1  = arr_t1 + g_idx;
@@ -3017,83 +3096,6 @@ void App::sched_DE_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog
             sync_info_init(i + out_sync_info_compute_histograms);
             sync_info_init(i + out_sync_info_DE);
         }
-
-        sprintf(buf, "hog_%d", g_idx);
-        CheckError(pgm_init_graph(g_ptr, buf));
-        graph_t g = *g_ptr;
-
-        CheckError(pgm_init_node(&color_convert_node, g, "color_convert"));
-        CheckError(pgm_init_node(&compute_scales_node, g, "compute_scales"));
-        for (int i=0; i<NUM_SCALE_LEVELS; i++) {
-            CheckError(pgm_init_node(resize_node + i, g, "resize"));
-            CheckError(pgm_init_node(compute_gradients_node + i, g, "compute_gradients"));
-            CheckError(pgm_init_node(compute_histograms_node + i, g, "compute_histograms"));
-            CheckError(pgm_init_node(DE_node + i, g, "DE"));
-        }
-        CheckError(pgm_init_node(&collect_locations_node, g, "collect_locations"));
-        CheckError(pgm_init_node(&display_node, g, "display"));
-
-        edge_attr_t fast_mq_attr;
-        memset(&fast_mq_attr, 0, sizeof(fast_mq_attr));
-        //fast_mq_attr.mq_maxmsg = 20; /* root required for values larger than 10 */
-        //fast_mq_attr.type = pgm_fast_mq_edge;
-        fast_mq_attr.type = pgm_fast_fifo_edge;
-
-        fast_mq_attr.nr_produce = sizeof(struct params_compute);
-        fast_mq_attr.nr_consume = sizeof(struct params_compute);
-        fast_mq_attr.nr_threshold = sizeof(struct params_compute);
-        CheckError(pgm_init_edge(&e0_1, color_convert_node, compute_scales_node, "e0_1", &fast_mq_attr));
-
-        for (int i=0; i<NUM_SCALE_LEVELS; i++) {
-            sprintf(buf, "e1_2_%d", i);
-            fast_mq_attr.nr_produce = sizeof(struct params_resize);
-            fast_mq_attr.nr_consume = sizeof(struct params_resize);
-            fast_mq_attr.nr_threshold = sizeof(struct params_resize);
-            CheckError(pgm_init_edge(e1_2 + i,
-                        compute_scales_node,
-                        resize_node[i], buf, &fast_mq_attr));
-
-            sprintf(buf, "e2_3_%d", i);
-            fast_mq_attr.nr_produce = sizeof(struct params_compute_gradients);
-            fast_mq_attr.nr_consume = sizeof(struct params_compute_gradients);
-            fast_mq_attr.nr_threshold = sizeof(struct params_compute_gradients);
-            CheckError(pgm_init_edge(e2_3 + i,
-                        resize_node[i],
-                        compute_gradients_node[i], buf, &fast_mq_attr));
-
-            sprintf(buf, "e3_4_%d", i);
-            fast_mq_attr.nr_produce = sizeof(struct params_compute_histograms);
-            fast_mq_attr.nr_consume = sizeof(struct params_compute_histograms);
-            fast_mq_attr.nr_threshold = sizeof(struct params_compute_histograms);
-            CheckError(pgm_init_edge(e3_4 + i,
-                        compute_gradients_node[i],
-                        compute_histograms_node[i], buf,
-                        &fast_mq_attr));
-
-            sprintf(buf, "e4_56_%d", i);
-            fast_mq_attr.nr_produce = sizeof(struct params_fine_normalize);
-            fast_mq_attr.nr_consume = sizeof(struct params_fine_normalize);
-            fast_mq_attr.nr_threshold = sizeof(struct params_fine_normalize);
-            CheckError(pgm_init_edge(e4_56 + i,
-                        compute_histograms_node[i],
-                        DE_node[i], buf, &fast_mq_attr));
-
-            sprintf(buf, "e56_7_%d", i);
-            fast_mq_attr.nr_produce = sizeof(struct params_fine_collect_locations);
-            fast_mq_attr.nr_consume = sizeof(struct params_fine_collect_locations);
-            fast_mq_attr.nr_threshold = sizeof(struct params_fine_collect_locations);
-            CheckError(pgm_init_edge(e56_7 + i,
-                        DE_node[i],
-                        collect_locations_node, buf,
-                        &fast_mq_attr));
-        }
-
-        fast_mq_attr.nr_produce = sizeof(struct params_display);
-        fast_mq_attr.nr_consume = sizeof(struct params_display);
-        fast_mq_attr.nr_threshold = sizeof(struct params_display);
-        CheckError(pgm_init_edge(&e7_8, collect_locations_node, display_node, "e7_8", &fast_mq_attr));
-
-        pthread_barrier_init(fine_init_barrier, 0, 4 * NUM_SCALE_LEVELS + 4);
 
         /* G-FL fine-grained HOG */
         float bound_color_convert                   = 31.0194960215;
@@ -3283,10 +3285,11 @@ void App::sched_ABC_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_ho
     sprintf(buf, "/tmp/graph_t%d", args.task_id);
     CheckError(pgm_init(buf, 1));
 
-    for (int g_idx = 0; g_idx < args.num_fine_graphs; g_idx++) {
-
+    for (int g_idx = 0; g_idx < args.num_fine_graphs; g_idx++)
+    {
         pthread_barrier_t* fine_init_barrier = arr_fine_init_barrier + g_idx;
 
+        // A graph consists of the graph itself, nodes, and edge
         graph_t* g_ptr = arr_g + g_idx;
 
         node_t color_convert_node;
@@ -3304,36 +3307,12 @@ void App::sched_ABC_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_ho
         edge_t e6_7   [NUM_SCALE_LEVELS];
         edge_t e7_8;
 
-        thread** t0  = arr_t0 + g_idx;
-        thread** t1  = arr_t1 + g_idx;
-        thread** t234 = arr_t234 + g_idx * NUM_SCALE_LEVELS;
-        thread** t5  = arr_t5 + g_idx * NUM_SCALE_LEVELS;
-        thread** t6  = arr_t6 + g_idx * NUM_SCALE_LEVELS;
-        thread** t7  = arr_t7 + g_idx;
-        thread** t8  = arr_t8 + g_idx;
-
-        struct sync_info* in_sync_info_ABC                = arr_sync_info_ABC               [((g_idx + args.num_fine_graphs - 1) % args.num_fine_graphs)];
-        struct sync_info* in_sync_info_normalize          = arr_sync_info_normalize         [((g_idx + args.num_fine_graphs - 1) % args.num_fine_graphs)];
-        struct sync_info* in_sync_info_classify           = arr_sync_info_classify          [((g_idx + args.num_fine_graphs - 1) % args.num_fine_graphs)];
-
-        struct sync_info* out_sync_info_ABC                = arr_sync_info_ABC               [g_idx];
-        struct sync_info* out_sync_info_normalize          = arr_sync_info_normalize         [g_idx];
-        struct sync_info* out_sync_info_classify           = arr_sync_info_classify          [g_idx];
-
-        for (int i=0; i<NUM_SCALE_LEVELS; i++) {
-            sync_info_init(i + in_sync_info_ABC);
-            sync_info_init(i + in_sync_info_normalize);
-            sync_info_init(i + in_sync_info_classify);
-
-            sync_info_init(i + out_sync_info_ABC);
-            sync_info_init(i + out_sync_info_normalize);
-            sync_info_init(i + out_sync_info_classify);
-        }
-
+        // Initialize the graph
         sprintf(buf, "hog_%d", g_idx);
         CheckError(pgm_init_graph(g_ptr, buf));
         graph_t g = *g_ptr;
 
+        // Initialize the nodes
         CheckError(pgm_init_node(&color_convert_node, g, "color_convert"));
         CheckError(pgm_init_node(&compute_scales_node, g, "compute_scales"));
         for (int i=0; i<NUM_SCALE_LEVELS; i++) {
@@ -3344,10 +3323,9 @@ void App::sched_ABC_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_ho
         CheckError(pgm_init_node(&collect_locations_node, g, "collect_locations"));
         CheckError(pgm_init_node(&display_node, g, "display"));
 
+        // Initialize the edges
         edge_attr_t fast_mq_attr;
         memset(&fast_mq_attr, 0, sizeof(fast_mq_attr));
-        //fast_mq_attr.mq_maxmsg = 20; /* root required for values larger than 10 */
-        //fast_mq_attr.type = pgm_fast_mq_edge;
         fast_mq_attr.type = pgm_fast_fifo_edge;
 
         fast_mq_attr.nr_produce = sizeof(struct params_compute);
@@ -3386,8 +3364,7 @@ void App::sched_ABC_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_ho
             fast_mq_attr.nr_threshold = sizeof(struct params_fine_collect_locations);
             CheckError(pgm_init_edge(e6_7 + i,
                         classify_node[i],
-                        collect_locations_node, buf,
-                        &fast_mq_attr));
+                        collect_locations_node, buf, &fast_mq_attr));
         }
 
         fast_mq_attr.nr_produce = sizeof(struct params_display);
@@ -3396,6 +3373,32 @@ void App::sched_ABC_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_ho
         CheckError(pgm_init_edge(&e7_8, collect_locations_node, display_node, "e7_8", &fast_mq_attr));
 
         pthread_barrier_init(fine_init_barrier, 0, 3 * NUM_SCALE_LEVELS + 4);
+
+        thread** t0  = arr_t0 + g_idx;
+        thread** t1  = arr_t1 + g_idx;
+        thread** t234 = arr_t234 + g_idx * NUM_SCALE_LEVELS;
+        thread** t5  = arr_t5 + g_idx * NUM_SCALE_LEVELS;
+        thread** t6  = arr_t6 + g_idx * NUM_SCALE_LEVELS;
+        thread** t7  = arr_t7 + g_idx;
+        thread** t8  = arr_t8 + g_idx;
+
+        struct sync_info* in_sync_info_ABC                = arr_sync_info_ABC               [((g_idx + args.num_fine_graphs - 1) % args.num_fine_graphs)];
+        struct sync_info* in_sync_info_normalize          = arr_sync_info_normalize         [((g_idx + args.num_fine_graphs - 1) % args.num_fine_graphs)];
+        struct sync_info* in_sync_info_classify           = arr_sync_info_classify          [((g_idx + args.num_fine_graphs - 1) % args.num_fine_graphs)];
+
+        struct sync_info* out_sync_info_ABC                = arr_sync_info_ABC               [g_idx];
+        struct sync_info* out_sync_info_normalize          = arr_sync_info_normalize         [g_idx];
+        struct sync_info* out_sync_info_classify           = arr_sync_info_classify          [g_idx];
+
+        for (int i=0; i<NUM_SCALE_LEVELS; i++) {
+            sync_info_init(i + in_sync_info_ABC);
+            sync_info_init(i + in_sync_info_normalize);
+            sync_info_init(i + in_sync_info_classify);
+
+            sync_info_init(i + out_sync_info_ABC);
+            sync_info_init(i + out_sync_info_normalize);
+            sync_info_init(i + out_sync_info_classify);
+        }
 
         /* G-FL fine-grained HOG */
         float bound_color_convert                   = 31.0194960215;
@@ -3572,10 +3575,11 @@ void App::sched_BCD_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_ho
     sprintf(buf, "/tmp/graph_t%d", args.task_id);
     CheckError(pgm_init(buf, 1));
 
-    for (int g_idx = 0; g_idx < args.num_fine_graphs; g_idx++) {
-
+    for (int g_idx = 0; g_idx < args.num_fine_graphs; g_idx++)
+    {
         pthread_barrier_t* fine_init_barrier = arr_fine_init_barrier + g_idx;
 
+        // A graph consists of the graph itself, nodes, and edge
         graph_t* g_ptr = arr_g + g_idx;
 
         node_t color_convert_node;
@@ -3593,36 +3597,12 @@ void App::sched_BCD_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_ho
         edge_t e6_7   [NUM_SCALE_LEVELS];
         edge_t e7_8;
 
-        thread** t0   = arr_t0 + g_idx;
-        thread** t1   = arr_t1 + g_idx;
-        thread** t2   = arr_t2 + g_idx * NUM_SCALE_LEVELS;
-        thread** t345 = arr_t345 + g_idx * NUM_SCALE_LEVELS;
-        thread** t6   = arr_t6 + g_idx * NUM_SCALE_LEVELS;
-        thread** t7   = arr_t7 + g_idx;
-        thread** t8   = arr_t8 + g_idx;
-
-        struct sync_info* in_sync_info_resize             = arr_sync_info_resize            [((g_idx + args.num_fine_graphs - 1) % args.num_fine_graphs)];
-        struct sync_info* in_sync_info_BCD                = arr_sync_info_BCD               [((g_idx + args.num_fine_graphs - 1) % args.num_fine_graphs)];
-        struct sync_info* in_sync_info_classify           = arr_sync_info_classify          [((g_idx + args.num_fine_graphs - 1) % args.num_fine_graphs)];
-
-        struct sync_info* out_sync_info_resize             = arr_sync_info_resize            [g_idx];
-        struct sync_info* out_sync_info_BCD                = arr_sync_info_BCD               [g_idx];
-        struct sync_info* out_sync_info_classify           = arr_sync_info_classify          [g_idx];
-
-        for (int i=0; i<NUM_SCALE_LEVELS; i++) {
-            sync_info_init(i + in_sync_info_resize);
-            sync_info_init(i + in_sync_info_BCD);
-            sync_info_init(i + in_sync_info_classify);
-
-            sync_info_init(i + out_sync_info_resize);
-            sync_info_init(i + out_sync_info_BCD);
-            sync_info_init(i + out_sync_info_classify);
-        }
-
+        // Initialize the graph
         sprintf(buf, "hog_%d", g_idx);
         CheckError(pgm_init_graph(g_ptr, buf));
         graph_t g = *g_ptr;
 
+        // Initialize the nodes
         CheckError(pgm_init_node(&color_convert_node, g, "color_convert"));
         CheckError(pgm_init_node(&compute_scales_node, g, "compute_scales"));
         for (int i=0; i<NUM_SCALE_LEVELS; i++) {
@@ -3633,10 +3613,9 @@ void App::sched_BCD_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_ho
         CheckError(pgm_init_node(&collect_locations_node, g, "collect_locations"));
         CheckError(pgm_init_node(&display_node, g, "display"));
 
+        // Initialize the edges
         edge_attr_t fast_mq_attr;
         memset(&fast_mq_attr, 0, sizeof(fast_mq_attr));
-        //fast_mq_attr.mq_maxmsg = 20; /* root required for values larger than 10 */
-        //fast_mq_attr.type = pgm_fast_mq_edge;
         fast_mq_attr.type = pgm_fast_fifo_edge;
 
         fast_mq_attr.nr_produce = sizeof(struct params_compute);
@@ -3675,8 +3654,7 @@ void App::sched_BCD_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_ho
             fast_mq_attr.nr_threshold = sizeof(struct params_fine_collect_locations);
             CheckError(pgm_init_edge(e6_7 + i,
                         classify_node[i],
-                        collect_locations_node, buf,
-                        &fast_mq_attr));
+                        collect_locations_node, buf, &fast_mq_attr));
         }
 
         fast_mq_attr.nr_produce = sizeof(struct params_display);
@@ -3685,6 +3663,32 @@ void App::sched_BCD_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_ho
         CheckError(pgm_init_edge(&e7_8, collect_locations_node, display_node, "e7_8", &fast_mq_attr));
 
         pthread_barrier_init(fine_init_barrier, 0, 3 * NUM_SCALE_LEVELS + 4);
+
+        thread** t0   = arr_t0 + g_idx;
+        thread** t1   = arr_t1 + g_idx;
+        thread** t2   = arr_t2 + g_idx * NUM_SCALE_LEVELS;
+        thread** t345 = arr_t345 + g_idx * NUM_SCALE_LEVELS;
+        thread** t6   = arr_t6 + g_idx * NUM_SCALE_LEVELS;
+        thread** t7   = arr_t7 + g_idx;
+        thread** t8   = arr_t8 + g_idx;
+
+        struct sync_info* in_sync_info_resize             = arr_sync_info_resize            [((g_idx + args.num_fine_graphs - 1) % args.num_fine_graphs)];
+        struct sync_info* in_sync_info_BCD                = arr_sync_info_BCD               [((g_idx + args.num_fine_graphs - 1) % args.num_fine_graphs)];
+        struct sync_info* in_sync_info_classify           = arr_sync_info_classify          [((g_idx + args.num_fine_graphs - 1) % args.num_fine_graphs)];
+
+        struct sync_info* out_sync_info_resize             = arr_sync_info_resize            [g_idx];
+        struct sync_info* out_sync_info_BCD                = arr_sync_info_BCD               [g_idx];
+        struct sync_info* out_sync_info_classify           = arr_sync_info_classify          [g_idx];
+
+        for (int i=0; i<NUM_SCALE_LEVELS; i++) {
+            sync_info_init(i + in_sync_info_resize);
+            sync_info_init(i + in_sync_info_BCD);
+            sync_info_init(i + in_sync_info_classify);
+
+            sync_info_init(i + out_sync_info_resize);
+            sync_info_init(i + out_sync_info_BCD);
+            sync_info_init(i + out_sync_info_classify);
+        }
 
         /* G-FL fine-grained HOG */
         float bound_color_convert                   = 31.0194960215;
@@ -3861,10 +3865,11 @@ void App::sched_CDE_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_ho
     sprintf(buf, "/tmp/graph_t%d", args.task_id);
     CheckError(pgm_init(buf, 1));
 
-    for (int g_idx = 0; g_idx < args.num_fine_graphs; g_idx++) {
-
+    for (int g_idx = 0; g_idx < args.num_fine_graphs; g_idx++)
+    {
         pthread_barrier_t* fine_init_barrier = arr_fine_init_barrier + g_idx;
 
+        // A graph consists of the graph itself, nodes, and edge
         graph_t* g_ptr = arr_g + g_idx;
 
         node_t color_convert_node;
@@ -3882,36 +3887,12 @@ void App::sched_CDE_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_ho
         edge_t e456_7 [NUM_SCALE_LEVELS];
         edge_t e7_8;
 
-        thread** t0  = arr_t0 + g_idx;
-        thread** t1  = arr_t1 + g_idx;
-        thread** t2  = arr_t2 + g_idx * NUM_SCALE_LEVELS;
-        thread** t3  = arr_t3 + g_idx * NUM_SCALE_LEVELS;
-        thread** t456 = arr_t456 + g_idx * NUM_SCALE_LEVELS;
-        thread** t7  = arr_t7 + g_idx;
-        thread** t8  = arr_t8 + g_idx;
-
-        struct sync_info* in_sync_info_resize             = arr_sync_info_resize            [((g_idx + args.num_fine_graphs - 1) % args.num_fine_graphs)];
-        struct sync_info* in_sync_info_compute_gradients  = arr_sync_info_compute_gradients [((g_idx + args.num_fine_graphs - 1) % args.num_fine_graphs)];
-        struct sync_info* in_sync_info_CDE                = arr_sync_info_CDE               [((g_idx + args.num_fine_graphs - 1) % args.num_fine_graphs)];
-
-        struct sync_info* out_sync_info_resize             = arr_sync_info_resize            [g_idx];
-        struct sync_info* out_sync_info_compute_gradients  = arr_sync_info_compute_gradients [g_idx];
-        struct sync_info* out_sync_info_CDE                = arr_sync_info_CDE               [g_idx];
-
-        for (int i=0; i<NUM_SCALE_LEVELS; i++) {
-            sync_info_init(i + in_sync_info_resize);
-            sync_info_init(i + in_sync_info_compute_gradients);
-            sync_info_init(i + in_sync_info_CDE);
-
-            sync_info_init(i + out_sync_info_resize);
-            sync_info_init(i + out_sync_info_compute_gradients);
-            sync_info_init(i + out_sync_info_CDE);
-        }
-
+        // Initialize the graph
         sprintf(buf, "hog_%d", g_idx);
         CheckError(pgm_init_graph(g_ptr, buf));
         graph_t g = *g_ptr;
 
+        // Initialize the nodes
         CheckError(pgm_init_node(&color_convert_node, g, "color_convert"));
         CheckError(pgm_init_node(&compute_scales_node, g, "compute_scales"));
         for (int i=0; i<NUM_SCALE_LEVELS; i++) {
@@ -3922,10 +3903,9 @@ void App::sched_CDE_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_ho
         CheckError(pgm_init_node(&collect_locations_node, g, "collect_locations"));
         CheckError(pgm_init_node(&display_node, g, "display"));
 
+        // Initialize the edges
         edge_attr_t fast_mq_attr;
         memset(&fast_mq_attr, 0, sizeof(fast_mq_attr));
-        //fast_mq_attr.mq_maxmsg = 20; /* root required for values larger than 10 */
-        //fast_mq_attr.type = pgm_fast_mq_edge;
         fast_mq_attr.type = pgm_fast_fifo_edge;
 
         fast_mq_attr.nr_produce = sizeof(struct params_compute);
@@ -3956,8 +3936,7 @@ void App::sched_CDE_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_ho
             fast_mq_attr.nr_threshold = sizeof(struct params_compute_histograms);
             CheckError(pgm_init_edge(e3_456 + i,
                         compute_gradients_node[i],
-                        CDE_node[i], buf,
-                        &fast_mq_attr));
+                        CDE_node[i], buf, &fast_mq_attr));
 
             sprintf(buf, "e456_7_%d", i);
             fast_mq_attr.nr_produce = sizeof(struct params_fine_collect_locations);
@@ -3965,8 +3944,7 @@ void App::sched_CDE_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_ho
             fast_mq_attr.nr_threshold = sizeof(struct params_fine_collect_locations);
             CheckError(pgm_init_edge(e456_7 + i,
                         CDE_node[i],
-                        collect_locations_node, buf,
-                        &fast_mq_attr));
+                        collect_locations_node, buf, &fast_mq_attr));
         }
 
         fast_mq_attr.nr_produce = sizeof(struct params_display);
@@ -3975,6 +3953,32 @@ void App::sched_CDE_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_ho
         CheckError(pgm_init_edge(&e7_8, collect_locations_node, display_node, "e7_8", &fast_mq_attr));
 
         pthread_barrier_init(fine_init_barrier, 0, 3 * NUM_SCALE_LEVELS + 4);
+
+        thread** t0  = arr_t0 + g_idx;
+        thread** t1  = arr_t1 + g_idx;
+        thread** t2  = arr_t2 + g_idx * NUM_SCALE_LEVELS;
+        thread** t3  = arr_t3 + g_idx * NUM_SCALE_LEVELS;
+        thread** t456 = arr_t456 + g_idx * NUM_SCALE_LEVELS;
+        thread** t7  = arr_t7 + g_idx;
+        thread** t8  = arr_t8 + g_idx;
+
+        struct sync_info* in_sync_info_resize             = arr_sync_info_resize            [((g_idx + args.num_fine_graphs - 1) % args.num_fine_graphs)];
+        struct sync_info* in_sync_info_compute_gradients  = arr_sync_info_compute_gradients [((g_idx + args.num_fine_graphs - 1) % args.num_fine_graphs)];
+        struct sync_info* in_sync_info_CDE                = arr_sync_info_CDE               [((g_idx + args.num_fine_graphs - 1) % args.num_fine_graphs)];
+
+        struct sync_info* out_sync_info_resize             = arr_sync_info_resize            [g_idx];
+        struct sync_info* out_sync_info_compute_gradients  = arr_sync_info_compute_gradients [g_idx];
+        struct sync_info* out_sync_info_CDE                = arr_sync_info_CDE               [g_idx];
+
+        for (int i=0; i<NUM_SCALE_LEVELS; i++) {
+            sync_info_init(i + in_sync_info_resize);
+            sync_info_init(i + in_sync_info_compute_gradients);
+            sync_info_init(i + in_sync_info_CDE);
+
+            sync_info_init(i + out_sync_info_resize);
+            sync_info_init(i + out_sync_info_compute_gradients);
+            sync_info_init(i + out_sync_info_CDE);
+        }
 
         /* G-FL fine-grained HOG */
         float bound_color_convert                   = 31.0194960215;
@@ -4149,10 +4153,11 @@ void App::sched_ABCD_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_h
     sprintf(buf, "/tmp/graph_t%d", args.task_id);
     CheckError(pgm_init(buf, 1));
 
-    for (int g_idx = 0; g_idx < args.num_fine_graphs; g_idx++) {
-
+    for (int g_idx = 0; g_idx < args.num_fine_graphs; g_idx++)
+    {
         pthread_barrier_t* fine_init_barrier = arr_fine_init_barrier + g_idx;
 
+        // A graph consists of the graph itself, nodes, and edge
         graph_t* g_ptr = arr_g + g_idx;
 
         node_t color_convert_node;
@@ -4168,31 +4173,12 @@ void App::sched_ABCD_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_h
         edge_t e6_7    [NUM_SCALE_LEVELS];
         edge_t e7_8;
 
-        thread** t0  = arr_t0 + g_idx;
-        thread** t1  = arr_t1 + g_idx;
-        thread** t2345 = arr_t2345 + g_idx * NUM_SCALE_LEVELS;
-        thread** t6  = arr_t6 + g_idx * NUM_SCALE_LEVELS;
-        thread** t7  = arr_t7 + g_idx;
-        thread** t8  = arr_t8 + g_idx;
-
-        struct sync_info* in_sync_info_ABCD               = arr_sync_info_ABCD              [((g_idx + args.num_fine_graphs - 1) % args.num_fine_graphs)];
-        struct sync_info* in_sync_info_classify           = arr_sync_info_classify          [((g_idx + args.num_fine_graphs - 1) % args.num_fine_graphs)];
-
-        struct sync_info* out_sync_info_ABCD               = arr_sync_info_ABCD              [g_idx];
-        struct sync_info* out_sync_info_classify           = arr_sync_info_classify          [g_idx];
-
-        for (int i=0; i<NUM_SCALE_LEVELS; i++) {
-            sync_info_init(i + in_sync_info_ABCD);
-            sync_info_init(i + in_sync_info_classify);
-
-            sync_info_init(i + out_sync_info_ABCD);
-            sync_info_init(i + out_sync_info_classify);
-        }
-
+        // Initialize the graph
         sprintf(buf, "hog_%d", g_idx);
         CheckError(pgm_init_graph(g_ptr, buf));
         graph_t g = *g_ptr;
 
+        // Initialize the nodes
         CheckError(pgm_init_node(&color_convert_node, g, "color_convert"));
         CheckError(pgm_init_node(&compute_scales_node, g, "compute_scales"));
         for (int i=0; i<NUM_SCALE_LEVELS; i++) {
@@ -4202,10 +4188,9 @@ void App::sched_ABCD_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_h
         CheckError(pgm_init_node(&collect_locations_node, g, "collect_locations"));
         CheckError(pgm_init_node(&display_node, g, "display"));
 
+        // Initialize the edges
         edge_attr_t fast_mq_attr;
         memset(&fast_mq_attr, 0, sizeof(fast_mq_attr));
-        //fast_mq_attr.mq_maxmsg = 20; /* root required for values larger than 10 */
-        //fast_mq_attr.type = pgm_fast_mq_edge;
         fast_mq_attr.type = pgm_fast_fifo_edge;
 
         fast_mq_attr.nr_produce = sizeof(struct params_compute);
@@ -4236,8 +4221,7 @@ void App::sched_ABCD_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_h
             fast_mq_attr.nr_threshold = sizeof(struct params_fine_collect_locations);
             CheckError(pgm_init_edge(e6_7 + i,
                         classify_node[i],
-                        collect_locations_node, buf,
-                        &fast_mq_attr));
+                        collect_locations_node, buf, &fast_mq_attr));
         }
 
         fast_mq_attr.nr_produce = sizeof(struct params_display);
@@ -4246,6 +4230,27 @@ void App::sched_ABCD_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_h
         CheckError(pgm_init_edge(&e7_8, collect_locations_node, display_node, "e7_8", &fast_mq_attr));
 
         pthread_barrier_init(fine_init_barrier, 0, 2 * NUM_SCALE_LEVELS + 4);
+
+        thread** t0  = arr_t0 + g_idx;
+        thread** t1  = arr_t1 + g_idx;
+        thread** t2345 = arr_t2345 + g_idx * NUM_SCALE_LEVELS;
+        thread** t6  = arr_t6 + g_idx * NUM_SCALE_LEVELS;
+        thread** t7  = arr_t7 + g_idx;
+        thread** t8  = arr_t8 + g_idx;
+
+        struct sync_info* in_sync_info_ABCD               = arr_sync_info_ABCD              [((g_idx + args.num_fine_graphs - 1) % args.num_fine_graphs)];
+        struct sync_info* in_sync_info_classify           = arr_sync_info_classify          [((g_idx + args.num_fine_graphs - 1) % args.num_fine_graphs)];
+
+        struct sync_info* out_sync_info_ABCD               = arr_sync_info_ABCD              [g_idx];
+        struct sync_info* out_sync_info_classify           = arr_sync_info_classify          [g_idx];
+
+        for (int i=0; i<NUM_SCALE_LEVELS; i++) {
+            sync_info_init(i + in_sync_info_ABCD);
+            sync_info_init(i + in_sync_info_classify);
+
+            sync_info_init(i + out_sync_info_ABCD);
+            sync_info_init(i + out_sync_info_classify);
+        }
 
         /* G-FL fine-grained HOG */
         float bound_color_convert                   = 31.0194960215;
@@ -4408,10 +4413,11 @@ void App::sched_BCDE_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_h
     sprintf(buf, "/tmp/graph_t%d", args.task_id);
     CheckError(pgm_init(buf, 1));
 
-    for (int g_idx = 0; g_idx < args.num_fine_graphs; g_idx++) {
-
+    for (int g_idx = 0; g_idx < args.num_fine_graphs; g_idx++)
+    {
         pthread_barrier_t* fine_init_barrier = arr_fine_init_barrier + g_idx;
 
+        // A graph consists of the graph itself, nodes, and edge
         graph_t* g_ptr = arr_g + g_idx;
 
         node_t color_convert_node;
@@ -4427,31 +4433,12 @@ void App::sched_BCDE_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_h
         edge_t e3456_7 [NUM_SCALE_LEVELS];
         edge_t e7_8;
 
-        thread** t0    = arr_t0 + g_idx;
-        thread** t1    = arr_t1 + g_idx;
-        thread** t2    = arr_t2 + g_idx * NUM_SCALE_LEVELS;
-        thread** t3456 = arr_t3456 + g_idx * NUM_SCALE_LEVELS;
-        thread** t7    = arr_t7 + g_idx;
-        thread** t8    = arr_t8 + g_idx;
-
-        struct sync_info* in_sync_info_resize             = arr_sync_info_resize            [((g_idx + args.num_fine_graphs - 1) % args.num_fine_graphs)];
-        struct sync_info* in_sync_info_BCDE               = arr_sync_info_BCDE              [((g_idx + args.num_fine_graphs - 1) % args.num_fine_graphs)];
-
-        struct sync_info* out_sync_info_resize             = arr_sync_info_resize            [g_idx];
-        struct sync_info* out_sync_info_BCDE               = arr_sync_info_BCDE              [g_idx];
-
-        for (int i=0; i<NUM_SCALE_LEVELS; i++) {
-            sync_info_init(i + in_sync_info_resize);
-            sync_info_init(i + in_sync_info_BCDE);
-
-            sync_info_init(i + out_sync_info_resize);
-            sync_info_init(i + out_sync_info_BCDE);
-        }
-
+        // Initialize the graph
         sprintf(buf, "hog_%d", g_idx);
         CheckError(pgm_init_graph(g_ptr, buf));
         graph_t g = *g_ptr;
 
+        // Initialize the nodes
         CheckError(pgm_init_node(&color_convert_node, g, "color_convert"));
         CheckError(pgm_init_node(&compute_scales_node, g, "compute_scales"));
         for (int i=0; i<NUM_SCALE_LEVELS; i++) {
@@ -4461,10 +4448,9 @@ void App::sched_BCDE_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_h
         CheckError(pgm_init_node(&collect_locations_node, g, "collect_locations"));
         CheckError(pgm_init_node(&display_node, g, "display"));
 
+        // Initialize the edges
         edge_attr_t fast_mq_attr;
         memset(&fast_mq_attr, 0, sizeof(fast_mq_attr));
-        //fast_mq_attr.mq_maxmsg = 20; /* root required for values larger than 10 */
-        //fast_mq_attr.type = pgm_fast_mq_edge;
         fast_mq_attr.type = pgm_fast_fifo_edge;
 
         fast_mq_attr.nr_produce = sizeof(struct params_compute);
@@ -4495,8 +4481,7 @@ void App::sched_BCDE_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_h
             fast_mq_attr.nr_threshold = sizeof(struct params_fine_collect_locations);
             CheckError(pgm_init_edge(e3456_7 + i,
                         BCDE_node[i],
-                        collect_locations_node, buf,
-                        &fast_mq_attr));
+                        collect_locations_node, buf, &fast_mq_attr));
         }
 
         fast_mq_attr.nr_produce = sizeof(struct params_display);
@@ -4505,6 +4490,27 @@ void App::sched_BCDE_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_h
         CheckError(pgm_init_edge(&e7_8, collect_locations_node, display_node, "e7_8", &fast_mq_attr));
 
         pthread_barrier_init(fine_init_barrier, 0, 2 * NUM_SCALE_LEVELS + 4);
+
+        thread** t0    = arr_t0 + g_idx;
+        thread** t1    = arr_t1 + g_idx;
+        thread** t2    = arr_t2 + g_idx * NUM_SCALE_LEVELS;
+        thread** t3456 = arr_t3456 + g_idx * NUM_SCALE_LEVELS;
+        thread** t7    = arr_t7 + g_idx;
+        thread** t8    = arr_t8 + g_idx;
+
+        struct sync_info* in_sync_info_resize             = arr_sync_info_resize            [((g_idx + args.num_fine_graphs - 1) % args.num_fine_graphs)];
+        struct sync_info* in_sync_info_BCDE               = arr_sync_info_BCDE              [((g_idx + args.num_fine_graphs - 1) % args.num_fine_graphs)];
+
+        struct sync_info* out_sync_info_resize             = arr_sync_info_resize            [g_idx];
+        struct sync_info* out_sync_info_BCDE               = arr_sync_info_BCDE              [g_idx];
+
+        for (int i=0; i<NUM_SCALE_LEVELS; i++) {
+            sync_info_init(i + in_sync_info_resize);
+            sync_info_init(i + in_sync_info_BCDE);
+
+            sync_info_init(i + out_sync_info_resize);
+            sync_info_init(i + out_sync_info_BCDE);
+        }
 
         /* G-FL fine-grained HOG */
         float bound_color_convert                   = 31.0194960215;
@@ -4665,10 +4671,11 @@ void App::sched_ABCDE_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_
     sprintf(buf, "/tmp/graph_t%d", args.task_id);
     CheckError(pgm_init(buf, 1));
 
-    for (int g_idx = 0; g_idx < args.num_fine_graphs; g_idx++) {
-
+    for (int g_idx = 0; g_idx < args.num_fine_graphs; g_idx++)
+    {
         pthread_barrier_t* fine_init_barrier = arr_fine_init_barrier + g_idx;
 
+        // A graph consists of the graph itself, nodes, and edge
         graph_t* g_ptr = arr_g + g_idx;
 
         node_t color_convert_node;
@@ -4682,26 +4689,12 @@ void App::sched_ABCDE_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_
         edge_t e23456_7 [NUM_SCALE_LEVELS];
         edge_t e7_8;
 
-        thread** t0  = arr_t0 + g_idx;
-        thread** t1  = arr_t1 + g_idx;
-        thread** t23456 = arr_t23456 + g_idx * NUM_SCALE_LEVELS;
-        thread** t7  = arr_t7 + g_idx;
-        thread** t8  = arr_t8 + g_idx;
-
-        struct sync_info* in_sync_info_ABCDE              = arr_sync_info_ABCDE             [((g_idx + args.num_fine_graphs - 1) % args.num_fine_graphs)];
-
-        struct sync_info* out_sync_info_ABCDE              = arr_sync_info_ABCDE             [g_idx];
-
-        for (int i=0; i<NUM_SCALE_LEVELS; i++) {
-            sync_info_init(i + in_sync_info_ABCDE);
-
-            sync_info_init(i + out_sync_info_ABCDE);
-        }
-
+        // Initialize the graph
         sprintf(buf, "hog_%d", g_idx);
         CheckError(pgm_init_graph(g_ptr, buf));
         graph_t g = *g_ptr;
 
+        // Initialize the nodes
         CheckError(pgm_init_node(&color_convert_node, g, "color_convert"));
         CheckError(pgm_init_node(&compute_scales_node, g, "compute_scales"));
         for (int i=0; i<NUM_SCALE_LEVELS; i++) {
@@ -4710,10 +4703,9 @@ void App::sched_ABCDE_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_
         CheckError(pgm_init_node(&collect_locations_node, g, "collect_locations"));
         CheckError(pgm_init_node(&display_node, g, "display"));
 
+        // Initialize the edges
         edge_attr_t fast_mq_attr;
         memset(&fast_mq_attr, 0, sizeof(fast_mq_attr));
-        //fast_mq_attr.mq_maxmsg = 20; /* root required for values larger than 10 */
-        //fast_mq_attr.type = pgm_fast_mq_edge;
         fast_mq_attr.type = pgm_fast_fifo_edge;
 
         fast_mq_attr.nr_produce = sizeof(struct params_compute);
@@ -4736,8 +4728,7 @@ void App::sched_ABCDE_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_
             fast_mq_attr.nr_threshold = sizeof(struct params_fine_collect_locations);
             CheckError(pgm_init_edge(e23456_7 + i,
                         ABCDE_node[i],
-                        collect_locations_node, buf,
-                        &fast_mq_attr));
+                        collect_locations_node, buf, &fast_mq_attr));
         }
 
         fast_mq_attr.nr_produce = sizeof(struct params_display);
@@ -4746,6 +4737,22 @@ void App::sched_ABCDE_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_
         CheckError(pgm_init_edge(&e7_8, collect_locations_node, display_node, "e7_8", &fast_mq_attr));
 
         pthread_barrier_init(fine_init_barrier, 0, 1 * NUM_SCALE_LEVELS + 4);
+
+        thread** t0  = arr_t0 + g_idx;
+        thread** t1  = arr_t1 + g_idx;
+        thread** t23456 = arr_t23456 + g_idx * NUM_SCALE_LEVELS;
+        thread** t7  = arr_t7 + g_idx;
+        thread** t8  = arr_t8 + g_idx;
+
+        struct sync_info* in_sync_info_ABCDE              = arr_sync_info_ABCDE             [((g_idx + args.num_fine_graphs - 1) % args.num_fine_graphs)];
+
+        struct sync_info* out_sync_info_ABCDE              = arr_sync_info_ABCDE             [g_idx];
+
+        for (int i=0; i<NUM_SCALE_LEVELS; i++) {
+            sync_info_init(i + in_sync_info_ABCDE);
+
+            sync_info_init(i + out_sync_info_ABCDE);
+        }
 
         /* G-FL fine-grained HOG */
         float bound_color_convert                   = 31.0194960215;
