@@ -241,7 +241,8 @@ namespace cv { namespace cuda { namespace device
                            float* block_hists,
                            int cell_size_x, int cell_size_y,
                            int ncells_block_x, int ncells_block_y,
-                           const cudaStream_t& stream)
+                           const cudaStream_t& stream,
+                           bool should_sync = true)
         {
             const int ncells_block = ncells_block_x * ncells_block_y;
             const int patch_side = cell_size_x / 4;
@@ -276,6 +277,11 @@ namespace cv { namespace cuda { namespace device
                 compute_hists_kernel_many_blocks<1><<<grid, threads, smem, stream>>>(img_block_width, grad, qangle, scale, block_hists, cell_size_x, patch_size, block_patch_size, threads_cell, threads_block, half_cell_size);
 
             cudaSafeCall( cudaGetLastError() );
+
+            if (should_sync)
+            {
+                cudaSafeCall(cudaStreamSynchronize(stream));
+            }
         }
 
 
@@ -357,7 +363,8 @@ namespace cv { namespace cuda { namespace device
                              float threshold,
                              int cell_size_x, int cell_size_y,
                              int ncells_block_x, int ncells_block_y,
-                             const cudaStream_t& stream)
+                             const cudaStream_t& stream,
+                             bool should_sync = true)
         {
             const int nblocks = 1;
 
@@ -383,6 +390,11 @@ namespace cv { namespace cuda { namespace device
                 CV_Error(cv::Error::StsBadArg, "normalize_hists: histogram's size is too big, try to decrease number of bins");
 
             cudaSafeCall( cudaGetLastError() );
+
+            if (should_sync)
+            {
+                cudaSafeCall(cudaStreamSynchronize(stream));
+            }
         }
 
         template <int nthreads, // Number of threads per one histogram block
@@ -738,7 +750,8 @@ namespace cv { namespace cuda { namespace device
                                     float angle_scale,
                                     PtrStepSzf grad, PtrStepSzb qangle,
                                     bool correct_gamma,
-                                    const cudaStream_t& stream)
+                                    const cudaStream_t& stream,
+                                    bool should_sync = true)
         {
             (void)nbins;
             const int nthreads = 256;
@@ -752,6 +765,11 @@ namespace cv { namespace cuda { namespace device
                 compute_gradients_8UC4_kernel<nthreads, 0><<<gdim, bdim, 0, stream>>>(height, width, img, angle_scale, grad, qangle);
 
             cudaSafeCall( cudaGetLastError() );
+
+            if (should_sync)
+            {
+                cudaSafeCall(cudaStreamSynchronize(stream));
+            }
         }
 
         template <int nthreads, int correct_gamma>
@@ -813,7 +831,8 @@ namespace cv { namespace cuda { namespace device
                                     float angle_scale,
                                     PtrStepSzf grad, PtrStepSzb qangle,
                                     bool correct_gamma,
-                                    const cudaStream_t& stream)
+                                    const cudaStream_t& stream,
+                                    bool should_sync = true)
         {
             (void)nbins;
             const int nthreads = 256;
@@ -827,6 +846,11 @@ namespace cv { namespace cuda { namespace device
                 compute_gradients_8UC1_kernel<nthreads, 0><<<gdim, bdim, 0, stream>>>(height, width, img, angle_scale, grad, qangle);
 
             cudaSafeCall( cudaGetLastError() );
+
+            if (should_sync)
+            {
+                cudaSafeCall(cudaStreamSynchronize(stream));
+            }
         }
 
 
@@ -935,8 +959,8 @@ namespace cv { namespace cuda { namespace device
         }
 
         template<class T, class TEX>
-        static void resize_for_hog(const PtrStepSzb& src, PtrStepSzb dst, TEX&
-                tex, const cudaStream_t& stream, int tex_index)
+        static void resize_for_hog(const PtrStepSzb& src, PtrStepSzb dst, TEX& tex,
+                                   const cudaStream_t& stream, int tex_index, bool should_sync)
         {
             tex.filterMode = cudaFilterModeLinear;
 
@@ -964,89 +988,94 @@ namespace cv { namespace cuda { namespace device
             resize_for_hog_kernel<<<grid, threads, 0, stream>>>(sx, sy, (PtrStepSz<T>)dst, colOfs, tex_index);
             cudaSafeCall( cudaGetLastError() );
 
+            if (should_sync)
+            {
+                cudaSafeCall(cudaStreamSynchronize(stream));
+            }
 
-            //cudaSafeCall(cudaStreamSynchronize(stream));
             //cudaSafeCall(cudaStreamDestroy(stream));
             //cudaSafeCall( cudaDeviceSynchronize() );
 
             //cudaSafeCall( cudaUnbindTexture(tex) );
         }
 
-        void resize_8UC1(const PtrStepSzb& src, PtrStepSzb dst, const
-                cudaStream_t& stream)
+        void resize_8UC1(const PtrStepSzb& src, PtrStepSzb dst,
+                         const cudaStream_t& stream, bool should_sync = true)
         {
-            resize_for_hog<uchar> (src, dst, resize8UC1_tex_local0, stream, 0);
+            resize_for_hog<uchar> (src, dst, resize8UC1_tex_local0, stream, 0, should_sync);
         }
-        void resize_8UC4(const PtrStepSzb& src, PtrStepSzb dst, const
-                cudaStream_t& stream)
+        void resize_8UC4(const PtrStepSzb& src, PtrStepSzb dst,
+                         const cudaStream_t& stream, bool should_sync = true)
         {
-            resize_for_hog<uchar4>(src, dst, resize8UC4_tex_local0, stream, 0);
+            resize_for_hog<uchar4>(src, dst, resize8UC4_tex_local0, stream, 0, should_sync);
         }
 
-        void resize_8UC1_thread_safe(const PtrStepSzb& src, PtrStepSzb dst, const
-                cudaStream_t& stream, int index)
+        void resize_8UC1_thread_safe(const PtrStepSzb& src, PtrStepSzb dst,
+                                     const cudaStream_t& stream, int index,
+                                     bool should_sync = true)
         {
             int tex_index = index % TEX_NUM;
             switch(tex_index)
             {
                 case 0:
-                    resize_for_hog<uchar>(src, dst, resize8UC1_tex_local0, stream, tex_index);
+                    resize_for_hog<uchar>(src, dst, resize8UC1_tex_local0, stream, tex_index, should_sync);
                     break;
                 case 1:
-                    resize_for_hog<uchar>(src, dst, resize8UC1_tex_local1, stream, tex_index);
+                    resize_for_hog<uchar>(src, dst, resize8UC1_tex_local1, stream, tex_index, should_sync);
                     break;
                 case 2:
-                    resize_for_hog<uchar>(src, dst, resize8UC1_tex_local2, stream, tex_index);
+                    resize_for_hog<uchar>(src, dst, resize8UC1_tex_local2, stream, tex_index, should_sync);
                     break;
                 case 3:
-                    resize_for_hog<uchar>(src, dst, resize8UC1_tex_local3, stream, tex_index);
+                    resize_for_hog<uchar>(src, dst, resize8UC1_tex_local3, stream, tex_index, should_sync);
                     break;
                 case 4:
-                    resize_for_hog<uchar>(src, dst, resize8UC1_tex_local4, stream, tex_index);
+                    resize_for_hog<uchar>(src, dst, resize8UC1_tex_local4, stream, tex_index, should_sync);
                     break;
                 case 5:
-                    resize_for_hog<uchar>(src, dst, resize8UC1_tex_local5, stream, tex_index);
+                    resize_for_hog<uchar>(src, dst, resize8UC1_tex_local5, stream, tex_index, should_sync);
                     break;
                 case 6:
-                    resize_for_hog<uchar>(src, dst, resize8UC1_tex_local6, stream, tex_index);
+                    resize_for_hog<uchar>(src, dst, resize8UC1_tex_local6, stream, tex_index, should_sync);
                     break;
                 case 7:
-                    resize_for_hog<uchar>(src, dst, resize8UC1_tex_local7, stream, tex_index);
+                    resize_for_hog<uchar>(src, dst, resize8UC1_tex_local7, stream, tex_index, should_sync);
                     break;
                 default:
                     return;
             }
         }
 
-        void resize_8UC4_thread_safe(const PtrStepSzb& src, PtrStepSzb dst, const
-                cudaStream_t& stream, int index)
+        void resize_8UC4_thread_safe(const PtrStepSzb& src, PtrStepSzb dst,
+                                     const cudaStream_t& stream, int index,
+                                     bool should_sync = true)
         {
             int tex_index = index % TEX_NUM;
             switch(tex_index)
             {
                 case 0:
-                    resize_for_hog<uchar4>(src, dst, resize8UC4_tex_local0, stream, tex_index);
+                    resize_for_hog<uchar4>(src, dst, resize8UC4_tex_local0, stream, tex_index, should_sync);
                     break;
                 case 1:
-                    resize_for_hog<uchar4>(src, dst, resize8UC4_tex_local1, stream, tex_index);
+                    resize_for_hog<uchar4>(src, dst, resize8UC4_tex_local1, stream, tex_index, should_sync);
                     break;
                 case 2:
-                    resize_for_hog<uchar4>(src, dst, resize8UC4_tex_local2, stream, tex_index);
+                    resize_for_hog<uchar4>(src, dst, resize8UC4_tex_local2, stream, tex_index, should_sync);
                     break;
                 case 3:
-                    resize_for_hog<uchar4>(src, dst, resize8UC4_tex_local3, stream, tex_index);
+                    resize_for_hog<uchar4>(src, dst, resize8UC4_tex_local3, stream, tex_index, should_sync);
                     break;
                 case 4:
-                    resize_for_hog<uchar4>(src, dst, resize8UC4_tex_local4, stream, tex_index);
+                    resize_for_hog<uchar4>(src, dst, resize8UC4_tex_local4, stream, tex_index, should_sync);
                     break;
                 case 5:
-                    resize_for_hog<uchar4>(src, dst, resize8UC4_tex_local5, stream, tex_index);
+                    resize_for_hog<uchar4>(src, dst, resize8UC4_tex_local5, stream, tex_index, should_sync);
                     break;
                 case 6:
-                    resize_for_hog<uchar4>(src, dst, resize8UC4_tex_local6, stream, tex_index);
+                    resize_for_hog<uchar4>(src, dst, resize8UC4_tex_local6, stream, tex_index, should_sync);
                     break;
                 case 7:
-                    resize_for_hog<uchar4>(src, dst, resize8UC4_tex_local7, stream, tex_index);
+                    resize_for_hog<uchar4>(src, dst, resize8UC4_tex_local7, stream, tex_index, should_sync);
                     break;
                 default:
                     return;

@@ -121,7 +121,8 @@ namespace cv { namespace cuda { namespace device
                            float* block_hists,
                            int cell_size_x, int cell_size_y,
                            int ncells_block_x, int ncells_block_y,
-                           const cudaStream_t& stream);
+                           const cudaStream_t& stream,
+                           bool should_sync = true);
 
         void normalize_hists(int nbins,
                              int block_stride_x, int block_stride_y,
@@ -130,7 +131,8 @@ namespace cv { namespace cuda { namespace device
                              float threshold,
                              int cell_size_x, int cell_size_y,
                              int ncells_block_x, int ncells_block_y,
-                             const cudaStream_t& stream);
+                             const cudaStream_t& stream,
+                             bool should_sync = true);
 
         void classify_hists(int win_height, int win_width, int block_stride_y,
                             int block_stride_x, int win_stride_y, int win_stride_x, int height,
@@ -163,18 +165,20 @@ namespace cv { namespace cuda { namespace device
                                     float angle_scale,
                                     cv::cuda::PtrStepSzf grad, cv::cuda::PtrStepSzb qangle,
                                     bool correct_gamma,
-                                    const cudaStream_t& stream);
+                                    const cudaStream_t& stream,
+                                    bool should_sync = true);
         void compute_gradients_8UC4(int nbins,
                                     int height, int width, const cv::cuda::PtrStepSzb& img,
                                     float angle_scale,
                                     cv::cuda::PtrStepSzf grad, cv::cuda::PtrStepSzb qangle,
                                     bool correct_gamma,
-                                    const cudaStream_t& stream);
+                                    const cudaStream_t& stream,
+                                    bool should_sync = true);
 
-        void resize_8UC1(const cv::cuda::PtrStepSzb& src, cv::cuda::PtrStepSzb dst, const cudaStream_t& stream);
-        void resize_8UC4(const cv::cuda::PtrStepSzb& src, cv::cuda::PtrStepSzb dst, const cudaStream_t& stream);
-        void resize_8UC1_thread_safe(const cv::cuda::PtrStepSzb& src, cv::cuda::PtrStepSzb dst, const cudaStream_t& stream, int index);
-        void resize_8UC4_thread_safe(const cv::cuda::PtrStepSzb& src, cv::cuda::PtrStepSzb dst, const cudaStream_t& stream, int index);
+        void resize_8UC1(const cv::cuda::PtrStepSzb& src, cv::cuda::PtrStepSzb dst, const cudaStream_t& stream, bool should_sync = true);
+        void resize_8UC4(const cv::cuda::PtrStepSzb& src, cv::cuda::PtrStepSzb dst, const cudaStream_t& stream, bool should_sync = true);
+        void resize_8UC1_thread_safe(const cv::cuda::PtrStepSzb& src, cv::cuda::PtrStepSzb dst, const cudaStream_t& stream, int index, bool should_sync = true);
+        void resize_8UC4_thread_safe(const cv::cuda::PtrStepSzb& src, cv::cuda::PtrStepSzb dst, const cudaStream_t& stream, int index, bool should_sync = true);
     }
 }}}
 
@@ -718,19 +722,20 @@ go_ahead:
                      * resize image
                      */
                     unsigned long long curr_deadline;
+                    bool change_deadline = t_info.realtime && t_info.sched == fine_grained;
                     if (smaller_img->size() != gpu_img->size())
                     {
                         switch (gpu_img->type())
                         {
-                            case CV_8UC1: hog::resize_8UC1_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index); break;
-                            case CV_8UC4: hog::resize_8UC4_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index); break;
+                            case CV_8UC1: hog::resize_8UC1_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index, !change_deadline); break;
+                            case CV_8UC4: hog::resize_8UC4_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index, !change_deadline); break;
                         }
                     }
-                    if (t_info.realtime && t_info.sched == fine_grained) {
+                    if (change_deadline) {
                         CALL(get_current_deadline(&curr_deadline));
                         CALL(set_current_deadline(curr_deadline + param.period));
+                        cudaStreamSynchronize(StreamAccessor::getStream(stream));
                     }
-                    cudaStreamSynchronize(StreamAccessor::getStream(stream));
 
                     CV_Assert( smaller_img->type() == CV_8UC1 || smaller_img->type() == CV_8UC4 );
                     CV_Assert( win_stride_.width % block_stride_.width == 0 && win_stride_.height % block_stride_.height == 0 );
@@ -748,10 +753,13 @@ go_ahead:
                     out_buf->labels = in_buf->labels;
                     out_buf->frame_index = in_buf->frame_index;
                     out_buf->start_time = in_buf->start_time;
+
                     CheckError(pgm_complete(node));
-                    if (t_info.realtime && t_info.sched == fine_grained) {
+
+                    if (change_deadline) {
                         CALL(set_current_deadline(curr_deadline));
                     }
+
                     if (t_info.realtime)
                         sleep_next_period(); /* this calls the system call sys_complete_job. With early releasing, this shouldn't block.*/
                 }
@@ -839,6 +847,7 @@ go_ahead:
                     *grad       = pool.getBuffer(smaller_img->size(), CV_32FC2);
                     *qangle     = pool.getBuffer(smaller_img->size(), CV_8UC2);
 
+                    bool change_deadline = t_info.realtime && t_info.sched == fine_grained;
 
                     switch (smaller_img->type())
                     {
@@ -848,7 +857,8 @@ go_ahead:
                                     angleScale,
                                     *grad, *qangle,
                                     gamma_correction_,
-                                    StreamAccessor::getStream(stream));
+                                    StreamAccessor::getStream(stream),
+                                    !change_deadline);
                             break;
                         case CV_8UC4:
                             hog::compute_gradients_8UC4(nbins_,
@@ -856,15 +866,16 @@ go_ahead:
                                     angleScale,
                                     *grad, *qangle,
                                     gamma_correction_,
-                                    StreamAccessor::getStream(stream));
+                                    StreamAccessor::getStream(stream),
+                                    !change_deadline);
                             break;
                     }
                     unsigned long long curr_deadline;
-                    if (t_info.realtime && t_info.sched == fine_grained) {
+                    if (change_deadline) {
                         CALL(get_current_deadline(&curr_deadline));
                         CALL(set_current_deadline(curr_deadline + param.period));
+                        cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
                     }
-                    cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
                     /*
                      * end of compute gradients
                      * =========================== */
@@ -881,10 +892,13 @@ go_ahead:
                     out_buf->index = in_buf->index;
                     out_buf->frame_index = in_buf->frame_index;
                     out_buf->start_time = in_buf->start_time;
+
                     CheckError(pgm_complete(node));
-                    if (t_info.realtime && t_info.sched == fine_grained) {
+
+                    if (change_deadline) {
                         CALL(set_current_deadline(curr_deadline));
                     }
+
                     if (t_info.realtime)
                         sleep_next_period(); /* this calls the system call sys_complete_job. With early releasing, this shouldn't block.*/
                 }
@@ -975,6 +989,8 @@ go_ahead:
                      */
                     *block_hists      = pool.getBuffer(1, getTotalHistSize(smaller_img->size()), CV_32FC1);
 
+                    bool change_deadline = t_info.realtime && t_info.sched == fine_grained;
+
                     hog::compute_hists(nbins_,
                             block_stride_.width, block_stride_.height,
                             smaller_img->rows, smaller_img->cols,
@@ -983,13 +999,15 @@ go_ahead:
                             block_hists->ptr<float>(),
                             cell_size_.width, cell_size_.height,
                             cells_per_block_.width, cells_per_block_.height,
-                            StreamAccessor::getStream(stream));
+                            StreamAccessor::getStream(stream),
+                            !change_deadline);
+
                     unsigned long long curr_deadline;
-                    if (t_info.realtime && t_info.sched == fine_grained) {
+                    if (change_deadline) {
                         CALL(get_current_deadline(&curr_deadline));
                         CALL(set_current_deadline(curr_deadline + param.period));
+                        cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
                     }
-                    cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
 
                     grad->release();
                     qangle->release();
@@ -1011,9 +1029,11 @@ go_ahead:
                     out_buf->block_hists= block_hists;
 
                     CheckError(pgm_complete(node));
-                    if (t_info.realtime && t_info.sched == fine_grained) {
+
+                    if (change_deadline) {
                         CALL(set_current_deadline(curr_deadline));
                     }
+
                     if (t_info.realtime)
                         sleep_next_period(); /* this calls the system call sys_complete_job. With early releasing, this shouldn't block.*/
                 }
@@ -1094,6 +1114,8 @@ go_ahead:
                     /* ===========================
                      * normalize histograms
                      */
+                    bool change_deadline = t_info.realtime && t_info.sched == fine_grained;
+
                     hog::normalize_hists(nbins_,
                             block_stride_.width, block_stride_.height,
                             smaller_img->rows, smaller_img->cols,
@@ -1101,14 +1123,15 @@ go_ahead:
                             (float)threshold_L2hys_,
                             cell_size_.width, cell_size_.height,
                             cells_per_block_.width, cells_per_block_.height,
-                            StreamAccessor::getStream(stream));
+                            StreamAccessor::getStream(stream),
+                            !change_deadline);
 
                     unsigned long long curr_deadline;
-                    if (t_info.realtime && t_info.sched == fine_grained) {
+                    if (change_deadline) {
                         CALL(get_current_deadline(&curr_deadline));
                         CALL(set_current_deadline(curr_deadline + param.period));
+                        cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
                     }
-                    cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
                     /*
                      * end of nomalize histograms
                      * =========================== */
@@ -1126,9 +1149,11 @@ go_ahead:
                     out_buf->start_time = in_buf->start_time;
 
                     CheckError(pgm_complete(node));
-                    if (t_info.realtime && t_info.sched == fine_grained) {
+
+                    if (change_deadline) {
                         CALL(set_current_deadline(curr_deadline));
                     }
+
                     if (t_info.realtime)
                         sleep_next_period(); /* this calls the system call sys_complete_job. With early releasing, this shouldn't block.*/
                 }
@@ -1220,6 +1245,7 @@ go_ahead:
                     if (t_info.realtime && t_info.sched == fine_grained) {
                         CALL(get_current_deadline(&curr_deadline));
                     }
+
                     if (confidences == NULL)
                     {
                         *labels = pool.getBuffer(1, wins_per_img.area(), CV_8UC1);
@@ -1227,6 +1253,7 @@ go_ahead:
                         if (t_info.realtime && t_info.sched == fine_grained) {
                             CALL(set_current_deadline(curr_deadline + param.period));
                         }
+
                         hog::classify_hists(win_size_.height, win_size_.width,
                                 block_stride_.height, block_stride_.width,
                                 win_stride_.height, win_stride_.width,
@@ -1245,6 +1272,7 @@ go_ahead:
                         if (t_info.realtime && t_info.sched == fine_grained) {
                             CALL(set_current_deadline(curr_deadline + param.period));
                         }
+
                         hog::compute_confidence_hists(win_size_.height, win_size_.width,
                                 block_stride_.height, block_stride_.width,
                                 win_stride_.height, win_stride_.width,
@@ -1275,9 +1303,11 @@ go_ahead:
                     out_buf->labels = in_buf->labels;
 
                     CheckError(pgm_complete(node));
+
                     if (t_info.realtime && t_info.sched == fine_grained) {
                         CALL(set_current_deadline(curr_deadline));
                     }
+
                     if (t_info.realtime)
                         sleep_next_period(); /* this calls the system call sys_complete_job. With early releasing, this shouldn't block.*/
                 }
@@ -1367,7 +1397,6 @@ go_ahead:
 #ifdef LOG_DEBUG
                     fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
 #endif
-
 
                     struct params_fine_collect_locations * in_buf = in_bufs[0];
                     found = in_buf->found;
@@ -1553,7 +1582,6 @@ go_ahead:
                             case CV_8UC4: hog::resize_8UC4_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index); break;
                         }
                     }
-                    cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
 
                     CV_Assert( smaller_img->type() == CV_8UC1 || smaller_img->type() == CV_8UC4 );
                     CV_Assert( win_stride_.width % block_stride_.width == 0 &&
@@ -1591,7 +1619,6 @@ go_ahead:
                                     StreamAccessor::getStream(stream));
                             break;
                     }
-                    cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
                     /*
                      * end of compute gradients
                      * =========================== */
@@ -1611,7 +1638,6 @@ go_ahead:
                             cell_size_.width, cell_size_.height,
                             cells_per_block_.width, cells_per_block_.height,
                             StreamAccessor::getStream(stream));
-                    cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
 
                     grad->release();
                     qangle->release();
@@ -1630,7 +1656,9 @@ go_ahead:
                     out_buf->start_time = in_buf->start_time;
 
                     out_buf->block_hists= block_hists;
+
                     CheckError(pgm_complete(node));
+
                     if (t_info.realtime)
                         sleep_next_period(); /* this calls the system call sys_complete_job. With early releasing, this shouldn't block.*/
                 }
@@ -2087,7 +2115,6 @@ go_ahead:
                     /* ===========================
                      * resize image
                      */
-                    unsigned long long curr_deadline;
                     if (smaller_img->size() != gpu_img->size())
                     {
                         switch (gpu_img->type())
@@ -2096,11 +2123,6 @@ go_ahead:
                             case CV_8UC4: hog::resize_8UC4_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index); break;
                         }
                     }
-                    if (t_info.realtime && t_info.sched == fine_AB) {
-                        CALL(get_current_deadline(&curr_deadline));
-                        CALL(set_current_deadline(curr_deadline + param.period));
-                    }
-                    cudaStreamSynchronize(StreamAccessor::getStream(stream));
 
                     CV_Assert( smaller_img->type() == CV_8UC1 || smaller_img->type() == CV_8UC4 );
                     CV_Assert( win_stride_.width % block_stride_.width == 0 && win_stride_.height % block_stride_.height == 0 );
@@ -2137,11 +2159,6 @@ go_ahead:
                                     StreamAccessor::getStream(stream));
                             break;
                     }
-                    if (t_info.realtime && t_info.sched == fine_AB) {
-                        CALL(get_current_deadline(&curr_deadline));
-                        CALL(set_current_deadline(curr_deadline + param.period));
-                    }
-                    cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
                     /*
                      * end of compute gradients
                      * =========================== */
@@ -2158,10 +2175,9 @@ go_ahead:
                     out_buf->qangle = qangle;
                     out_buf->frame_index = in_buf->frame_index;
                     out_buf->start_time = in_buf->start_time;
+
                     CheckError(pgm_complete(node));
-                    if (t_info.realtime && t_info.sched == fine_AB) {
-                        CALL(set_current_deadline(curr_deadline));
-                    }
+
                     if (t_info.realtime)
                         sleep_next_period(); /* this calls the system call sys_complete_job. With early releasing, this shouldn't block.*/
                 }
@@ -2270,12 +2286,6 @@ go_ahead:
                                     StreamAccessor::getStream(stream));
                             break;
                     }
-                    unsigned long long curr_deadline;
-                    if (t_info.realtime && t_info.sched == fine_BC) {
-                        CALL(get_current_deadline(&curr_deadline));
-                        CALL(set_current_deadline(curr_deadline + param.period));
-                    }
-                    cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
                     /*
                      * end of compute gradients
                      * =========================== */
@@ -2296,11 +2306,6 @@ go_ahead:
                             cell_size_.width, cell_size_.height,
                             cells_per_block_.width, cells_per_block_.height,
                             StreamAccessor::getStream(stream));
-                    if (t_info.realtime && t_info.sched == fine_BC) {
-                        CALL(get_current_deadline(&curr_deadline));
-                        CALL(set_current_deadline(curr_deadline + param.period));
-                    }
-                    cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
 
                     grad->release();
                     qangle->release();
@@ -2318,11 +2323,11 @@ go_ahead:
                     out_buf->index = in_buf->index;
                     out_buf->frame_index = in_buf->frame_index;
                     out_buf->start_time = in_buf->start_time;
+
                     out_buf->block_hists= block_hists;
+
                     CheckError(pgm_complete(node));
-                    if (t_info.realtime && t_info.sched == fine_BC) {
-                        CALL(set_current_deadline(curr_deadline));
-                    }
+
                     if (t_info.realtime)
                         sleep_next_period(); /* this calls the system call sys_complete_job. With early releasing, this shouldn't block.*/
                 }
@@ -2422,12 +2427,6 @@ go_ahead:
                             cell_size_.width, cell_size_.height,
                             cells_per_block_.width, cells_per_block_.height,
                             StreamAccessor::getStream(stream));
-                    unsigned long long curr_deadline;
-                    if (t_info.realtime && t_info.sched == fine_CD) {
-                        CALL(get_current_deadline(&curr_deadline));
-                        CALL(set_current_deadline(curr_deadline + param.period));
-                    }
-                    cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
 
                     grad->release();
                     qangle->release();
@@ -2446,11 +2445,6 @@ go_ahead:
                             cell_size_.width, cell_size_.height,
                             cells_per_block_.width, cells_per_block_.height,
                             StreamAccessor::getStream(stream));
-                    if (t_info.realtime && t_info.sched == fine_CD) {
-                        CALL(get_current_deadline(&curr_deadline));
-                        CALL(set_current_deadline(curr_deadline + param.period));
-                    }
-                    cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
                     /*
                      * end of nomalize histograms
                      * =========================== */
@@ -2465,12 +2459,11 @@ go_ahead:
                     out_buf->labels = in_buf->labels;
                     out_buf->frame_index = in_buf->frame_index;
                     out_buf->start_time = in_buf->start_time;
+
                     out_buf->block_hists = block_hists;
 
                     CheckError(pgm_complete(node));
-                    if (t_info.realtime && t_info.sched == fine_CD) {
-                        CALL(set_current_deadline(curr_deadline));
-                    }
+
                     if (t_info.realtime)
                         sleep_next_period(); /* this calls the system call sys_complete_job. With early releasing, this shouldn't block.*/
                 }
@@ -2564,14 +2557,6 @@ go_ahead:
                             cell_size_.width, cell_size_.height,
                             cells_per_block_.width, cells_per_block_.height,
                             StreamAccessor::getStream(stream));
-                            // &this->fzlp, in_buf->index, in_buf->frame_index);
-
-                    unsigned long long curr_deadline;
-                    if (t_info.realtime && t_info.sched == fine_DE) {
-                        CALL(get_current_deadline(&curr_deadline));
-                        CALL(set_current_deadline(curr_deadline + param.period));
-                    }
-                    cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
                     /*
                      * end of nomalize histograms
                      * =========================== */
@@ -2584,16 +2569,10 @@ go_ahead:
                      */
                     wins_per_img = numPartsWithin(smaller_img->size(), win_size_, win_stride_);
 
-                    if (t_info.realtime && t_info.sched == fine_DE) {
-                        CALL(get_current_deadline(&curr_deadline));
-                    }
                     if (confidences == NULL)
                     {
                         *labels = pool.getBuffer(1, wins_per_img.area(), CV_8UC1);
 
-                        if (t_info.realtime && t_info.sched == fine_DE) {
-                            CALL(set_current_deadline(curr_deadline + param.period));
-                        }
                         hog::classify_hists(win_size_.height, win_size_.width,
                                 block_stride_.height, block_stride_.width,
                                 win_stride_.height, win_stride_.width,
@@ -2609,9 +2588,6 @@ go_ahead:
                     {
                         *labels = pool.getBuffer(1, wins_per_img.area(), CV_32FC1);
 
-                        if (t_info.realtime && t_info.sched == fine_DE) {
-                            CALL(set_current_deadline(curr_deadline + param.period));
-                        }
                         hog::compute_confidence_hists(win_size_.height, win_size_.width,
                                 block_stride_.height, block_stride_.width,
                                 win_stride_.height, win_stride_.width,
@@ -2641,9 +2617,7 @@ go_ahead:
                     out_buf->start_time = in_buf->start_time;
 
                     CheckError(pgm_complete(node));
-                    if (t_info.realtime && t_info.sched == fine_DE) {
-                        CALL(set_current_deadline(curr_deadline));
-                    }
+
                     if (t_info.realtime)
                         sleep_next_period(); /* this calls the system call sys_complete_job. With early releasing, this shouldn't block.*/
                 }
@@ -2731,7 +2705,6 @@ go_ahead:
                     /* ===========================
                      * resize image
                      */
-                    unsigned long long curr_deadline;
                     if (smaller_img->size() != gpu_img->size())
                     {
                         switch (gpu_img->type())
@@ -2740,11 +2713,6 @@ go_ahead:
                             case CV_8UC4: hog::resize_8UC4_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index); break;
                         }
                     }
-                    if (t_info.realtime && t_info.sched == fine_ABC) {
-                        CALL(get_current_deadline(&curr_deadline));
-                        CALL(set_current_deadline(curr_deadline + param.period));
-                    }
-                    cudaStreamSynchronize(StreamAccessor::getStream(stream));
 
                     CV_Assert( smaller_img->type() == CV_8UC1 || smaller_img->type() == CV_8UC4 );
                     CV_Assert( win_stride_.width % block_stride_.width == 0 && win_stride_.height % block_stride_.height == 0 );
@@ -2781,11 +2749,6 @@ go_ahead:
                                     StreamAccessor::getStream(stream));
                             break;
                     }
-                    if (t_info.realtime && t_info.sched == fine_ABC) {
-                        CALL(get_current_deadline(&curr_deadline));
-                        CALL(set_current_deadline(curr_deadline + param.period));
-                    }
-                    cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
                     /*
                      * end of compute gradients
                      * =========================== */
@@ -2806,11 +2769,6 @@ go_ahead:
                             cell_size_.width, cell_size_.height,
                             cells_per_block_.width, cells_per_block_.height,
                             StreamAccessor::getStream(stream));
-                    if (t_info.realtime && t_info.sched == fine_ABC) {
-                        CALL(get_current_deadline(&curr_deadline));
-                        CALL(set_current_deadline(curr_deadline + param.period));
-                    }
-                    cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
 
                     grad->release();
                     qangle->release();
@@ -2828,11 +2786,11 @@ go_ahead:
                     out_buf->labels = in_buf->labels;
                     out_buf->frame_index = in_buf->frame_index;
                     out_buf->start_time = in_buf->start_time;
+
                     out_buf->block_hists= block_hists;
+
                     CheckError(pgm_complete(node));
-                    if (t_info.realtime && t_info.sched == fine_ABC) {
-                        CALL(set_current_deadline(curr_deadline));
-                    }
+
                     if (t_info.realtime)
                         sleep_next_period(); /* this calls the system call sys_complete_job. With early releasing, this shouldn't block.*/
                 }
@@ -2943,12 +2901,6 @@ go_ahead:
                                     StreamAccessor::getStream(stream));
                             break;
                     }
-                    unsigned long long curr_deadline;
-                    if (t_info.realtime && t_info.sched == fine_BCD) {
-                        CALL(get_current_deadline(&curr_deadline));
-                        CALL(set_current_deadline(curr_deadline + param.period));
-                    }
-                    cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
                     /*
                      * end of compute gradients
                      * =========================== */
@@ -2969,11 +2921,6 @@ go_ahead:
                             cell_size_.width, cell_size_.height,
                             cells_per_block_.width, cells_per_block_.height,
                             StreamAccessor::getStream(stream));
-                    if (t_info.realtime && t_info.sched == fine_BCD) {
-                        CALL(get_current_deadline(&curr_deadline));
-                        CALL(set_current_deadline(curr_deadline + param.period));
-                    }
-                    cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
 
                     grad->release();
                     qangle->release();
@@ -2992,11 +2939,6 @@ go_ahead:
                             cell_size_.width, cell_size_.height,
                             cells_per_block_.width, cells_per_block_.height,
                             StreamAccessor::getStream(stream));
-                    if (t_info.realtime && t_info.sched == fine_BCD) {
-                        CALL(get_current_deadline(&curr_deadline));
-                        CALL(set_current_deadline(curr_deadline + param.period));
-                    }
-                    cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
                     /*
                      * end of nomalize histograms
                      * =========================== */
@@ -3011,11 +2953,11 @@ go_ahead:
                     out_buf->index = in_buf->index;
                     out_buf->frame_index = in_buf->frame_index;
                     out_buf->start_time = in_buf->start_time;
+
                     out_buf->block_hists = block_hists;
+
                     CheckError(pgm_complete(node));
-                    if (t_info.realtime && t_info.sched == fine_BCD) {
-                        CALL(set_current_deadline(curr_deadline));
-                    }
+
                     if (t_info.realtime)
                         sleep_next_period(); /* this calls the system call sys_complete_job. With early releasing, this shouldn't block.*/
                 }
@@ -3119,12 +3061,6 @@ go_ahead:
                             cell_size_.width, cell_size_.height,
                             cells_per_block_.width, cells_per_block_.height,
                             StreamAccessor::getStream(stream));
-                    unsigned long long curr_deadline;
-                    if (t_info.realtime && t_info.sched == fine_CDE) {
-                        CALL(get_current_deadline(&curr_deadline));
-                        CALL(set_current_deadline(curr_deadline + param.period));
-                    }
-                    cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
 
                     grad->release();
                     qangle->release();
@@ -3143,11 +3079,6 @@ go_ahead:
                             cell_size_.width, cell_size_.height,
                             cells_per_block_.width, cells_per_block_.height,
                             StreamAccessor::getStream(stream));
-                    if (t_info.realtime && t_info.sched == fine_CDE) {
-                        CALL(get_current_deadline(&curr_deadline));
-                        CALL(set_current_deadline(curr_deadline + param.period));
-                    }
-                    cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
                     /*
                      * end of nomalize histograms
                      * =========================== */
@@ -3160,16 +3091,10 @@ go_ahead:
                      */
                     wins_per_img = numPartsWithin(smaller_img->size(), win_size_, win_stride_);
 
-                    if (t_info.realtime && t_info.sched == fine_CDE) {
-                        CALL(get_current_deadline(&curr_deadline));
-                    }
                     if (confidences == NULL)
                     {
                         *labels = pool.getBuffer(1, wins_per_img.area(), CV_8UC1);
 
-                        if (t_info.realtime && t_info.sched == fine_CDE) {
-                            CALL(set_current_deadline(curr_deadline + param.period));
-                        }
                         hog::classify_hists(win_size_.height, win_size_.width,
                                 block_stride_.height, block_stride_.width,
                                 win_stride_.height, win_stride_.width,
@@ -3185,9 +3110,6 @@ go_ahead:
                     {
                         *labels = pool.getBuffer(1, wins_per_img.area(), CV_32FC1);
 
-                        if (t_info.realtime && t_info.sched == fine_CDE) {
-                            CALL(set_current_deadline(curr_deadline + param.period));
-                        }
                         hog::compute_confidence_hists(win_size_.height, win_size_.width,
                                 block_stride_.height, block_stride_.width,
                                 win_stride_.height, win_stride_.width,
@@ -3217,9 +3139,7 @@ go_ahead:
                     out_buf->start_time = in_buf->start_time;
 
                     CheckError(pgm_complete(node));
-                    if (t_info.realtime && t_info.sched == fine_CDE) {
-                        CALL(set_current_deadline(curr_deadline));
-                    }
+
                     if (t_info.realtime)
                         sleep_next_period(); /* this calls the system call sys_complete_job. With early releasing, this shouldn't block.*/
                 }
@@ -3308,7 +3228,6 @@ go_ahead:
                     /* ===========================
                      * resize image
                      */
-                    unsigned long long curr_deadline;
                     if (smaller_img->size() != gpu_img->size())
                     {
                         switch (gpu_img->type())
@@ -3317,11 +3236,6 @@ go_ahead:
                             case CV_8UC4: hog::resize_8UC4_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index); break;
                         }
                     }
-                    if (t_info.realtime && t_info.sched == fine_ABCD) {
-                        CALL(get_current_deadline(&curr_deadline));
-                        CALL(set_current_deadline(curr_deadline + param.period));
-                    }
-                    cudaStreamSynchronize(StreamAccessor::getStream(stream));
 
                     CV_Assert( smaller_img->type() == CV_8UC1 || smaller_img->type() == CV_8UC4 );
                     CV_Assert( win_stride_.width % block_stride_.width == 0 && win_stride_.height % block_stride_.height == 0 );
@@ -3358,11 +3272,6 @@ go_ahead:
                                     StreamAccessor::getStream(stream));
                             break;
                     }
-                    if (t_info.realtime && t_info.sched == fine_ABCD) {
-                        CALL(get_current_deadline(&curr_deadline));
-                        CALL(set_current_deadline(curr_deadline + param.period));
-                    }
-                    cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
                     /*
                      * end of compute gradients
                      * =========================== */
@@ -3383,11 +3292,6 @@ go_ahead:
                             cell_size_.width, cell_size_.height,
                             cells_per_block_.width, cells_per_block_.height,
                             StreamAccessor::getStream(stream));
-                    if (t_info.realtime && t_info.sched == fine_ABCD) {
-                        CALL(get_current_deadline(&curr_deadline));
-                        CALL(set_current_deadline(curr_deadline + param.period));
-                    }
-                    cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
 
                     grad->release();
                     qangle->release();
@@ -3406,11 +3310,6 @@ go_ahead:
                             cell_size_.width, cell_size_.height,
                             cells_per_block_.width, cells_per_block_.height,
                             StreamAccessor::getStream(stream));
-                    if (t_info.realtime && t_info.sched == fine_ABCD) {
-                        CALL(get_current_deadline(&curr_deadline));
-                        CALL(set_current_deadline(curr_deadline + param.period));
-                    }
-                    cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
                     /*
                      * end of nomalize histograms
                      * =========================== */
@@ -3425,11 +3324,11 @@ go_ahead:
                     out_buf->labels = in_buf->labels;
                     out_buf->frame_index = in_buf->frame_index;
                     out_buf->start_time = in_buf->start_time;
+
                     out_buf->block_hists = block_hists;
+
                     CheckError(pgm_complete(node));
-                    if (t_info.realtime && t_info.sched == fine_ABCD) {
-                        CALL(set_current_deadline(curr_deadline));
-                    }
+
                     if (t_info.realtime)
                         sleep_next_period(); /* this calls the system call sys_complete_job. With early releasing, this shouldn't block.*/
                 }
@@ -3544,12 +3443,6 @@ go_ahead:
                                     StreamAccessor::getStream(stream));
                             break;
                     }
-                    unsigned long long curr_deadline;
-                    if (t_info.realtime && t_info.sched == fine_BCDE) {
-                        CALL(get_current_deadline(&curr_deadline));
-                        CALL(set_current_deadline(curr_deadline + param.period));
-                    }
-                    cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
                     /*
                      * end of compute gradients
                      * =========================== */
@@ -3570,11 +3463,6 @@ go_ahead:
                             cell_size_.width, cell_size_.height,
                             cells_per_block_.width, cells_per_block_.height,
                             StreamAccessor::getStream(stream));
-                    if (t_info.realtime && t_info.sched == fine_BCDE) {
-                        CALL(get_current_deadline(&curr_deadline));
-                        CALL(set_current_deadline(curr_deadline + param.period));
-                    }
-                    cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
 
                     grad->release();
                     qangle->release();
@@ -3593,11 +3481,6 @@ go_ahead:
                             cell_size_.width, cell_size_.height,
                             cells_per_block_.width, cells_per_block_.height,
                             StreamAccessor::getStream(stream));
-                    if (t_info.realtime && t_info.sched == fine_BCDE) {
-                        CALL(get_current_deadline(&curr_deadline));
-                        CALL(set_current_deadline(curr_deadline + param.period));
-                    }
-                    cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
                     /*
                      * end of nomalize histograms
                      * =========================== */
@@ -3610,16 +3493,10 @@ go_ahead:
                      */
                     wins_per_img = numPartsWithin(smaller_img->size(), win_size_, win_stride_);
 
-                    if (t_info.realtime && t_info.sched == fine_BCDE) {
-                        CALL(get_current_deadline(&curr_deadline));
-                    }
                     if (confidences == NULL)
                     {
                         *labels = pool.getBuffer(1, wins_per_img.area(), CV_8UC1);
 
-                        if (t_info.realtime && t_info.sched == fine_BCDE) {
-                            CALL(set_current_deadline(curr_deadline + param.period));
-                        }
                         hog::classify_hists(win_size_.height, win_size_.width,
                                 block_stride_.height, block_stride_.width,
                                 win_stride_.height, win_stride_.width,
@@ -3635,9 +3512,6 @@ go_ahead:
                     {
                         *labels = pool.getBuffer(1, wins_per_img.area(), CV_32FC1);
 
-                        if (t_info.realtime && t_info.sched == fine_BCDE) {
-                            CALL(set_current_deadline(curr_deadline + param.period));
-                        }
                         hog::compute_confidence_hists(win_size_.height, win_size_.width,
                                 block_stride_.height, block_stride_.width,
                                 win_stride_.height, win_stride_.width,
@@ -3665,10 +3539,9 @@ go_ahead:
                     out_buf->index = in_buf->index;
                     out_buf->frame_index = in_buf->frame_index;
                     out_buf->start_time = in_buf->start_time;
+
                     CheckError(pgm_complete(node));
-                    if (t_info.realtime && t_info.sched == fine_BCDE) {
-                        CALL(set_current_deadline(curr_deadline));
-                    }
+
                     if (t_info.realtime)
                         sleep_next_period(); /* this calls the system call sys_complete_job. With early releasing, this shouldn't block.*/
                 }
@@ -3761,7 +3634,6 @@ go_ahead:
                     /* ===========================
                      * resize image
                      */
-                    unsigned long long curr_deadline;
                     if (smaller_img->size() != gpu_img->size())
                     {
                         switch (gpu_img->type())
@@ -3770,11 +3642,6 @@ go_ahead:
                             case CV_8UC4: hog::resize_8UC4_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index); break;
                         }
                     }
-                    if (t_info.realtime && t_info.sched == fine_ABCDE) {
-                        CALL(get_current_deadline(&curr_deadline));
-                        CALL(set_current_deadline(curr_deadline + param.period));
-                    }
-                    cudaStreamSynchronize(StreamAccessor::getStream(stream));
 
                     CV_Assert( smaller_img->type() == CV_8UC1 || smaller_img->type() == CV_8UC4 );
                     CV_Assert( win_stride_.width % block_stride_.width == 0 && win_stride_.height % block_stride_.height == 0 );
@@ -3811,11 +3678,6 @@ go_ahead:
                                     StreamAccessor::getStream(stream));
                             break;
                     }
-                    if (t_info.realtime && t_info.sched == fine_ABCDE) {
-                        CALL(get_current_deadline(&curr_deadline));
-                        CALL(set_current_deadline(curr_deadline + param.period));
-                    }
-                    cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
                     /*
                      * end of compute gradients
                      * =========================== */
@@ -3836,11 +3698,6 @@ go_ahead:
                             cell_size_.width, cell_size_.height,
                             cells_per_block_.width, cells_per_block_.height,
                             StreamAccessor::getStream(stream));
-                    if (t_info.realtime && t_info.sched == fine_ABCDE) {
-                        CALL(get_current_deadline(&curr_deadline));
-                        CALL(set_current_deadline(curr_deadline + param.period));
-                    }
-                    cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
 
                     grad->release();
                     qangle->release();
@@ -3859,11 +3716,6 @@ go_ahead:
                             cell_size_.width, cell_size_.height,
                             cells_per_block_.width, cells_per_block_.height,
                             StreamAccessor::getStream(stream));
-                    if (t_info.realtime && t_info.sched == fine_ABCDE) {
-                        CALL(get_current_deadline(&curr_deadline));
-                        CALL(set_current_deadline(curr_deadline + param.period));
-                    }
-                    cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
                     /*
                      * end of nomalize histograms
                      * =========================== */
@@ -3876,16 +3728,10 @@ go_ahead:
                      */
                     wins_per_img = numPartsWithin(smaller_img->size(), win_size_, win_stride_);
 
-                    if (t_info.realtime && t_info.sched == fine_ABCDE) {
-                        CALL(get_current_deadline(&curr_deadline));
-                    }
                     if (confidences == NULL)
                     {
                         *labels = pool.getBuffer(1, wins_per_img.area(), CV_8UC1);
 
-                        if (t_info.realtime && t_info.sched == fine_ABCDE) {
-                            CALL(set_current_deadline(curr_deadline + param.period));
-                        }
                         hog::classify_hists(win_size_.height, win_size_.width,
                                 block_stride_.height, block_stride_.width,
                                 win_stride_.height, win_stride_.width,
@@ -3901,9 +3747,6 @@ go_ahead:
                     {
                         *labels = pool.getBuffer(1, wins_per_img.area(), CV_32FC1);
 
-                        if (t_info.realtime && t_info.sched == fine_ABCDE) {
-                            CALL(set_current_deadline(curr_deadline + param.period));
-                        }
                         hog::compute_confidence_hists(win_size_.height, win_size_.width,
                                 block_stride_.height, block_stride_.width,
                                 win_stride_.height, win_stride_.width,
@@ -3931,10 +3774,9 @@ go_ahead:
                     out_buf->labels = in_buf->labels;
                     out_buf->frame_index = in_buf->frame_index;
                     out_buf->start_time = in_buf->start_time;
+
                     CheckError(pgm_complete(node));
-                    if (t_info.realtime && t_info.sched == fine_ABCDE) {
-                        CALL(set_current_deadline(curr_deadline));
-                    }
+
                     if (t_info.realtime)
                         sleep_next_period(); /* this calls the system call sys_complete_job. With early releasing, this shouldn't block.*/
                 }
