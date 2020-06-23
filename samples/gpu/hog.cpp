@@ -119,6 +119,12 @@ public:
     int task_id;
     bool realtime;
     bool early;
+
+    string level_config_string;
+    vector<int> level_configurations;
+
+private:
+    void parseLevelConfigurations(char *config_arg);
 };
 
 
@@ -381,6 +387,7 @@ static void printHelp()
          << "  [--cluster <int>] # cluster ID of this task\n"
          << "  [--id <int>] # task ID of this task\n"
          << "  [--rt <true/false>] # run under LITMUS^RT scheduler or not\n"
+         << "  [--level_config <string>] # comma-separated list of level configurations\n"
          << "  [--display <true/false>] # to display result frame or not\n";
 
     help_showed = true;
@@ -455,8 +462,33 @@ Args::Args()
     task_id = 0;
     realtime = true;
     early = true;
+
+    //  Default to fine-grained levels with all nodes separate
+    level_configurations = std::vector<int>(NUM_SCALE_LEVELS, fine_grained);
 }
 
+void Args::parseLevelConfigurations(char *config_arg)
+{
+    this->level_config_string = config_arg;
+
+    vector<int> config;
+
+    // Parse the comma-separated distribution information
+    string config_str = string(config_arg);
+    size_t prev_pos = 0;
+    size_t pos = 0;
+    do
+    {
+        pos = config_str.find(",", prev_pos);
+
+        int val = stoi(config_str.substr(prev_pos, pos));
+        config.push_back(val);
+
+        prev_pos = pos + 1;
+    } while (pos != string::npos);
+
+    this->level_configurations = config;
+}
 
 Args Args::read(int argc, char** argv)
 {
@@ -513,6 +545,7 @@ Args Args::read(int argc, char** argv)
         else if (string(argv[i]) == "--rt") args.realtime = (string(argv[++i]) == "true");
         else if (string(argv[i]) == "--early") args.early = (string(argv[++i]) == "true");
         else if (string(argv[i]) == "--display") args.display = (string(argv[++i]) == "true");
+        else if (string(argv[i]) == "--level_config") { args.parseLevelConfigurations(argv[++i]); }
         else if (args.src.empty()) args.src = argv[i];
         else throw runtime_error((string("unknown key: ") + argv[i]));
     }
@@ -4902,38 +4935,43 @@ void App::sched_ABCDE_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_
 void App::sched_single_merge_in_level_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog, Mat* frames)
 {
     // Each level has at most one merged node
-    scheduling_option level_options[13] = {
-        fine_grained, /* level  0 */
-        fine_grained, /* level  1 */
-        fine_AB,      /* level  2 */
-        fine_BC,      /* level  3 */
-        fine_CD,      /* level  4 */
-        fine_DE,      /* level  5 */
-        fine_ABC,     /* level  6 */
-        fine_BCD,     /* level  7 */
-        fine_CDE,     /* level  8 */
-        fine_ABCD,    /* level  9 */
-        fine_BCDE,    /* level 10 */
-        fine_ABCDE,   /* level 11 */
-        fine_ABCDE    /* level 12 */
-    };
+    scheduling_option level_options[NUM_SCALE_LEVELS];
+    for (unsigned i = 0; i < args.level_configurations.size(); i++)
+    {
+        level_options[i] = (scheduling_option) args.level_configurations[i];
+    }
 
     // Gather statistics about the levels
-    unsigned num_nodes_per_level[13] = {
-        5,
-        5,
-        4,
-        4,
-        4,
-        4,
-        3,
-        3,
-        3,
-        2,
-        2,
-        1,
-        1
-    };
+    unsigned num_nodes_per_level[NUM_SCALE_LEVELS] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+    for (unsigned i = 0; i < NUM_SCALE_LEVELS; i++)
+    {
+        switch (level_options[i])
+        {
+            case fine_grained:
+                num_nodes_per_level[i] = 5;
+                break;
+            case fine_AB:
+            case fine_BC:
+            case fine_CD:
+            case fine_DE:
+                num_nodes_per_level[i] = 4;
+                break;
+            case fine_ABC:
+            case fine_BCD:
+            case fine_CDE:
+                num_nodes_per_level[i] = 3;
+                break;
+            case fine_ABCD:
+            case fine_BCDE:
+                num_nodes_per_level[i] = 2;
+                break;
+            case fine_ABCDE:
+                num_nodes_per_level[i] = 1;
+                break;
+            default:
+                break;
+        }
+    }
 
     unsigned num_total_level_nodes = 0;
     for (unsigned i = 0; i < NUM_SCALE_LEVELS; i++)
