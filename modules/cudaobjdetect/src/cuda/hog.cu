@@ -267,6 +267,9 @@ namespace cv { namespace cuda { namespace device
             int hists_size = (nbins * ncells_block * patch_size * nblocks) * sizeof(float);
             int final_hists_size = (nbins * ncells_block * nblocks) * sizeof(float);
             int smem = hists_size + final_hists_size;
+
+            // TODO: lock
+
             if (nblocks == 4)
                 compute_hists_kernel_many_blocks<4><<<grid, threads, smem, stream>>>(img_block_width, grad, qangle, scale, block_hists, cell_size_x, patch_size, block_patch_size, threads_cell, threads_block, half_cell_size);
             else if (nblocks == 3)
@@ -282,6 +285,8 @@ namespace cv { namespace cuda { namespace device
             {
                 cudaSafeCall(cudaStreamSynchronize(stream));
             }
+
+            // TODO: unlock
         }
 
 
@@ -376,6 +381,8 @@ namespace cv { namespace cuda { namespace device
             int img_block_height = (height - ncells_block_y * cell_size_y + block_stride_y) / block_stride_y;
             dim3 grid(divUp(img_block_width, nblocks), img_block_height);
 
+            // TODO: lock
+
             if (nthreads == 32)
                 normalize_hists_kernel_many_blocks<32, nblocks><<<grid, threads, 0, stream>>>(block_hist_size, img_block_width, block_hists, threshold);
             else if (nthreads == 64)
@@ -395,6 +402,8 @@ namespace cv { namespace cuda { namespace device
             {
                 cudaSafeCall(cudaStreamSynchronize(stream));
             }
+
+            // TODO: unlock
         }
 
         template <int nthreads, // Number of threads per one histogram block
@@ -451,6 +460,9 @@ namespace cv { namespace cuda { namespace device
             cudaStream_t stream;
             cudaSafeCall(cudaStreamCreate(&stream));
             int img_block_width = (width - ncells_block_x * cell_size_x + block_stride_x) / block_stride_x;
+
+            // TODO: lock
+
             classify_hists_kernel_many_blocks<nthreads, nblocks><<<grid,
                 threads, 0, stream>>>(
                 img_win_width, img_block_width, win_block_stride_x, win_block_stride_y,
@@ -459,8 +471,9 @@ namespace cv { namespace cuda { namespace device
 
             cudaSafeCall(cudaStreamSynchronize(stream));
             cudaSafeCall(cudaStreamDestroy(stream));
-
             //cudaSafeCall( cudaDeviceSynchronize() );
+
+            // TODO: unlock
         }
 
         //---------------------------------------------------------------------
@@ -524,6 +537,9 @@ namespace cv { namespace cuda { namespace device
                                                        block_stride_x;
            cudaStream_t stream;
            cudaSafeCall(cudaStreamCreate(&stream));
+
+           // TODO: lock
+
            compute_confidence_hists_kernel_many_blocks<nthreads,
                nblocks><<<grid, threads, 0, stream>>>(
                    img_win_width, img_block_width, win_block_stride_x, win_block_stride_y,
@@ -531,6 +547,8 @@ namespace cv { namespace cuda { namespace device
            cudaSafeCall(cudaStreamSynchronize(stream));
            cudaSafeCall(cudaStreamDestroy(stream));
            //cudaSafeCall(cudaThreadSynchronize());
+
+            // TODO: unlock
        }
 
 
@@ -759,6 +777,8 @@ namespace cv { namespace cuda { namespace device
             dim3 bdim(nthreads, 1);
             dim3 gdim(divUp(width, bdim.x), divUp(height, bdim.y));
 
+            // TODO: lock
+
             if (correct_gamma)
                 compute_gradients_8UC4_kernel<nthreads, 1><<<gdim, bdim, 0, stream>>>(height, width, img, angle_scale, grad, qangle);
             else
@@ -770,6 +790,8 @@ namespace cv { namespace cuda { namespace device
             {
                 cudaSafeCall(cudaStreamSynchronize(stream));
             }
+
+            // TODO: unlock
         }
 
         template <int nthreads, int correct_gamma>
@@ -840,6 +862,8 @@ namespace cv { namespace cuda { namespace device
             dim3 bdim(nthreads, 1);
             dim3 gdim(divUp(width, bdim.x), divUp(height, bdim.y));
 
+            // TODO: lock
+
             if (correct_gamma)
                 compute_gradients_8UC1_kernel<nthreads, 1><<<gdim, bdim, 0, stream>>>(height, width, img, angle_scale, grad, qangle);
             else
@@ -851,6 +875,8 @@ namespace cv { namespace cuda { namespace device
             {
                 cudaSafeCall(cudaStreamSynchronize(stream));
             }
+
+            // TODO: unlock
         }
 
 
@@ -983,6 +1009,8 @@ namespace cv { namespace cuda { namespace device
             float sx = static_cast<float>(src.cols) / dst.cols;
             float sy = static_cast<float>(src.rows) / dst.rows;
 
+            // TODO: lock
+
             //cudaStream_t stream;
             //cudaSafeCall(cudaStreamCreate(&stream));
             resize_for_hog_kernel<<<grid, threads, 0, stream>>>(sx, sy, (PtrStepSz<T>)dst, colOfs, tex_index);
@@ -997,6 +1025,8 @@ namespace cv { namespace cuda { namespace device
             //cudaSafeCall( cudaDeviceSynchronize() );
 
             //cudaSafeCall( cudaUnbindTexture(tex) );
+
+            // TODO: unlock
         }
 
         void resize_8UC1(const PtrStepSzb& src, PtrStepSzb dst,
