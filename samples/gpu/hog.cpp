@@ -4935,48 +4935,81 @@ void App::sched_ABCDE_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_
 void App::sched_single_merge_in_level_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog, Mat* frames)
 {
     // Each level has at most one merged node
-    scheduling_option level_options[NUM_SCALE_LEVELS];
-    for (unsigned i = 0; i < args.level_configurations.size(); i++)
-    {
-        level_options[i] = (scheduling_option) args.level_configurations[i];
-    }
-
-    // Gather statistics about the levels
-    unsigned num_nodes_per_level[NUM_SCALE_LEVELS] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+    std::vector< std::vector<node_config> > level_configs;
     for (unsigned i = 0; i < NUM_SCALE_LEVELS; i++)
     {
-        switch (level_options[i])
+        scheduling_option level_option = (scheduling_option) args.level_configurations[i];
+
+        std::vector<node_config> level_config;
+        switch (level_option)
         {
             case fine_grained:
-                num_nodes_per_level[i] = 5;
+                level_config.push_back(node_A);
+                level_config.push_back(node_B);
+                level_config.push_back(node_C);
+                level_config.push_back(node_D);
+                level_config.push_back(node_E);
                 break;
             case fine_AB:
+                level_config.push_back(node_AB);
+                level_config.push_back(node_C);
+                level_config.push_back(node_D);
+                level_config.push_back(node_E);
+                break;
             case fine_BC:
+                level_config.push_back(node_A);
+                level_config.push_back(node_BC);
+                level_config.push_back(node_D);
+                level_config.push_back(node_E);
+                break;
             case fine_CD:
+                level_config.push_back(node_A);
+                level_config.push_back(node_B);
+                level_config.push_back(node_CD);
+                level_config.push_back(node_E);
+                break;
             case fine_DE:
-                num_nodes_per_level[i] = 4;
+                level_config.push_back(node_A);
+                level_config.push_back(node_B);
+                level_config.push_back(node_C);
+                level_config.push_back(node_DE);
                 break;
             case fine_ABC:
+                level_config.push_back(node_ABC);
+                level_config.push_back(node_D);
+                level_config.push_back(node_E);
+                break;
             case fine_BCD:
+                level_config.push_back(node_A);
+                level_config.push_back(node_BCD);
+                level_config.push_back(node_E);
+                break;
             case fine_CDE:
-                num_nodes_per_level[i] = 3;
+                level_config.push_back(node_A);
+                level_config.push_back(node_B);
+                level_config.push_back(node_CDE);
                 break;
             case fine_ABCD:
+                level_config.push_back(node_ABCD);
+                level_config.push_back(node_E);
+                break;
             case fine_BCDE:
-                num_nodes_per_level[i] = 2;
+                level_config.push_back(node_A);
+                level_config.push_back(node_BCDE);
                 break;
             case fine_ABCDE:
-                num_nodes_per_level[i] = 1;
+                level_config.push_back(node_ABCDE);
                 break;
             default:
                 break;
         }
+        level_configs.push_back(level_config);
     }
 
     unsigned num_total_level_nodes = 0;
-    for (unsigned i = 0; i < NUM_SCALE_LEVELS; i++)
+    for (unsigned i = 0; i < level_configs.size(); i++)
     {
-        num_total_level_nodes += num_nodes_per_level[i];
+        num_total_level_nodes += level_configs[i].size();
     }
 
     pthread_barrier_t arr_fine_init_barrier[args.num_fine_graphs];
@@ -4989,7 +5022,7 @@ void App::sched_single_merge_in_level_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HO
 
     thread** arr_t0  = (thread**) calloc(args.num_fine_graphs, sizeof(std::thread *));
     thread** arr_t1  = (thread**) calloc(args.num_fine_graphs, sizeof(std::thread *));
-    thread** arr_tlevel = (thread**) calloc(args.num_fine_graphs * NUM_SCALE_LEVELS * 5, sizeof(std::thread *));
+    thread** arr_tlevel = (thread**) calloc(args.num_fine_graphs * num_total_level_nodes, sizeof(std::thread *));
     thread** arr_t7  = (thread**) calloc(args.num_fine_graphs, sizeof(std::thread *));
     thread** arr_t8  = (thread**) calloc(args.num_fine_graphs, sizeof(std::thread *));
 
@@ -5001,7 +5034,7 @@ void App::sched_single_merge_in_level_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HO
     {
         pthread_barrier_t* fine_init_barrier = arr_fine_init_barrier + g_idx;
 
-        // A graph consists of the graph itself, nodes, and edge
+        // A graph consists of the graph itself, nodes, and edges
         graph_t* g_ptr = arr_g + g_idx;
 
         node_t color_convert_node;
@@ -5023,8 +5056,9 @@ void App::sched_single_merge_in_level_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HO
         const char* level_node_names[] = { "node_1st", "node_2nd", "node_3rd", "node_4th", "node_5th" };
         CheckError(pgm_init_node(&color_convert_node, g, "color_convert"));
         CheckError(pgm_init_node(&compute_scales_node, g, "compute_scales"));
-        for (int i=0; i<NUM_SCALE_LEVELS; i++) {
-            unsigned int num_nodes = num_nodes_per_level[i];
+        for (unsigned i = 0; i < NUM_SCALE_LEVELS; i++)
+        {
+            unsigned int num_nodes = level_configs[i].size();
             for (unsigned node_idx = 0; node_idx < num_nodes; node_idx++)
             {
                 CheckError(pgm_init_node(&(level_nodes[i][node_idx]), g, level_node_names[node_idx]));
@@ -5044,83 +5078,47 @@ void App::sched_single_merge_in_level_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HO
         fast_mq_attr.nr_threshold = sizeof(struct params_compute);
         CheckError(pgm_init_edge(&e0_1, color_convert_node, compute_scales_node, "e0_1", &fast_mq_attr));
 
-        for (int i=0; i<NUM_SCALE_LEVELS; i++) {
-            size_t params_sizes[num_nodes_per_level[i]];
+        for (unsigned i = 0; i < NUM_SCALE_LEVELS; i++)
+        {
+            unsigned num_nodes = level_configs[i].size();
+            size_t params_sizes[num_nodes + 1];
 
-            switch (level_options[i]) {
-                case fine_grained:
-                    params_sizes[0] = sizeof(struct params_resize);
-                    params_sizes[1] = sizeof(struct params_compute_gradients);
-                    params_sizes[2] = sizeof(struct params_compute_histograms);
-                    params_sizes[3] = sizeof(struct params_fine_normalize);
-                    params_sizes[4] = sizeof(struct params_fine_classify);
-                    params_sizes[5] = sizeof(struct params_fine_collect_locations);
-                    break;
-                case fine_AB:
-                    params_sizes[0] = sizeof(struct params_resize);
-                    params_sizes[1] = sizeof(struct params_compute_histograms);
-                    params_sizes[2] = sizeof(struct params_fine_normalize);
-                    params_sizes[3] = sizeof(struct params_fine_classify);
-                    params_sizes[4] = sizeof(struct params_fine_collect_locations);
-                    break;
-                case fine_BC:
-                    params_sizes[0] = sizeof(struct params_resize);
-                    params_sizes[1] = sizeof(struct params_compute_gradients);
-                    params_sizes[2] = sizeof(struct params_fine_normalize);
-                    params_sizes[3] = sizeof(struct params_fine_classify);
-                    params_sizes[4] = sizeof(struct params_fine_collect_locations);
-                    break;
-                case fine_CD:
-                    params_sizes[0] = sizeof(struct params_resize);
-                    params_sizes[1] = sizeof(struct params_compute_gradients);
-                    params_sizes[2] = sizeof(struct params_compute_histograms);
-                    params_sizes[3] = sizeof(struct params_fine_classify);
-                    params_sizes[4] = sizeof(struct params_fine_collect_locations);
-                    break;
-                case fine_DE:
-                    params_sizes[0] = sizeof(struct params_resize);
-                    params_sizes[1] = sizeof(struct params_compute_gradients);
-                    params_sizes[2] = sizeof(struct params_compute_histograms);
-                    params_sizes[3] = sizeof(struct params_fine_normalize);
-                    params_sizes[4] = sizeof(struct params_fine_collect_locations);
-                    break;
-                case fine_ABC:
-                    params_sizes[0] = sizeof(struct params_resize);
-                    params_sizes[1] = sizeof(struct params_fine_normalize);
-                    params_sizes[2] = sizeof(struct params_fine_classify);
-                    params_sizes[3] = sizeof(struct params_fine_collect_locations);
-                    break;
-                case fine_BCD:
-                    params_sizes[0] = sizeof(struct params_resize);
-                    params_sizes[1] = sizeof(struct params_compute_gradients);
-                    params_sizes[2] = sizeof(struct params_fine_classify);
-                    params_sizes[3] = sizeof(struct params_fine_collect_locations);
-                    break;
-                case fine_CDE:
-                    params_sizes[0] = sizeof(struct params_resize);
-                    params_sizes[1] = sizeof(struct params_compute_gradients);
-                    params_sizes[2] = sizeof(struct params_compute_histograms);
-                    params_sizes[3] = sizeof(struct params_fine_collect_locations);
-                    break;
-                case fine_ABCD:
-                    params_sizes[0] = sizeof(struct params_resize);
-                    params_sizes[1] = sizeof(struct params_fine_classify);
-                    params_sizes[2] = sizeof(struct params_fine_collect_locations);
-                    break;
-                case fine_BCDE:
-                    params_sizes[0] = sizeof(struct params_resize);
-                    params_sizes[1] = sizeof(struct params_compute_gradients);
-                    params_sizes[2] = sizeof(struct params_fine_collect_locations);
-                    break;
-                case fine_ABCDE:
-                    params_sizes[0] = sizeof(struct params_resize);
-                    params_sizes[1] = sizeof(struct params_fine_collect_locations);
-                    break;
-                default:
-                    break;
+            for (unsigned edge_idx = 0; edge_idx < num_nodes; edge_idx++)
+            {
+                switch (level_configs[i][edge_idx]) {
+                    case node_A:
+                    case node_AB:
+                    case node_ABC:
+                    case node_ABCD:
+                    case node_ABCDE:
+                        params_sizes[edge_idx] = sizeof(struct params_resize);
+                        break;
+                    case node_B:
+                    case node_BC:
+                    case node_BCD:
+                    case node_BCDE:
+                        params_sizes[edge_idx] = sizeof(struct params_compute_gradients);
+                        break;
+                    case node_C:
+                    case node_CD:
+                    case node_CDE:
+                        params_sizes[edge_idx] = sizeof(struct params_compute_histograms);
+                        break;
+                    case node_D:
+                    case node_DE:
+                        params_sizes[edge_idx] = sizeof(struct params_fine_normalize);
+                        break;
+                    case node_E:
+                        params_sizes[edge_idx] = sizeof(struct params_fine_classify);
+                        break;
+                    default:
+                        break;
+                }
             }
 
-            for (unsigned edge_idx = 0; edge_idx < num_nodes_per_level[i]+1; edge_idx++)
+            params_sizes[num_nodes] = sizeof(struct params_fine_collect_locations);
+
+            for (unsigned edge_idx = 0; edge_idx < num_nodes+1; edge_idx++)
             {
                 // Edge parameters: name, token counts
                 sprintf(buf, level_edge_name_formats[edge_idx], i);
@@ -5129,8 +5127,8 @@ void App::sched_single_merge_in_level_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HO
                 fast_mq_attr.nr_threshold = params_sizes[edge_idx];
 
                 // Choose the nodes connected by the edge and initialize the edge
-                node_t node_start = edge_idx == 0                      ? compute_scales_node    : level_nodes[i][edge_idx-1];
-                node_t node_end   = edge_idx == num_nodes_per_level[i] ? collect_locations_node : level_nodes[i][edge_idx];
+                node_t node_start = edge_idx == 0         ? compute_scales_node    : level_nodes[i][edge_idx-1];
+                node_t node_end   = edge_idx == num_nodes ? collect_locations_node : level_nodes[i][edge_idx];
                 CheckError(pgm_init_edge(&(level_edges[i][edge_idx]),
                                             node_start, node_end,
                                             buf, &fast_mq_attr));
@@ -5147,15 +5145,15 @@ void App::sched_single_merge_in_level_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HO
 
         thread** t0   = arr_t0 + g_idx;
         thread** t1   = arr_t1 + g_idx;
-        thread** tlevel = arr_tlevel + g_idx * NUM_SCALE_LEVELS * 5;
+        thread** tlevel = arr_tlevel + g_idx * num_total_level_nodes;
         thread** t7   = arr_t7 + g_idx;
         thread** t8   = arr_t8 + g_idx;
 
         struct sync_info (* in_sync_info)[5]  = arr_sync_info[((g_idx + args.num_fine_graphs - 1) % args.num_fine_graphs)];
         struct sync_info (* out_sync_info)[5] = arr_sync_info[g_idx];
 
-        for (int i=0; i<NUM_SCALE_LEVELS; i++) {
-            for (unsigned node_idx = 0; node_idx < num_nodes_per_level[i]; node_idx++)
+        for (unsigned i = 0; i < level_configs.size(); i++) {
+            for (unsigned node_idx = 0; node_idx < level_configs[i].size(); node_idx++)
             {
                 sync_info_init(&(in_sync_info[i][node_idx]));
                 sync_info_init(&(out_sync_info[i][node_idx]));
@@ -5209,70 +5207,61 @@ void App::sched_single_merge_in_level_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HO
         *t1 = new thread(&cv::cuda::HOG::thread_fine_compute_scales, gpu_hog,
                          &compute_scales_node, fine_init_barrier, t_info);
 
-        for (int i=0; i<NUM_SCALE_LEVELS; i++) {
-            unsigned num_nodes = num_nodes_per_level[i];
+        for (unsigned i = 0; i < NUM_SCALE_LEVELS; i++) {
+            unsigned num_nodes = level_configs[i].size();
             void* (cv::cuda::HOG::* level_funcs[num_nodes])(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info);
 
-            switch (level_options[i]) {
-                case fine_grained:
-                    level_funcs[0] = &cv::cuda::HOG::thread_fine_resize;
-                    level_funcs[1] = &cv::cuda::HOG::thread_fine_compute_gradients;
-                    level_funcs[2] = &cv::cuda::HOG::thread_fine_compute_histograms;
-                    level_funcs[3] = &cv::cuda::HOG::thread_fine_normalize_histograms;
-                    level_funcs[4] = &cv::cuda::HOG::thread_fine_classify;
-                    break;
-                case fine_AB:
-                    level_funcs[0] = &cv::cuda::HOG::thread_fine_AB;
-                    level_funcs[1] = &cv::cuda::HOG::thread_fine_compute_histograms;
-                    level_funcs[2] = &cv::cuda::HOG::thread_fine_normalize_histograms;
-                    level_funcs[3] = &cv::cuda::HOG::thread_fine_classify;
-                    break;
-                case fine_BC:
-                    level_funcs[0] = &cv::cuda::HOG::thread_fine_resize;
-                    level_funcs[1] = &cv::cuda::HOG::thread_fine_BC;
-                    level_funcs[2] = &cv::cuda::HOG::thread_fine_normalize_histograms;
-                    level_funcs[3] = &cv::cuda::HOG::thread_fine_classify;
-                    break;
-                case fine_CD:
-                    level_funcs[0] = &cv::cuda::HOG::thread_fine_resize;
-                    level_funcs[1] = &cv::cuda::HOG::thread_fine_compute_gradients;
-                    level_funcs[2] = &cv::cuda::HOG::thread_fine_CD;
-                    level_funcs[3] = &cv::cuda::HOG::thread_fine_classify;
-                    break;
-                case fine_DE:
-                    level_funcs[0] = &cv::cuda::HOG::thread_fine_resize;
-                    level_funcs[1] = &cv::cuda::HOG::thread_fine_compute_gradients;
-                    level_funcs[2] = &cv::cuda::HOG::thread_fine_compute_histograms;
-                    level_funcs[3] = &cv::cuda::HOG::thread_fine_DE;
-                    break;
-                case fine_ABC:
-                    level_funcs[0] = &cv::cuda::HOG::thread_fine_ABC;
-                    level_funcs[1] = &cv::cuda::HOG::thread_fine_normalize_histograms;
-                    level_funcs[2] = &cv::cuda::HOG::thread_fine_classify;
-                    break;
-                case fine_BCD:
-                    level_funcs[0] = &cv::cuda::HOG::thread_fine_resize;
-                    level_funcs[1] = &cv::cuda::HOG::thread_fine_BCD;
-                    level_funcs[2] = &cv::cuda::HOG::thread_fine_classify;
-                    break;
-                case fine_CDE:
-                    level_funcs[0] = &cv::cuda::HOG::thread_fine_resize;
-                    level_funcs[1] = &cv::cuda::HOG::thread_fine_compute_gradients;
-                    level_funcs[2] = &cv::cuda::HOG::thread_fine_CDE;
-                    break;
-                case fine_ABCD:
-                    level_funcs[0] = &cv::cuda::HOG::thread_fine_ABCD;
-                    level_funcs[1] = &cv::cuda::HOG::thread_fine_classify;
-                    break;
-                case fine_BCDE:
-                    level_funcs[0] = &cv::cuda::HOG::thread_fine_resize;
-                    level_funcs[1] = &cv::cuda::HOG::thread_fine_BCDE;
-                    break;
-                case fine_ABCDE:
-                    level_funcs[0] = &cv::cuda::HOG::thread_fine_ABCDE;
-                    break;
-                default:
-                    break;
+            for (unsigned node_idx = 0; node_idx < num_nodes; node_idx++)
+            {
+                switch (level_configs[i][node_idx]) {
+                    case node_A:
+                        level_funcs[node_idx] = &cv::cuda::HOG::thread_fine_resize;
+                        break;
+                    case node_B:
+                        level_funcs[node_idx] = &cv::cuda::HOG::thread_fine_compute_gradients;
+                        break;
+                    case node_C:
+                        level_funcs[node_idx] = &cv::cuda::HOG::thread_fine_compute_histograms;
+                        break;
+                    case node_D:
+                        level_funcs[node_idx] = &cv::cuda::HOG::thread_fine_normalize_histograms;
+                        break;
+                    case node_E:
+                        level_funcs[node_idx] = &cv::cuda::HOG::thread_fine_classify;
+                        break;
+                    case node_AB:
+                        level_funcs[node_idx] = &cv::cuda::HOG::thread_fine_AB;
+                        break;
+                    case node_BC:
+                        level_funcs[node_idx] = &cv::cuda::HOG::thread_fine_BC;
+                        break;
+                    case node_CD:
+                        level_funcs[node_idx] = &cv::cuda::HOG::thread_fine_CD;
+                        break;
+                    case node_DE:
+                        level_funcs[node_idx] = &cv::cuda::HOG::thread_fine_DE;
+                        break;
+                    case node_ABC:
+                        level_funcs[node_idx] = &cv::cuda::HOG::thread_fine_ABC;
+                        break;
+                    case node_BCD:
+                        level_funcs[node_idx] = &cv::cuda::HOG::thread_fine_BCD;
+                        break;
+                    case node_CDE:
+                        level_funcs[node_idx] = &cv::cuda::HOG::thread_fine_CDE;
+                        break;
+                    case node_ABCD:
+                        level_funcs[node_idx] = &cv::cuda::HOG::thread_fine_ABCD;
+                        break;
+                    case node_BCDE:
+                        level_funcs[node_idx] = &cv::cuda::HOG::thread_fine_BCDE;
+                        break;
+                    case node_ABCDE:
+                        level_funcs[node_idx] = &cv::cuda::HOG::thread_fine_ABCDE;
+                        break;
+                    default:
+                        break;
+                }
             }
 
             for (unsigned node_idx = 0; node_idx < num_nodes; node_idx++)
@@ -5312,7 +5301,7 @@ void App::sched_single_merge_in_level_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HO
 
         thread* t0 = arr_t0[g_idx];
         thread* t1 = arr_t1[g_idx];
-        thread** tlevel = arr_tlevel + g_idx * NUM_SCALE_LEVELS * 5;
+        thread** tlevel = arr_tlevel + g_idx * num_total_level_nodes;
         thread* t7 = arr_t7[g_idx];
         thread* t8 = arr_t8[g_idx];
         t0->join();
@@ -5323,7 +5312,7 @@ void App::sched_single_merge_in_level_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HO
         {
             if (tlevel[i]->joinable()) tlevel[i]->join();
         }
-        for (unsigned i = 0; i < NUM_SCALE_LEVELS * 5; i++)
+        for (unsigned i = 0; i < num_total_level_nodes; i++)
         {
             delete tlevel[i];
         }

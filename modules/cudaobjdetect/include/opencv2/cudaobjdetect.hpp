@@ -71,6 +71,26 @@ enum scheduling_option
     scheduling_option_end,
 };
 
+enum node_config
+{
+    invalid = 0,
+    node_A,
+    node_B,
+    node_C,
+    node_D,
+    node_E,
+    node_AB,
+    node_BC,
+    node_CD,
+    node_DE,
+    node_ABC,
+    node_BCD,
+    node_CDE,
+    node_ABCD,
+    node_BCDE,
+    node_ABCDE
+};
+
 struct sync_info
 {
     unsigned long long start_time;
