@@ -121,7 +121,7 @@ public:
     bool early;
 
     string level_config_string;
-    vector<int> level_configurations;
+    std::vector< std::vector<node_config> > level_configurations;
 
 private:
     void parseLevelConfigurations(char *config_arg);
@@ -387,7 +387,7 @@ static void printHelp()
          << "  [--cluster <int>] # cluster ID of this task\n"
          << "  [--id <int>] # task ID of this task\n"
          << "  [--rt <true/false>] # run under LITMUS^RT scheduler or not\n"
-         << "  [--level_config <string>] # comma-separated list of level configurations\n"
+         << "  [--level_config <string>] # underscore-separated list of comma-separated lists of level configurations\n"
          << "  [--display <true/false>] # to display result frame or not\n";
 
     help_showed = true;
@@ -464,28 +464,48 @@ Args::Args()
     early = true;
 
     //  Default to fine-grained levels with all nodes separate
-    level_configurations = std::vector<int>(NUM_SCALE_LEVELS, fine_grained);
+    for (unsigned i = 0; i < NUM_SCALE_LEVELS; i++)
+    {
+        std::vector<node_config> level_config = { node_A, node_B, node_C, node_D, node_E };
+        level_configurations.push_back(level_config);
+    }
 }
 
 void Args::parseLevelConfigurations(char *config_arg)
 {
     this->level_config_string = config_arg;
 
-    vector<int> config;
+    std::vector< std::vector<node_config> > config;
 
-    // Parse the comma-separated distribution information
+    // Parse the underscore-separated distribution information
     string config_str = string(config_arg);
-    size_t prev_pos = 0;
-    size_t pos = 0;
+
+    size_t prev_pos_und = 0;
+    size_t pos_und = 0;
     do
     {
-        pos = config_str.find(",", prev_pos);
+        pos_und = config_str.find("_", prev_pos_und);
 
-        int val = stoi(config_str.substr(prev_pos, pos));
-        config.push_back(val);
+        string level_str = config_str.substr(prev_pos_und, pos_und - prev_pos_und);
 
-        prev_pos = pos + 1;
-    } while (pos != string::npos);
+        std::vector<node_config> level_config;
+
+        size_t prev_pos_comma = 0;
+        size_t pos_comma = 0;
+        do
+        {
+            pos_comma = level_str.find(",", prev_pos_comma);
+
+            int val = stoi(level_str.substr(prev_pos_comma, pos_comma - prev_pos_comma));
+            level_config.push_back((node_config) val);
+
+            prev_pos_comma = pos_comma + 1;
+        } while (pos_comma != string::npos);
+
+        config.push_back(level_config);
+
+        prev_pos_und = pos_und + 1;
+    } while (pos_und != string::npos);
 
     this->level_configurations = config;
 }
@@ -4939,77 +4959,7 @@ void App::sched_ABCDE_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_
 
 void App::sched_single_merge_in_level_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog, Mat* frames)
 {
-    // Each level has at most one merged node
-    std::vector< std::vector<node_config> > level_configs;
-    for (unsigned i = 0; i < NUM_SCALE_LEVELS; i++)
-    {
-        scheduling_option level_option = (scheduling_option) args.level_configurations[i];
-
-        std::vector<node_config> level_config;
-        switch (level_option)
-        {
-            case fine_grained:
-                level_config.push_back(node_A);
-                level_config.push_back(node_B);
-                level_config.push_back(node_C);
-                level_config.push_back(node_D);
-                level_config.push_back(node_E);
-                break;
-            case fine_AB:
-                level_config.push_back(node_AB);
-                level_config.push_back(node_C);
-                level_config.push_back(node_D);
-                level_config.push_back(node_E);
-                break;
-            case fine_BC:
-                level_config.push_back(node_A);
-                level_config.push_back(node_BC);
-                level_config.push_back(node_D);
-                level_config.push_back(node_E);
-                break;
-            case fine_CD:
-                level_config.push_back(node_A);
-                level_config.push_back(node_B);
-                level_config.push_back(node_CD);
-                level_config.push_back(node_E);
-                break;
-            case fine_DE:
-                level_config.push_back(node_A);
-                level_config.push_back(node_B);
-                level_config.push_back(node_C);
-                level_config.push_back(node_DE);
-                break;
-            case fine_ABC:
-                level_config.push_back(node_ABC);
-                level_config.push_back(node_D);
-                level_config.push_back(node_E);
-                break;
-            case fine_BCD:
-                level_config.push_back(node_A);
-                level_config.push_back(node_BCD);
-                level_config.push_back(node_E);
-                break;
-            case fine_CDE:
-                level_config.push_back(node_A);
-                level_config.push_back(node_B);
-                level_config.push_back(node_CDE);
-                break;
-            case fine_ABCD:
-                level_config.push_back(node_ABCD);
-                level_config.push_back(node_E);
-                break;
-            case fine_BCDE:
-                level_config.push_back(node_A);
-                level_config.push_back(node_BCDE);
-                break;
-            case fine_ABCDE:
-                level_config.push_back(node_ABCDE);
-                break;
-            default:
-                break;
-        }
-        level_configs.push_back(level_config);
-    }
+    const std::vector< std::vector<node_config> > &level_configs = args.level_configurations;
 
     unsigned num_total_level_nodes = 0;
     for (unsigned i = 0; i < level_configs.size(); i++)

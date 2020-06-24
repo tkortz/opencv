@@ -74,21 +74,21 @@ enum scheduling_option
 enum node_config
 {
     invalid = 0,
-    node_A,
-    node_B,
-    node_C,
-    node_D,
-    node_E,
-    node_AB,
-    node_BC,
-    node_CD,
-    node_DE,
-    node_ABC,
-    node_BCD,
-    node_CDE,
-    node_ABCD,
-    node_BCDE,
-    node_ABCDE
+    node_A,     //  1
+    node_B,     //  2
+    node_C,     //  3
+    node_D,     //  4
+    node_E,     //  5
+    node_AB,    //  6
+    node_BC,    //  7
+    node_CD,    //  8
+    node_DE,    //  9
+    node_ABC,   // 10
+    node_BCD,   // 11
+    node_CDE,   // 12
+    node_ABCD,  // 13
+    node_BCDE,  // 14
+    node_ABCDE  // 15
 };
 
 struct sync_info
