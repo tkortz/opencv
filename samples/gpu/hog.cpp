@@ -637,7 +637,8 @@ void* App::thread_display(node_t* _node, pthread_barrier_t* init_barrier, bool s
                 printf("%lu response time: %f\n", in_buf->frame_index, (hog_work_end - in_buf->start_time) / getTickFrequency());
 
                 // Draw positive classified windows
-                if (shouldDisplay) {
+                if (shouldDisplay || args.write_video)
+                {
                     for (size_t i = 0; i < in_buf->found->size(); i++) {
                         Rect r = (*in_buf->found)[i];
                         rectangle(*in_buf->img_to_show, r.tl(), r.br(), Scalar(0, 255, 0), 3);
@@ -653,6 +654,10 @@ void* App::thread_display(node_t* _node, pthread_barrier_t* init_barrier, bool s
                     putText(*in_buf->img_to_show, "FPS HOG: " + hogWorkFps(), Point(5, 65), FONT_HERSHEY_SIMPLEX, 1., Scalar(255, 100, 0), 2);
                     putText(*in_buf->img_to_show, "FPS total: " + workFps(), Point(5, 105), FONT_HERSHEY_SIMPLEX, 1., Scalar(255, 100, 0), 2);
                     putText(*in_buf->img_to_show, "Frame: " + frameIndex(in_buf->frame_index), Point(5, 145), FONT_HERSHEY_SIMPLEX, 1., Scalar(255, 100, 0), 2);
+                }
+
+                if (shouldDisplay)
+                {
                     imshow("opencv_gpu_hog", *in_buf->img_to_show);
                 }
 
