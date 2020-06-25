@@ -2107,11 +2107,12 @@ go_ahead:
                     fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
 #endif
 
-                    if (t_info.sched == fine_AB && t_info.early)
+                    if (t_info.sched == fine_merge_in_level && t_info.early)
                         gpu_period_guard(t_info.s_info_in, t_info.s_info_out);
 
                     smaller_img = in_buf->smaller_img;
                     gpu_img = in_buf->gpu_img;
+
                     /* ===========================
                      * resize image
                      */
@@ -2252,7 +2253,8 @@ go_ahead:
 #ifdef LOG_DEBUG
                     fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
 #endif
-                    if (t_info.sched == fine_BC && t_info.early)
+
+                    if (t_info.sched == fine_merge_in_level && t_info.early)
                         gpu_period_guard(t_info.s_info_in, t_info.s_info_out);
 
                     smaller_img = in_buf->smaller_img;
@@ -2404,7 +2406,8 @@ go_ahead:
 #ifdef LOG_DEBUG
                     fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
 #endif
-                    if (t_info.sched == fine_CD && t_info.early)
+
+                    if (t_info.sched == fine_merge_in_level && t_info.early)
                         gpu_period_guard(t_info.s_info_in, t_info.s_info_out);
 
                     smaller_img = in_buf->smaller_img;
@@ -2540,7 +2543,8 @@ go_ahead:
 #ifdef LOG_DEBUG
                     fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
 #endif
-                    if (t_info.sched == fine_DE && t_info.early)
+
+                    if (t_info.sched == fine_merge_in_level && t_info.early)
                         gpu_period_guard(t_info.s_info_in, t_info.s_info_out);
 
                     smaller_img = in_buf->smaller_img;
@@ -2697,11 +2701,12 @@ go_ahead:
                     fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
 #endif
 
-                    if (t_info.sched == fine_ABC && t_info.early)
+                    if (t_info.sched == fine_merge_in_level && t_info.early)
                         gpu_period_guard(t_info.s_info_in, t_info.s_info_out);
 
                     smaller_img = in_buf->smaller_img;
                     gpu_img = in_buf->gpu_img;
+
                     /* ===========================
                      * resize image
                      */
@@ -2867,7 +2872,8 @@ go_ahead:
 #ifdef LOG_DEBUG
                     fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
 #endif
-                    if (t_info.sched == fine_BCD && t_info.early)
+
+                    if (t_info.sched == fine_merge_in_level && t_info.early)
                         gpu_period_guard(t_info.s_info_in, t_info.s_info_out);
 
                     smaller_img = in_buf->smaller_img;
@@ -3038,7 +3044,8 @@ go_ahead:
 #ifdef LOG_DEBUG
                     fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
 #endif
-                    if (t_info.sched == fine_CDE && t_info.early)
+
+                    if (t_info.sched == fine_merge_in_level && t_info.early)
                         gpu_period_guard(t_info.s_info_in, t_info.s_info_out);
 
                     smaller_img = in_buf->smaller_img;
@@ -3220,11 +3227,12 @@ go_ahead:
                     fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
 #endif
 
-                    if (t_info.sched == fine_ABCD && t_info.early)
+                    if (t_info.sched == fine_merge_in_level && t_info.early)
                         gpu_period_guard(t_info.s_info_in, t_info.s_info_out);
 
                     smaller_img = in_buf->smaller_img;
                     gpu_img = in_buf->gpu_img;
+
                     /* ===========================
                      * resize image
                      */
@@ -3409,7 +3417,8 @@ go_ahead:
 #ifdef LOG_DEBUG
                     fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
 #endif
-                    if (t_info.sched == fine_BCDE && t_info.early)
+
+                    if (t_info.sched == fine_merge_in_level && t_info.early)
                         gpu_period_guard(t_info.s_info_in, t_info.s_info_out);
 
                     smaller_img = in_buf->smaller_img;
@@ -3626,11 +3635,12 @@ go_ahead:
                     fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
 #endif
 
-                    if (t_info.sched == fine_ABCDE && t_info.early)
+                    if (t_info.sched == fine_merge_in_level && t_info.early)
                         gpu_period_guard(t_info.s_info_in, t_info.s_info_out);
 
                     smaller_img = in_buf->smaller_img;
                     gpu_img = in_buf->gpu_img;
+
                     /* ===========================
                      * resize image
                      */

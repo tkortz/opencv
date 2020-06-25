@@ -54,20 +54,10 @@
 enum scheduling_option
 {
     end_to_end = 0,
-    coarse_grained,  // 1
-    fine_grained,    // 2
-    coarse_unrolled, // 3
-    fine_AB,    //  4
-    fine_BC,    //  5
-    fine_CD,    //  6
-    fine_DE,    //  7
-    fine_ABC,   //  8
-    fine_BCD,   //  9
-    fine_CDE,   // 10
-    fine_ABCD,  // 11
-    fine_BCDE,  // 12
-    fine_ABCDE, // 13
-    fine_single_merge_in_level, // 14
+    coarse_grained,      // 1
+    fine_grained,        // 2
+    coarse_unrolled,     // 3
+    fine_merge_in_level, // 4
     scheduling_option_end,
 };
 
