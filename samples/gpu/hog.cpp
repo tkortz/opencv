@@ -2277,7 +2277,7 @@ void App::sched_merge_in_level_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescri
         t_info.realtime = args.realtime;
         t_info.sched = fine_merge_in_level;
         t_info.period = period;
-        t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, cost_color_convert);
+        t_info.relative_deadline = period; // use EDF
         t_info.phase = PERIOD * g_idx;
         t_info.id = task_id++;
         if (args.cluster != -1)
@@ -2287,7 +2287,6 @@ void App::sched_merge_in_level_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescri
         *t0 = new thread(&App::thread_color_convert, this,
                          &color_convert_node, fine_init_barrier, gpu_hog, cpu_hog, frames, t_info, g_idx);
 
-        t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, cost_compute_scales);
         t_info.id = task_id++;
         t_info.phase = t_info.phase + bound_color_convert;
         *t1 = new thread(&cv::cuda::HOG::thread_fine_compute_scales, gpu_hog,
@@ -2355,7 +2354,6 @@ void App::sched_merge_in_level_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescri
 
             for (unsigned node_idx = 0; node_idx < num_nodes; node_idx++)
             {
-                t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, cost_levels[i][node_idx]);
                 t_info.id = task_id++;
                 t_info.phase = node_idx == 0 \
                                     ? level_start_phase \
@@ -2373,7 +2371,6 @@ void App::sched_merge_in_level_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescri
             }
         }
 
-        t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, cost_collect_locations);
         t_info.id = task_id++;
         t_info.phase = max_level_end_phase;
         *t7 = new thread(&cv::cuda::HOG::thread_fine_collect_locations, gpu_hog,
