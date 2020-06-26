@@ -120,11 +120,11 @@ public:
     bool realtime;
     bool early;
 
-    string level_config_string;
+    string config_filepath;
     std::vector< std::vector<node_config> > level_configurations;
 
 private:
-    void parseLevelConfigurations(char *config_arg);
+    void parseGraphConfiguration(char *filepath);
 };
 
 
@@ -457,41 +457,34 @@ Args::Args()
     }
 }
 
-void Args::parseLevelConfigurations(char *config_arg)
+void Args::parseGraphConfiguration(char *filepath)
 {
-    this->level_config_string = config_arg;
+    std::ifstream infile(filepath);
 
     std::vector< std::vector<node_config> > config;
 
-    // Parse the underscore-separated distribution information
-    string config_str = string(config_arg);
-
-    size_t prev_pos_und = 0;
-    size_t pos_und = 0;
-    do
+    // Loop until the end of the file is reached
+    std::string line;
+    while (std::getline(infile, line))
     {
-        pos_und = config_str.find("_", prev_pos_und);
-
-        string level_str = config_str.substr(prev_pos_und, pos_und - prev_pos_und);
-
         std::vector<node_config> level_config;
 
-        size_t prev_pos_comma = 0;
-        size_t pos_comma = 0;
+        size_t prev_pos = 0;
+        size_t pos = 0;
         do
         {
-            pos_comma = level_str.find(",", prev_pos_comma);
+            pos = line.find(" ", prev_pos);
 
-            int val = stoi(level_str.substr(prev_pos_comma, pos_comma - prev_pos_comma));
-            level_config.push_back((node_config) val);
+            std::string node_config_str = line.substr(prev_pos, pos - prev_pos);
+            node_config node = (node_config) stoi(node_config_str);
 
-            prev_pos_comma = pos_comma + 1;
-        } while (pos_comma != string::npos);
+            level_config.push_back(node);
+
+            prev_pos = pos + 1;
+        } while (pos != string::npos);
 
         config.push_back(level_config);
-
-        prev_pos_und = pos_und + 1;
-    } while (pos_und != string::npos);
+    }
 
     this->level_configurations = config;
 }
@@ -551,7 +544,7 @@ Args Args::read(int argc, char** argv)
         else if (string(argv[i]) == "--rt") args.realtime = (string(argv[++i]) == "true");
         else if (string(argv[i]) == "--early") args.early = (string(argv[++i]) == "true");
         else if (string(argv[i]) == "--display") args.display = (string(argv[++i]) == "true");
-        else if (string(argv[i]) == "--level_config") { args.parseLevelConfigurations(argv[++i]); }
+        else if (string(argv[i]) == "--level_config_file") { args.parseGraphConfiguration(argv[++i]); }
         else if (args.src.empty()) args.src = argv[i];
         else throw runtime_error((string("unknown key: ") + argv[i]));
     }

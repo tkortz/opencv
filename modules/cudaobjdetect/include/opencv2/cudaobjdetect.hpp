@@ -63,7 +63,7 @@ enum scheduling_option
 
 enum node_config
 {
-    invalid = 0,
+    node_invalid = 0,
     node_A,     //  1
     node_B,     //  2
     node_C,     //  3
