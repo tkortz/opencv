@@ -272,6 +272,9 @@ namespace
         /* five-node entire-level combination */
         void* thread_fine_ABCDE(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info); // resize -> classify hists
 
+        /* sink-node combinations */
+        void* thread_fine_E_T(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info); // classify + collect-locations
+
     private:
         Size win_size_;
         Size block_size_;
@@ -442,6 +445,23 @@ namespace
         Mat * img_to_show;
         cv::cuda::GpuMat * smaller_img;
         cv::cuda::GpuMat * labels;
+        std::vector<double> * level_scale;
+        std::vector<double> * confidences;
+        int index;
+        size_t frame_index;
+        int64 start_time;
+        int64 end_time;
+    };
+
+    // Must be the same as params_fine_classify
+    struct params_fine_E_collect_locations
+    {
+        cv::cuda::GpuMat * gpu_img;
+        std::vector<Rect> * found;
+        Mat * img_to_show;
+        cv::cuda::GpuMat * smaller_img;
+        cv::cuda::GpuMat * labels;
+        cv::cuda::GpuMat * block_hists;
         std::vector<double> * level_scale;
         std::vector<double> * confidences;
         int index;
@@ -1198,7 +1218,7 @@ go_ahead:
 
         edge_t *out_edge = (edge_t *)calloc(1, sizeof(edge_t));
         CheckError(pgm_get_edges_out(node, out_edge, 1));
-        struct params_fine_collect_locations *out_buf = (struct params_fine_collect_locations *)pgm_get_edge_buf_p(*out_edge);
+        struct params_fine_E_collect_locations *out_buf = (struct params_fine_E_collect_locations *)pgm_get_edge_buf_p(*out_edge);
         if (out_buf == NULL)
             fprintf(stderr, "detect node out buffer is NULL\n");
 
@@ -1295,6 +1315,7 @@ go_ahead:
                     out_buf->img_to_show = in_buf->img_to_show;
                     out_buf->smaller_img = in_buf->smaller_img;
                     out_buf->level_scale = in_buf->level_scale;
+                    out_buf->block_hists = NULL;
                     out_buf->confidences = in_buf->confidences;
                     out_buf->index = in_buf->index;
                     out_buf->frame_index = in_buf->frame_index;
@@ -2107,7 +2128,7 @@ go_ahead:
                     fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
 #endif
 
-                    if (t_info.sched == fine_merge_in_level && t_info.early)
+                    if (t_info.sched == configurable && t_info.early)
                         gpu_period_guard(t_info.s_info_in, t_info.s_info_out);
 
                     smaller_img = in_buf->smaller_img;
@@ -2254,7 +2275,7 @@ go_ahead:
                     fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
 #endif
 
-                    if (t_info.sched == fine_merge_in_level && t_info.early)
+                    if (t_info.sched == configurable && t_info.early)
                         gpu_period_guard(t_info.s_info_in, t_info.s_info_out);
 
                     smaller_img = in_buf->smaller_img;
@@ -2407,7 +2428,7 @@ go_ahead:
                     fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
 #endif
 
-                    if (t_info.sched == fine_merge_in_level && t_info.early)
+                    if (t_info.sched == configurable && t_info.early)
                         gpu_period_guard(t_info.s_info_in, t_info.s_info_out);
 
                     smaller_img = in_buf->smaller_img;
@@ -2512,7 +2533,7 @@ go_ahead:
 
         edge_t *out_edge = (edge_t *)calloc(1, sizeof(edge_t));
         CheckError(pgm_get_edges_out(node, out_edge, 1));
-        struct params_fine_collect_locations *out_buf = (struct params_fine_collect_locations *)pgm_get_edge_buf_p(*out_edge);
+        struct params_fine_E_collect_locations *out_buf = (struct params_fine_E_collect_locations *)pgm_get_edge_buf_p(*out_edge);
         if (out_buf == NULL)
             fprintf(stderr, "normalize_hists+classify_hists node out buffer is NULL\n");
 
@@ -2544,7 +2565,7 @@ go_ahead:
                     fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
 #endif
 
-                    if (t_info.sched == fine_merge_in_level && t_info.early)
+                    if (t_info.sched == configurable && t_info.early)
                         gpu_period_guard(t_info.s_info_in, t_info.s_info_out);
 
                     smaller_img = in_buf->smaller_img;
@@ -2614,6 +2635,7 @@ go_ahead:
                     out_buf->img_to_show = in_buf->img_to_show;
                     out_buf->smaller_img = in_buf->smaller_img;
                     out_buf->level_scale = in_buf->level_scale;
+                    out_buf->block_hists = NULL;
                     out_buf->confidences = in_buf->confidences;
                     out_buf->labels = in_buf->labels;
                     out_buf->index = in_buf->index;
@@ -2701,7 +2723,7 @@ go_ahead:
                     fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
 #endif
 
-                    if (t_info.sched == fine_merge_in_level && t_info.early)
+                    if (t_info.sched == configurable && t_info.early)
                         gpu_period_guard(t_info.s_info_in, t_info.s_info_out);
 
                     smaller_img = in_buf->smaller_img;
@@ -2873,7 +2895,7 @@ go_ahead:
                     fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
 #endif
 
-                    if (t_info.sched == fine_merge_in_level && t_info.early)
+                    if (t_info.sched == configurable && t_info.early)
                         gpu_period_guard(t_info.s_info_in, t_info.s_info_out);
 
                     smaller_img = in_buf->smaller_img;
@@ -3009,7 +3031,7 @@ go_ahead:
 
         edge_t *out_edge = (edge_t *)calloc(1, sizeof(edge_t));
         CheckError(pgm_get_edges_out(node, out_edge, 1));
-        struct params_fine_collect_locations *out_buf = (struct params_fine_collect_locations *)pgm_get_edge_buf_p(*out_edge);
+        struct params_fine_E_collect_locations *out_buf = (struct params_fine_E_collect_locations *)pgm_get_edge_buf_p(*out_edge);
         if (out_buf == NULL)
             fprintf(stderr, "compute_hists->classify_hists node out buffer is NULL\n");
 
@@ -3045,7 +3067,7 @@ go_ahead:
                     fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
 #endif
 
-                    if (t_info.sched == fine_merge_in_level && t_info.early)
+                    if (t_info.sched == configurable && t_info.early)
                         gpu_period_guard(t_info.s_info_in, t_info.s_info_out);
 
                     smaller_img = in_buf->smaller_img;
@@ -3139,6 +3161,7 @@ go_ahead:
                     out_buf->img_to_show = in_buf->img_to_show;
                     out_buf->smaller_img = in_buf->smaller_img;
                     out_buf->level_scale = in_buf->level_scale;
+                    out_buf->block_hists = NULL;
                     out_buf->confidences = in_buf->confidences;
                     out_buf->index = in_buf->index;
                     out_buf->labels = in_buf->labels;
@@ -3227,7 +3250,7 @@ go_ahead:
                     fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
 #endif
 
-                    if (t_info.sched == fine_merge_in_level && t_info.early)
+                    if (t_info.sched == configurable && t_info.early)
                         gpu_period_guard(t_info.s_info_in, t_info.s_info_out);
 
                     smaller_img = in_buf->smaller_img;
@@ -3382,7 +3405,7 @@ go_ahead:
 
         edge_t *out_edge = (edge_t *)calloc(1, sizeof(edge_t));
         CheckError(pgm_get_edges_out(node, out_edge, 1));
-        struct params_fine_collect_locations *out_buf = (struct params_fine_collect_locations *)pgm_get_edge_buf_p(*out_edge);
+        struct params_fine_E_collect_locations *out_buf = (struct params_fine_E_collect_locations *)pgm_get_edge_buf_p(*out_edge);
         if (out_buf == NULL)
             fprintf(stderr, "compute_grads->classify_hists node out buffer is NULL\n");
 
@@ -3418,7 +3441,7 @@ go_ahead:
                     fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
 #endif
 
-                    if (t_info.sched == fine_merge_in_level && t_info.early)
+                    if (t_info.sched == configurable && t_info.early)
                         gpu_period_guard(t_info.s_info_in, t_info.s_info_out);
 
                     smaller_img = in_buf->smaller_img;
@@ -3543,6 +3566,7 @@ go_ahead:
                     out_buf->img_to_show = in_buf->img_to_show;
                     out_buf->smaller_img = in_buf->smaller_img;
                     out_buf->level_scale = in_buf->level_scale;
+                    out_buf->block_hists = NULL;
                     out_buf->confidences = in_buf->confidences;
                     out_buf->labels = in_buf->labels;
                     out_buf->index = in_buf->index;
@@ -3598,7 +3622,7 @@ go_ahead:
 
         edge_t *out_edge = (edge_t *)calloc(1, sizeof(edge_t));
         CheckError(pgm_get_edges_out(node, out_edge, 1));
-        struct params_fine_collect_locations *out_buf = (struct params_fine_collect_locations *)pgm_get_edge_buf_p(*out_edge);
+        struct params_fine_E_collect_locations *out_buf = (struct params_fine_E_collect_locations *)pgm_get_edge_buf_p(*out_edge);
         if (out_buf == NULL)
             fprintf(stderr, "resize->classify_hists node out buffer is NULL\n");
 
@@ -3635,7 +3659,7 @@ go_ahead:
                     fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
 #endif
 
-                    if (t_info.sched == fine_merge_in_level && t_info.early)
+                    if (t_info.sched == configurable && t_info.early)
                         gpu_period_guard(t_info.s_info_in, t_info.s_info_out);
 
                     smaller_img = in_buf->smaller_img;
@@ -3779,6 +3803,7 @@ go_ahead:
                     out_buf->img_to_show = in_buf->img_to_show;
                     out_buf->smaller_img = in_buf->smaller_img;
                     out_buf->level_scale = in_buf->level_scale;
+                    out_buf->block_hists = NULL;
                     out_buf->confidences = in_buf->confidences;
                     out_buf->index = in_buf->index;
                     out_buf->labels = in_buf->labels;
@@ -3811,6 +3836,249 @@ go_ahead:
         if (t_info.realtime)
             CALL( task_mode(BACKGROUND_TASK) );
         pthread_exit(0);
+    }
+
+    void* HOG_Impl::thread_fine_E_T(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info)
+    {
+        fprintf(stdout, "node name: classify+sink, task id: %d, node tid: %d\n", t_info.id, gettid());
+        node_t node = *_node;
+#ifdef LOG_DEBUG
+        char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
+        tabbuf[node.node] = '\0';
+#endif
+        CheckError(pgm_claim_node(node));
+        int ret = 0;
+
+        edge_t *in_edges = (edge_t *)calloc(NUM_SCALE_LEVELS, sizeof(edge_t));
+        CheckError(pgm_get_edges_in(node, in_edges, NUM_SCALE_LEVELS));
+        struct params_fine_E_collect_locations **in_bufs = (struct params_fine_E_collect_locations
+                **)calloc(NUM_SCALE_LEVELS, sizeof(struct params_fine_E_collect_locations *));
+        for (int i=0; i < NUM_SCALE_LEVELS; i++) {
+            in_bufs[i] = (struct params_fine_E_collect_locations *)pgm_get_edge_buf_c(in_edges[i]);
+            if (in_bufs[i] == NULL)
+                fprintf(stderr, "classify+sink node in buffer is NULL\n");
+        }
+
+        edge_t *out_edge = (edge_t *)calloc(1, sizeof(edge_t));
+        CheckError(pgm_get_edges_out(node, out_edge, 1));
+        struct params_display *out_buf = (struct params_display *)pgm_get_edge_buf_p(*out_edge);
+        if (out_buf == NULL)
+            fprintf(stderr, "classify+sink node out buffer is NULL\n");
+
+        std::vector<Rect>* found;
+        GpuMat * smaller_img_array;
+        std::vector<double> * level_scale;
+        std::vector<double> * confidences;
+        GpuMat * labels_array;
+        Stream stream;
+        double scale;
+
+        GpuMat * smaller_img;
+        GpuMat * labels;
+
+        // Specific to classify-hists
+        GpuMat * block_hists;
+        BufferPool pool(stream);
+        Size wins_per_img;
+
+        const std::vector<node_config> &sink_config = *t_info.sink_config;
+
+        pthread_barrier_wait(init_barrier);
+
+        struct rt_task param;
+        if (t_info.realtime) {
+            set_up_litmus_task(t_info, param);
+        }
+
+        if(!hog_errors)
+        {
+            do {
+                ret = pgm_wait(node);
+
+                if(ret != PGM_TERMINATE)
+                {
+                    CheckError(ret);
+#ifdef LOG_DEBUG
+                    fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
+#endif
+
+                    for (unsigned level_idx = 0; level_idx < sink_config.size(); level_idx++)
+                    {
+                        if (sink_config[level_idx] == node_none)
+                        {
+                            continue;
+                        }
+
+                        struct params_fine_E_collect_locations * in_buf = in_bufs[level_idx];
+
+                        if (t_info.sched == configurable && t_info.early)
+                            gpu_period_guard(t_info.s_info_in, t_info.s_info_out);
+
+                        smaller_img = in_buf->smaller_img;
+                        block_hists = in_buf->block_hists;
+                        confidences = in_buf->confidences;
+                        labels = in_buf->labels;
+
+                        /* ===========================
+                        * classify
+                        */
+                        wins_per_img = numPartsWithin(smaller_img->size(), win_size_, win_stride_);
+
+                        if (confidences == NULL)
+                        {
+                            *labels = pool.getBuffer(1, wins_per_img.area(), CV_8UC1);
+
+                            hog::classify_hists(win_size_.height, win_size_.width,
+                                    block_stride_.height, block_stride_.width,
+                                    win_stride_.height, win_stride_.width,
+                                    smaller_img->rows, smaller_img->cols,
+                                    block_hists->ptr<float>(),
+                                    detector_.ptr<float>(),
+                                    (float)free_coef_,
+                                    (float)hit_threshold_,
+                                    cell_size_.width, cells_per_block_.width,
+                                    labels->ptr());
+                        }
+                        else
+                        {
+                            *labels = pool.getBuffer(1, wins_per_img.area(), CV_32FC1);
+
+                            hog::compute_confidence_hists(win_size_.height, win_size_.width,
+                                    block_stride_.height, block_stride_.width,
+                                    win_stride_.height, win_stride_.width,
+                                    smaller_img->rows, smaller_img->cols,
+                                    block_hists->ptr<float>(),
+                                    detector_.ptr<float>(),
+                                    (float)free_coef_,
+                                    (float)hit_threshold_,
+                                    cell_size_.width, cells_per_block_.width,
+                                    labels->ptr<float>());
+                        }
+                        /*
+                        * end of classify
+                        * =========================== */
+
+                        block_hists->release();
+                    }
+
+                    struct params_fine_E_collect_locations * in_buf = in_bufs[0];
+                    found = in_buf->found;
+                    smaller_img_array = in_buf->smaller_img - in_buf->index;
+                    level_scale = in_buf->level_scale;
+                    confidences = in_buf->confidences;
+                    labels_array = in_buf->labels - in_buf->index;
+
+                    /* ===========================
+                     * collect locations
+                     */
+                    found->clear();
+                    for (size_t i = 0; i < level_scale->size(); i++)
+                    {
+                        smaller_img = smaller_img_array + i;
+                        labels = labels_array + i;
+                        scale = (*level_scale)[i];
+
+                        std::vector<double> level_confidences;
+                        std::vector<double>* level_confidences_ptr = confidences ? &level_confidences : NULL;
+                        std::vector<Point> level_hits;
+                        Size wins_per_img = numPartsWithin(smaller_img->size(), win_size_, win_stride_);
+                        level_hits.clear();
+
+                        if (level_confidences_ptr == NULL)
+                        {
+                            Mat labels_host;
+                            labels->download(labels_host, stream);
+                            cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
+                            unsigned char* vec = labels_host.ptr();
+
+                            for (int i = 0; i < wins_per_img.area(); i++)
+                            {
+                                int y = i / wins_per_img.width;
+                                int x = i - wins_per_img.width * y;
+                                if (vec[i])
+                                    level_hits.push_back(Point(x * win_stride_.width, y * win_stride_.height));
+                            }
+                        }
+                        else
+                        {
+                            Mat labels_host;
+                            labels->download(labels_host, stream);
+                            cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
+                            float* vec = labels_host.ptr<float>();
+
+                            level_confidences_ptr->clear();
+                            for (int i = 0; i < wins_per_img.area(); i++)
+                            {
+                                int y = i / wins_per_img.width;
+                                int x = i - wins_per_img.width * y;
+
+                                if (vec[i] >= hit_threshold_)
+                                {
+                                    level_hits.push_back(Point(x * win_stride_.width, y * win_stride_.height));
+                                    level_confidences_ptr->push_back((double)vec[i]);
+                                }
+                            }
+                        }
+
+                        Size scaled_win_size(cvRound(win_size_.width * scale),
+                                             cvRound(win_size_.height * scale));
+
+                        for (size_t j = 0; j < level_hits.size(); j++)
+                        {
+                            found->push_back(Rect(Point2d(level_hits[j]) * scale, scaled_win_size));
+                            if (confidences)
+                                confidences->push_back(level_confidences[j]);
+                        }
+                        smaller_img->release();
+                        labels->release();
+                    }
+
+                    if (group_threshold_ > 0)
+                    {
+                        groupRectangles(*found, group_threshold_, 0.2/*magic number copied from CPU version*/);
+                    }
+
+                    if (in_buf->level_scale != NULL) delete in_buf->level_scale;
+                    if (in_buf->confidences != NULL) delete in_buf->confidences;
+
+                    in_buf->gpu_img->release();
+                    /*
+                     * end of collect locations
+                     * =========================== */
+
+                    out_buf->found = in_buf->found;
+                    out_buf->img_to_show = in_buf->img_to_show;
+                    out_buf->frame_index = in_buf->frame_index;
+                    out_buf->start_time = in_buf->start_time;
+
+                    CheckError(pgm_complete(node));
+
+                    if (t_info.realtime)
+                        sleep_next_period(); /* this calls the system call sys_complete_job. With early releasing, this shouldn't block.*/
+                }
+                else
+                {
+#ifdef LOG_DEBUG
+                    fprintf(stdout, "%s- %d terminates\n", tabbuf, node.node);
+#endif
+                    //pgm_terminate(node);
+                }
+
+            } while(ret != PGM_TERMINATE);
+        }
+
+
+        pthread_barrier_wait(init_barrier);
+
+        CheckError(pgm_release_node(node));
+
+        free(in_edges);
+        free(out_edge);
+        free(in_bufs);
+        if (t_info.realtime)
+            CALL( task_mode(BACKGROUND_TASK) );
+        pthread_exit(0);
+
     }
 
     void set_up_litmus_task(const struct task_info &t_info, struct rt_task &param)

@@ -122,6 +122,7 @@ public:
 
     string config_filepath;
     std::vector< std::vector<node_config> > level_configurations;
+    std::vector<node_config> sink_configuration;
     std::vector<float> non_level_costs;
     std::vector< std::vector<float> > level_costs;
     std::vector<float> non_level_bounds;
@@ -129,6 +130,7 @@ public:
 
 private:
     void parseLevelConfig(std::string line, std::vector<std::vector<node_config>> &config);
+    void parseSinkConfig(std::string line, std::vector<node_config> &config);
     void parseNonLevelCosts(std::string line, std::vector<float> &costs);
     void parseLevelCosts(std::string line, std::vector<std::vector<float>> &costs);
 
@@ -281,6 +283,22 @@ struct params_fine_collect_locations
     int64 end_time;
 };
 
+struct params_fine_E_collect_locations
+{
+    cv::cuda::GpuMat * gpu_img;
+    std::vector<Rect> * found;
+    Mat * img_to_show;
+    cv::cuda::GpuMat * smaller_img;
+    cv::cuda::GpuMat * labels;
+    cv::cuda::GpuMat * block_hists;
+    std::vector<double> * level_scale;
+    std::vector<double> * confidences;
+    int index;
+    size_t frame_index;
+    int64 start_time;
+    int64 end_time;
+};
+
 struct params_display
 {
     std::vector<Rect> * found;
@@ -302,7 +320,7 @@ public:
     void sched_coarse_grained_unrolled_for_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog, Mat* frames);
     void sched_fine_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog, Mat* frames);
 
-    void sched_merge_in_level_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog, Mat* frames);
+    void sched_configurable_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog, Mat* frames);
 
     void thread_color_convert(node_t *_node, pthread_barrier_t* init_barrier,
             cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog, Mat* frames, struct task_info t_info, int graph_idx);
@@ -477,6 +495,12 @@ Args::Args()
 
         non_level_bounds.push_back(0.0f);
     }
+
+    // Default to not merging with the sink ("collect locations")
+    for (unsigned  i = 0; i < NUM_SCALE_LEVELS; i++)
+    {
+        sink_configuration.push_back(node_none);
+    }
 }
 
 void Args::parseLevelConfig(std::string line, std::vector<std::vector<node_config>> &config)
@@ -498,6 +522,19 @@ void Args::parseLevelConfig(std::string line, std::vector<std::vector<node_confi
     } while (pos != string::npos);
 
     config.push_back(level_config);
+}
+
+void Args::parseSinkConfig(std::string line, std::vector<node_config> &config)
+{
+    size_t pos = line.find(" ", 0);
+
+    std::string level_str = line.substr(0, pos);
+    int level = stoi(level_str);
+
+    std::string node_config_str = line.substr(pos+1);
+    node_config node = (node_config) stoi(node_config_str);
+
+    config[level] = node;
 }
 
 void Args::parseNonLevelCosts(std::string line, std::vector<float> &costs)
@@ -544,6 +581,8 @@ void Args::parseGraphConfiguration(char *filepath)
     std::vector<float> other_bounds;
     std::vector< std::vector<float> > bounds;
 
+    std::vector<node_config> sink_config(NUM_SCALE_LEVELS, node_none);
+
     // Loop until the end of the file is reached
     std::string line;
     while (std::getline(infile, line))
@@ -555,6 +594,10 @@ void Args::parseGraphConfiguration(char *filepath)
         if (token == "L")
         {
             this->parseLevelConfig(line.substr(pos+1), config);
+        }
+        else if (token == "T")
+        {
+            this->parseSinkConfig(line.substr(pos+1), sink_config);
         }
         else if (token == "C")
         {
@@ -575,6 +618,8 @@ void Args::parseGraphConfiguration(char *filepath)
     }
 
     this->level_configurations = config;
+    this->sink_configuration = sink_config;
+
     this->non_level_costs = other_costs;
     this->level_costs = costs;
     this->non_level_bounds = other_bounds;
@@ -1984,8 +2029,8 @@ void App::run()
         case coarse_unrolled:
             sched_coarse_grained_unrolled_for_hog(gpu_hog, cpu_hog, frames);
             break;
-        case fine_merge_in_level:
-            sched_merge_in_level_hog(gpu_hog, cpu_hog, frames);
+        case configurable:
+            sched_configurable_hog(gpu_hog, cpu_hog, frames);
             break;
         default:
             break;
@@ -2097,14 +2142,24 @@ inline string App::workFps() const
     return ss.str();
 }
 
-void App::sched_merge_in_level_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog, Mat* frames)
+void App::sched_configurable_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog, Mat* frames)
 {
     const std::vector< std::vector<node_config> > &level_configs = args.level_configurations;
+    const std::vector<node_config> &sink_config = args.sink_configuration;
 
     unsigned num_total_level_nodes = 0;
     for (unsigned i = 0; i < level_configs.size(); i++)
     {
         num_total_level_nodes += level_configs[i].size();
+    }
+
+    bool is_sink_E = false;
+    for (unsigned i = 0; i < sink_config.size(); i++)
+    {
+        if (sink_config[i] != node_none)
+        {
+            is_sink_E = true;
+        }
     }
 
     pthread_barrier_t arr_fine_init_barrier[args.num_fine_graphs];
@@ -2113,7 +2168,8 @@ void App::sched_merge_in_level_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescri
     graph_t arr_g [args.num_fine_graphs];
 
     // Not all sync info structs will be used
-    struct sync_info arr_sync_info [args.num_fine_graphs][NUM_SCALE_LEVELS][5];
+    struct sync_info arr_level_sync_info [args.num_fine_graphs][NUM_SCALE_LEVELS][5];
+    struct sync_info arr_sink_sync_info  [args.num_fine_graphs];
 
     thread** arr_t0  = (thread**) calloc(args.num_fine_graphs, sizeof(std::thread *));
     thread** arr_t1  = (thread**) calloc(args.num_fine_graphs, sizeof(std::thread *));
@@ -2211,7 +2267,18 @@ void App::sched_merge_in_level_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescri
                 }
             }
 
-            params_sizes[num_nodes] = sizeof(struct params_fine_collect_locations);
+            switch (sink_config[i])
+            {
+                case node_E:
+                    params_sizes[num_nodes] = sizeof(struct params_fine_E_collect_locations);
+                    break;
+                case node_none:
+                    params_sizes[num_nodes] = sizeof(struct params_fine_E_collect_locations);
+                    break;
+                default:
+                    fprintf(stdout, "Invalid sink node configuration\n");
+                    break;
+            }
 
             for (unsigned edge_idx = 0; edge_idx < num_nodes+1; edge_idx++)
             {
@@ -2244,8 +2311,8 @@ void App::sched_merge_in_level_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescri
         thread** t7   = arr_t7 + g_idx;
         thread** t8   = arr_t8 + g_idx;
 
-        struct sync_info (* in_sync_info)[5]  = arr_sync_info[((g_idx + args.num_fine_graphs - 1) % args.num_fine_graphs)];
-        struct sync_info (* out_sync_info)[5] = arr_sync_info[g_idx];
+        struct sync_info (* in_sync_info)[5]  = arr_level_sync_info[((g_idx + args.num_fine_graphs - 1) % args.num_fine_graphs)];
+        struct sync_info (* out_sync_info)[5] = arr_level_sync_info[g_idx];
 
         for (unsigned i = 0; i < level_configs.size(); i++) {
             for (unsigned node_idx = 0; node_idx < level_configs[i].size(); node_idx++)
@@ -2254,6 +2321,12 @@ void App::sched_merge_in_level_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescri
                 sync_info_init(&(out_sync_info[i][node_idx]));
             }
         }
+
+        struct sync_info in_sink_sync_info  = arr_sink_sync_info[((g_idx + args.num_fine_graphs - 1) % args.num_fine_graphs)];
+        struct sync_info out_sink_sync_info = arr_sink_sync_info[g_idx];
+
+        sync_info_init(&in_sink_sync_info);
+        sync_info_init(&out_sink_sync_info);
 
         // WCETs and response-time bounds for each node
         float bound_color_convert           = args.non_level_bounds[0];
@@ -2275,11 +2348,12 @@ void App::sched_merge_in_level_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescri
         struct task_info t_info;
         t_info.early = args.early;
         t_info.realtime = args.realtime;
-        t_info.sched = fine_merge_in_level;
+        t_info.sched = configurable;
         t_info.period = period;
         t_info.relative_deadline = period; // use EDF
         t_info.phase = PERIOD * g_idx;
         t_info.id = task_id++;
+        t_info.sink_config = &args.sink_configuration;
         if (args.cluster != -1)
             t_info.cluster = args.cluster;
         else
@@ -2364,16 +2438,20 @@ void App::sched_merge_in_level_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescri
                                                  &(level_nodes[i][node_idx]), fine_init_barrier, t_info);
             }
 
-            float level_end_phase = t_info.phase + + bound_levels[i][num_nodes-1];
+            float level_end_phase = t_info.phase + bound_levels[i][num_nodes-1];
             if (level_end_phase > max_level_end_phase)
             {
                 max_level_end_phase = level_end_phase;
             }
         }
 
+        void* (cv::cuda::HOG::* collect_locations_func)(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info) = \
+            is_sink_E ? &cv::cuda::HOG::thread_fine_E_T : &cv::cuda::HOG::thread_fine_collect_locations;
         t_info.id = task_id++;
         t_info.phase = max_level_end_phase;
-        *t7 = new thread(&cv::cuda::HOG::thread_fine_collect_locations, gpu_hog,
+        t_info.s_info_in = &in_sink_sync_info;
+        t_info.s_info_out = &out_sink_sync_info;
+        *t7 = new thread(collect_locations_func, gpu_hog,
                 &collect_locations_node, fine_init_barrier, t_info);
 
         *t8 = new thread(&App::thread_display, this, &display_node,

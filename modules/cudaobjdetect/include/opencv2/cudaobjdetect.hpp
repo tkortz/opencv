@@ -57,7 +57,7 @@ enum scheduling_option
     coarse_grained,      // 1
     fine_grained,        // 2
     coarse_unrolled,     // 3
-    fine_merge_in_level, // 4
+    configurable,        // 4
     scheduling_option_end,
 };
 
@@ -78,7 +78,8 @@ enum node_config
     node_CDE,   // 12
     node_ABCD,  // 13
     node_BCDE,  // 14
-    node_ABCDE  // 15
+    node_ABCDE, // 15
+    node_none   // 16
 };
 
 struct sync_info
@@ -101,6 +102,7 @@ struct task_info
     bool early;
     struct sync_info *s_info_in;
     struct sync_info *s_info_out;
+    std::vector<node_config> *sink_config;
 };
 
 /* Next, we define period and execution cost to be constant.
@@ -281,6 +283,9 @@ public:
 
     /* five-node entire-level combination */
     virtual void* thread_fine_ABCDE(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0; // resize -> classify hists
+
+    /* sink-node combinations */
+    virtual void* thread_fine_E_T(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0; // classify + collect-locations
 };
 
 //
