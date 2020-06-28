@@ -1214,13 +1214,26 @@ go_ahead:
         CheckError(pgm_get_edges_in(node, in_edge, 1));
         struct params_fine_classify *in_buf = (struct params_fine_classify *)pgm_get_edge_buf_c(*in_edge);
         if (in_buf == NULL)
-            fprintf(stderr, "detect node in buffer is NULL\n");
+            fprintf(stderr, "classify-hists node in buffer is NULL\n");
 
         edge_t *out_edge = (edge_t *)calloc(1, sizeof(edge_t));
         CheckError(pgm_get_edges_out(node, out_edge, 1));
-        struct params_fine_E_collect_locations *out_buf = (struct params_fine_E_collect_locations *)pgm_get_edge_buf_p(*out_edge);
-        if (out_buf == NULL)
-            fprintf(stderr, "detect node out buffer is NULL\n");
+
+        void *out_buf_ptr = NULL;
+        if (t_info.sched == fine_grained)
+        {
+            struct params_fine_collect_locations *out_buf = (struct params_fine_collect_locations *)pgm_get_edge_buf_p(*out_edge);
+            if (out_buf == NULL)
+                fprintf(stderr, "classify-hists node out buffer is NULL\n");
+            out_buf_ptr = out_buf;
+        }
+        else
+        {
+            struct params_fine_E_collect_locations *out_buf = (struct params_fine_E_collect_locations *)pgm_get_edge_buf_p(*out_edge);
+            if (out_buf == NULL)
+                fprintf(stderr, "classify-hists node out buffer is NULL\n");
+            out_buf_ptr = out_buf;
+        }
 
         GpuMat * smaller_img;
         GpuMat * block_hists;
@@ -1310,18 +1323,38 @@ go_ahead:
 
                     block_hists->release();
 
-                    out_buf->gpu_img = in_buf->gpu_img;
-                    out_buf->found = in_buf->found;
-                    out_buf->img_to_show = in_buf->img_to_show;
-                    out_buf->smaller_img = in_buf->smaller_img;
-                    out_buf->level_scale = in_buf->level_scale;
-                    out_buf->block_hists = NULL;
-                    out_buf->confidences = in_buf->confidences;
-                    out_buf->index = in_buf->index;
-                    out_buf->frame_index = in_buf->frame_index;
-                    out_buf->start_time = in_buf->start_time;
 
-                    out_buf->labels = in_buf->labels;
+                    if (t_info.sched == fine_grained)
+                    {
+                        struct params_fine_collect_locations *out_buf = (struct params_fine_collect_locations *)(out_buf_ptr);
+                        out_buf->gpu_img = in_buf->gpu_img;
+                        out_buf->found = in_buf->found;
+                        out_buf->img_to_show = in_buf->img_to_show;
+                        out_buf->smaller_img = in_buf->smaller_img;
+                        out_buf->level_scale = in_buf->level_scale;
+                        out_buf->confidences = in_buf->confidences;
+                        out_buf->index = in_buf->index;
+                        out_buf->frame_index = in_buf->frame_index;
+                        out_buf->start_time = in_buf->start_time;
+
+                        out_buf->labels = in_buf->labels;
+                    }
+                    else
+                    {
+                        struct params_fine_E_collect_locations *out_buf = (struct params_fine_E_collect_locations *)(out_buf_ptr);
+                        out_buf->gpu_img = in_buf->gpu_img;
+                        out_buf->found = in_buf->found;
+                        out_buf->img_to_show = in_buf->img_to_show;
+                        out_buf->smaller_img = in_buf->smaller_img;
+                        out_buf->level_scale = in_buf->level_scale;
+                        out_buf->block_hists = NULL;
+                        out_buf->confidences = in_buf->confidences;
+                        out_buf->index = in_buf->index;
+                        out_buf->frame_index = in_buf->frame_index;
+                        out_buf->start_time = in_buf->start_time;
+
+                        out_buf->labels = in_buf->labels;
+                    }
 
                     CheckError(pgm_complete(node));
 
