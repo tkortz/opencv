@@ -2281,10 +2281,15 @@ void App::sched_configurable_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
         num_total_level_nodes += level_configs[i].size();
     }
 
+    bool is_sink_D = false;
     bool is_sink_E = false;
     for (unsigned i = 0; i < sink_config.size(); i++)
     {
-        if (sink_config[i] != node_none)
+        if (sink_config[i] == node_DE)
+        {
+            is_sink_D = true;
+        }
+        if (sink_config[i] == node_E)
         {
             is_sink_E = true;
         }
@@ -2413,6 +2418,9 @@ void App::sched_configurable_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
 
             switch (sink_config[i])
             {
+                case node_DE:
+                    params_sizes[num_nodes] = sizeof(struct params_fine_normalize);
+                    break;
                 case node_E:
                     params_sizes[num_nodes] = sizeof(struct params_fine_classify);
                     break;
@@ -2588,17 +2596,28 @@ void App::sched_configurable_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
             }
         }
 
-        void* (cv::cuda::HOG::* collect_locations_func)(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info) = \
-            is_sink_E ? &cv::cuda::HOG::thread_fine_E_T : &cv::cuda::HOG::thread_fine_collect_locations;
+        void* (cv::cuda::HOG::* collect_locations_func)(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info);
+        if (is_sink_D)
+        {
+            collect_locations_func = &cv::cuda::HOG::thread_fine_DE_T;
+        }
+        else if (is_sink_E)
+        {
+            collect_locations_func = &cv::cuda::HOG::thread_fine_E_T;
+        }
+        else
+        {
+            collect_locations_func = &cv::cuda::HOG::thread_fine_collect_locations;
+        }
         t_info.id = task_id++;
         t_info.phase = max_level_end_phase;
         t_info.s_info_in = &in_sink_sync_info;
         t_info.s_info_out = &out_sink_sync_info;
         *t7 = new thread(collect_locations_func, gpu_hog,
-                &collect_locations_node, fine_init_barrier, t_info);
+                         &collect_locations_node, fine_init_barrier, t_info);
 
-        *t8 = new thread(&App::thread_display, this, &display_node,
-                fine_init_barrier, g_idx == 0 && args.display);
+        *t8 = new thread(&App::thread_display, this,
+                         &display_node, fine_init_barrier, g_idx == 0 && args.display);
 
         fprintf(stdout, "Created %d tasks\n", task_id);
     }
