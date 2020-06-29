@@ -2281,15 +2281,20 @@ void App::sched_configurable_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
         num_total_level_nodes += level_configs[i].size();
     }
 
+    bool is_sink_C = false;
     bool is_sink_D = false;
     bool is_sink_E = false;
     for (unsigned i = 0; i < sink_config.size(); i++)
     {
-        if (sink_config[i] == node_DE)
+        if (sink_config[i] == node_CDE)
+        {
+            is_sink_C = true;
+        }
+        else if (sink_config[i] == node_DE)
         {
             is_sink_D = true;
         }
-        if (sink_config[i] == node_E)
+        else if (sink_config[i] == node_E)
         {
             is_sink_E = true;
         }
@@ -2418,6 +2423,9 @@ void App::sched_configurable_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
 
             switch (sink_config[i])
             {
+                case node_CDE:
+                    params_sizes[num_nodes] = sizeof(struct params_compute_histograms);
+                    break;
                 case node_DE:
                     params_sizes[num_nodes] = sizeof(struct params_fine_normalize);
                     break;
@@ -2597,7 +2605,11 @@ void App::sched_configurable_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
         }
 
         void* (cv::cuda::HOG::* collect_locations_func)(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info);
-        if (is_sink_D)
+        if (is_sink_C)
+        {
+            collect_locations_func = &cv::cuda::HOG::thread_fine_CDE_T;
+        }
+        else if (is_sink_D)
         {
             collect_locations_func = &cv::cuda::HOG::thread_fine_DE_T;
         }
