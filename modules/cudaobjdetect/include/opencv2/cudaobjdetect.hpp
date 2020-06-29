@@ -285,10 +285,11 @@ public:
     virtual void* thread_fine_ABCDE(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0; // resize -> classify hists
 
     /* sink-node combinations */
-    virtual void* thread_fine_BCDE_T(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0; // compute grads   -> collect-locations
-    virtual void* thread_fine_CDE_T(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0;  // compute hists   -> collect-locations
-    virtual void* thread_fine_DE_T(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0;   // normalize hists -> collect-locations
-    virtual void* thread_fine_E_T(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0;    // classify hists   + collect-locations
+    virtual void* thread_fine_ABCDE_T(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0; // resize          -> collect-locations
+    virtual void* thread_fine_BCDE_T(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0;  // compute grads   -> collect-locations
+    virtual void* thread_fine_CDE_T(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0;   // compute hists   -> collect-locations
+    virtual void* thread_fine_DE_T(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0;    // normalize hists -> collect-locations
+    virtual void* thread_fine_E_T(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0;     // classify hists   + collect-locations
 };
 
 //

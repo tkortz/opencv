@@ -517,7 +517,12 @@ void Args::parseLevelConfig(std::string line, std::vector<std::vector<node_confi
         std::string node_config_str = line.substr(prev_pos, pos - prev_pos);
         node_config node = (node_config) stoi(node_config_str);
 
-        level_config.push_back(node);
+        // If the node is valid, add it (it might be node_none if the entire
+        // level is merged into the node before or after the split)
+        if (node != node_none)
+        {
+            level_config.push_back(node);
+        }
 
         prev_pos = pos + 1;
     } while (pos != string::npos);
@@ -2281,13 +2286,18 @@ void App::sched_configurable_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
         num_total_level_nodes += level_configs[i].size();
     }
 
+    bool is_sink_A = false;
     bool is_sink_B = false;
     bool is_sink_C = false;
     bool is_sink_D = false;
     bool is_sink_E = false;
     for (unsigned i = 0; i < sink_config.size(); i++)
     {
-        if (sink_config[i] == node_BCDE)
+        if (sink_config[i] == node_ABCDE)
+        {
+            is_sink_A = true;
+        }
+        else if (sink_config[i] == node_BCDE)
         {
             is_sink_B = true;
         }
@@ -2428,6 +2438,9 @@ void App::sched_configurable_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
 
             switch (sink_config[i])
             {
+                case node_ABCDE:
+                    params_sizes[num_nodes] = sizeof(struct params_resize);
+                    break;
                 case node_BCDE:
                     params_sizes[num_nodes] = sizeof(struct params_compute_gradients);
                     break;
@@ -2444,7 +2457,7 @@ void App::sched_configurable_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
                     params_sizes[num_nodes] = sizeof(struct params_fine_collect_locations);
                     break;
                 default:
-                    fprintf(stdout, "Invalid sink node configuration\n");
+                    fprintf(stdout, "Invalid sink node configuration for level %d.\n", i);
                     break;
             }
 
@@ -2534,10 +2547,16 @@ void App::sched_configurable_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
                          &compute_scales_node, fine_init_barrier, t_info);
 
         float level_start_phase = PERIOD * g_idx + bound_color_convert + bound_compute_scales;
-        float max_level_end_phase = 0.0f;
+        float max_level_end_phase = level_start_phase;
 
         for (unsigned i = 0; i < NUM_SCALE_LEVELS; i++) {
             unsigned num_nodes = level_configs[i].size();
+
+            if (num_nodes == 0)
+            {
+                continue;
+            }
+
             void* (cv::cuda::HOG::* level_funcs[num_nodes])(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info);
 
             for (unsigned node_idx = 0; node_idx < num_nodes; node_idx++)
@@ -2613,7 +2632,11 @@ void App::sched_configurable_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
         }
 
         void* (cv::cuda::HOG::* collect_locations_func)(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info);
-        if (is_sink_B)
+        if (is_sink_A)
+        {
+            collect_locations_func = &cv::cuda::HOG::thread_fine_ABCDE_T;
+        }
+        else if (is_sink_B)
         {
             collect_locations_func = &cv::cuda::HOG::thread_fine_BCDE_T;
         }
