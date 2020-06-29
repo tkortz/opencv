@@ -2504,7 +2504,6 @@ void App::sched_configurable_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
          */
         unsigned task_id = 0;
         int period = PERIOD * args.num_fine_graphs;
-        int m_cpus = 16;
         struct task_info t_info;
         t_info.early = args.early;
         t_info.realtime = args.realtime;
@@ -2624,7 +2623,8 @@ void App::sched_configurable_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
 
     printf("Joining pthreads...\n");
 
-    for (int g_idx = 0; g_idx < args.num_fine_graphs; g_idx++) {
+    for (int g_idx = 0; g_idx < args.num_fine_graphs; g_idx++)
+    {
         graph_t g = arr_g[g_idx];
 
         thread* t0 = arr_t0[g_idx];
@@ -2659,7 +2659,7 @@ void App::sched_configurable_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
 
     printf("Joining high-priority threads...\n");
 
-    for (int hp_idx; hp_idx < args.hp_task_count; hp_idx++)
+    for (int hp_idx = 0; hp_idx < args.hp_task_count; hp_idx++)
     {
         thread* hp_task = arr_hp[hp_idx];
         hp_task->join();
