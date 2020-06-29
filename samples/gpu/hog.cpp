@@ -291,22 +291,6 @@ struct params_fine_collect_locations
     int64 end_time;
 };
 
-struct params_fine_E_collect_locations
-{
-    cv::cuda::GpuMat * gpu_img;
-    std::vector<Rect> * found;
-    Mat * img_to_show;
-    cv::cuda::GpuMat * smaller_img;
-    cv::cuda::GpuMat * labels;
-    cv::cuda::GpuMat * block_hists;
-    std::vector<double> * level_scale;
-    std::vector<double> * confidences;
-    int index;
-    size_t frame_index;
-    int64 start_time;
-    int64 end_time;
-};
-
 struct params_display
 {
     std::vector<Rect> * found;
@@ -2430,10 +2414,10 @@ void App::sched_configurable_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
             switch (sink_config[i])
             {
                 case node_E:
-                    params_sizes[num_nodes] = sizeof(struct params_fine_E_collect_locations);
+                    params_sizes[num_nodes] = sizeof(struct params_fine_classify);
                     break;
                 case node_none:
-                    params_sizes[num_nodes] = sizeof(struct params_fine_E_collect_locations);
+                    params_sizes[num_nodes] = sizeof(struct params_fine_collect_locations);
                     break;
                 default:
                     fprintf(stdout, "Invalid sink node configuration\n");
