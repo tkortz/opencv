@@ -102,6 +102,7 @@ struct task_info
     bool early;
     struct sync_info *s_info_in;
     struct sync_info *s_info_out;
+    std::vector<node_config> *source_config;
     std::vector<node_config> *sink_config;
 };
 
@@ -283,6 +284,9 @@ public:
 
     /* five-node entire-level combination */
     virtual void* thread_fine_ABCDE(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0; // resize -> classify hists
+
+    /* source-node combinations */
+    virtual void* thread_fine_S_A(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0;     // compute-levels + resize
 
     /* sink-node combinations */
     virtual void* thread_fine_ABCDE_T(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0; // resize          -> collect-locations

@@ -122,6 +122,7 @@ public:
 
     string config_filepath;
     std::vector< std::vector<node_config> > level_configurations;
+    std::vector<node_config> source_configuration;
     std::vector<node_config> sink_configuration;
     std::vector<float> non_level_costs;
     std::vector< std::vector<float> > level_costs;
@@ -136,7 +137,8 @@ public:
 
 private:
     void parseLevelConfig(std::string line, std::vector<std::vector<node_config>> &config);
-    void parseSinkConfig(std::string line, std::vector<node_config> &config);
+    void parseSourceSinkConfig(std::string line, std::vector<node_config> &config);
+
     void parseNonLevelCosts(std::string line, std::vector<float> &costs);
     void parseLevelCosts(std::string line, std::vector<std::vector<float>> &costs);
 
@@ -492,6 +494,12 @@ Args::Args()
         non_level_bounds.push_back(0.0f);
     }
 
+    // Default to not merging with the source ("compute scale levels")
+    for (unsigned  i = 0; i < NUM_SCALE_LEVELS; i++)
+    {
+        source_configuration.push_back(node_none);
+    }
+
     // Default to not merging with the sink ("collect locations")
     for (unsigned  i = 0; i < NUM_SCALE_LEVELS; i++)
     {
@@ -530,7 +538,7 @@ void Args::parseLevelConfig(std::string line, std::vector<std::vector<node_confi
     config.push_back(level_config);
 }
 
-void Args::parseSinkConfig(std::string line, std::vector<node_config> &config)
+void Args::parseSourceSinkConfig(std::string line, std::vector<node_config> &config)
 {
     size_t pos = line.find(" ", 0);
 
@@ -599,11 +607,13 @@ void Args::parseGraphConfiguration(char *filepath)
     std::ifstream infile(filepath);
 
     std::vector< std::vector<node_config> > config;
+
     std::vector<float> other_costs;
     std::vector< std::vector<float> > costs;
     std::vector<float> other_bounds;
     std::vector< std::vector<float> > bounds;
 
+    std::vector<node_config> source_config(NUM_SCALE_LEVELS, node_none);
     std::vector<node_config> sink_config(NUM_SCALE_LEVELS, node_none);
 
     // Loop until the end of the file is reached
@@ -618,9 +628,13 @@ void Args::parseGraphConfiguration(char *filepath)
         {
             this->parseLevelConfig(line.substr(pos+1), config);
         }
+        else if (token == "S")
+        {
+            this->parseSourceSinkConfig(line.substr(pos+1), source_config);
+        }
         else if (token == "T")
         {
-            this->parseSinkConfig(line.substr(pos+1), sink_config);
+            this->parseSourceSinkConfig(line.substr(pos+1), sink_config);
         }
         else if (token == "C")
         {
@@ -645,6 +659,8 @@ void Args::parseGraphConfiguration(char *filepath)
     }
 
     this->level_configurations = config;
+
+    this->source_configuration = source_config;
     this->sink_configuration = sink_config;
 
     this->non_level_costs = other_costs;
@@ -2278,12 +2294,22 @@ inline string App::workFps() const
 void App::sched_configurable_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog, Mat* frames)
 {
     const std::vector< std::vector<node_config> > &level_configs = args.level_configurations;
+    const std::vector<node_config> &source_config = args.source_configuration;
     const std::vector<node_config> &sink_config = args.sink_configuration;
 
     unsigned num_total_level_nodes = 0;
     for (unsigned i = 0; i < level_configs.size(); i++)
     {
         num_total_level_nodes += level_configs[i].size();
+    }
+
+    bool is_source_A = false;
+    for (unsigned i = 0; i < source_config.size(); i++)
+    {
+        if (source_config[i] == node_A)
+        {
+            is_source_A = true;
+        }
     }
 
     bool is_sink_A = false;
@@ -2321,8 +2347,9 @@ void App::sched_configurable_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
     graph_t arr_g [args.num_fine_graphs];
 
     // Not all sync info structs will be used
-    struct sync_info arr_level_sync_info [args.num_fine_graphs][NUM_SCALE_LEVELS][5];
-    struct sync_info arr_sink_sync_info  [args.num_fine_graphs];
+    struct sync_info arr_level_sync_info  [args.num_fine_graphs][NUM_SCALE_LEVELS][5];
+    struct sync_info arr_source_sync_info [args.num_fine_graphs];
+    struct sync_info arr_sink_sync_info   [args.num_fine_graphs];
 
     thread** arr_t0  = (thread**) calloc(args.num_fine_graphs, sizeof(std::thread *));
     thread** arr_t1  = (thread**) calloc(args.num_fine_graphs, sizeof(std::thread *));
@@ -2503,6 +2530,12 @@ void App::sched_configurable_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
             }
         }
 
+        struct sync_info in_source_sync_info  = arr_source_sync_info[((g_idx + args.num_fine_graphs - 1) % args.num_fine_graphs)];
+        struct sync_info out_source_sync_info = arr_source_sync_info[g_idx];
+
+        sync_info_init(&in_source_sync_info);
+        sync_info_init(&out_source_sync_info);
+
         struct sync_info in_sink_sync_info  = arr_sink_sync_info[((g_idx + args.num_fine_graphs - 1) % args.num_fine_graphs)];
         struct sync_info out_sink_sync_info = arr_sink_sync_info[g_idx];
 
@@ -2533,6 +2566,7 @@ void App::sched_configurable_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
         t_info.relative_deadline = period; // use EDF
         t_info.phase = PERIOD * g_idx;
         t_info.id = task_id++;
+        t_info.source_config = &args.source_configuration;
         t_info.sink_config = &args.sink_configuration;
         if (args.cluster != -1)
             t_info.cluster = args.cluster;
@@ -2541,9 +2575,20 @@ void App::sched_configurable_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
         *t0 = new thread(&App::thread_color_convert, this,
                          &color_convert_node, fine_init_barrier, gpu_hog, cpu_hog, frames, t_info, g_idx);
 
+        void* (cv::cuda::HOG::* compute_scales_func)(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info);
+        if (is_source_A)
+        {
+            compute_scales_func = &cv::cuda::HOG::thread_fine_S_A;
+        }
+        else
+        {
+            compute_scales_func = &cv::cuda::HOG::thread_fine_compute_scales;
+        }
         t_info.id = task_id++;
         t_info.phase = t_info.phase + bound_color_convert;
-        *t1 = new thread(&cv::cuda::HOG::thread_fine_compute_scales, gpu_hog,
+        t_info.s_info_in = &in_source_sync_info;
+        t_info.s_info_out = &out_source_sync_info;
+        *t1 = new thread(compute_scales_func, gpu_hog,
                          &compute_scales_node, fine_init_barrier, t_info);
 
         float level_start_phase = PERIOD * g_idx + bound_color_convert + bound_compute_scales;

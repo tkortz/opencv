@@ -272,6 +272,9 @@ namespace
         /* five-node entire-level combination */
         void* thread_fine_ABCDE(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info); // resize -> classify hists
 
+        /* source-node combinations */
+        void* thread_fine_S_A(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info);     // compute-levels + resize
+
         /* sink-node combinations */
         void* thread_fine_ABCDE_T(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info); // resize          -> collect-locations
         void* thread_fine_BCDE_T(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info);  // compute grads   -> collect-locations
@@ -3815,6 +3818,217 @@ go_ahead:
         free(in_edge);
         free(out_edge);
 
+        if (t_info.realtime)
+            CALL( task_mode(BACKGROUND_TASK) );
+        pthread_exit(0);
+    }
+
+    void* HOG_Impl::thread_fine_S_A(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info)
+    {
+        fprintf(stdout, "node name: compute_scales+resize, task id: %d, node tid: %d\n", t_info.id, gettid());
+        node_t node = *_node;
+#ifdef LOG_DEBUG
+        char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
+        tabbuf[node.node] = '\0';
+#endif
+
+        CheckError(pgm_claim_node(node));
+
+        int ret = 0;
+
+        edge_t *in_edge = (edge_t *)calloc(1, sizeof(edge_t));
+        CheckError(pgm_get_edges_in(node, in_edge, 1));
+        struct params_compute *in_buf = (struct params_compute *)pgm_get_edge_buf_c(*in_edge);
+        if (in_buf == NULL)
+            fprintf(stderr, "compute_scales+resize node in buffer is NULL\n");
+
+        edge_t *out_edges = (edge_t *)calloc(NUM_SCALE_LEVELS, sizeof(edge_t));
+        CheckError(pgm_get_edges_out(node, out_edges, NUM_SCALE_LEVELS));
+        void **out_buf_ptrs = (void **)calloc(NUM_SCALE_LEVELS, sizeof(void *));
+        for (int i = 0; i < NUM_SCALE_LEVELS; i++) {
+            out_buf_ptrs[i] = (void *)pgm_get_edge_buf_p(out_edges[i]);
+            if (out_buf_ptrs[i] == NULL)
+                fprintf(stderr, "compute_scales+resize node out buffer is NULL\n");
+        }
+
+        Stream stream;
+        cv::Size blocks_per_win = numPartsWithin(win_size_, block_size_, block_stride_);
+        GpuMat * gpu_img;
+        std::vector<double>* confidences;
+        std::vector<double> * level_scale;
+        double scale = 1.0;
+        int levels = 0;
+
+        hog::set_up_constants(nbins_,
+                              block_stride_.width, block_stride_.height,
+                              blocks_per_win.width, blocks_per_win.height,
+                              cells_per_block_.width, cells_per_block_.height,
+                              StreamAccessor::getStream(stream));
+        cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
+
+        const std::vector<node_config> &source_config = *t_info.source_config;
+
+        pthread_barrier_wait(init_barrier);
+
+        struct rt_task param;
+        if (t_info.realtime) {
+            set_up_litmus_task(t_info, param);
+        }
+
+        if(!hog_errors)
+        {
+            do {
+                ret = pgm_wait(node);
+
+                if(ret != PGM_TERMINATE)
+                {
+                    CheckError(ret);
+#ifdef LOG_DEBUG
+                    fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
+#endif
+
+                    /* ===========================
+                     * compute scale levels
+                     */
+                    gpu_img = in_buf->gpu_img;
+                    confidences = NULL;
+
+                    CV_Assert( gpu_img->type() == CV_8UC1 || gpu_img->type() == CV_8UC4 );
+                    CV_Assert( confidences == NULL || group_threshold_ == 0 );
+
+                    level_scale = new std::vector<double>();
+                    scale = 1.0;
+                    levels = 0;
+                    for (levels = 0; levels < nlevels_; levels++)
+                    {
+                        level_scale->push_back(scale);
+
+                        if (cvRound(gpu_img->cols / scale) < win_size_.width ||
+                                cvRound(gpu_img->rows / scale) < win_size_.height ||
+                                scale0_ <= 1)
+                        {
+                            break;
+                        }
+
+                        scale *= scale0_;
+                    }
+                    levels = std::max(levels, 1);
+                    level_scale->resize(levels);
+
+                    BufferPool pool(stream);
+
+                    GpuMat * smaller_img_array = new GpuMat[level_scale->size()];
+                    GpuMat * labels_array = new GpuMat[level_scale->size()];
+
+                    for (size_t level_idx = 0; level_idx < level_scale->size(); level_idx++)
+                    {
+                        // Compute a scale level
+                        GpuMat * smaller_img = smaller_img_array + level_idx;
+                        GpuMat * labels = labels_array + level_idx;
+
+                        if (detector_.empty())
+                            break;
+
+                        scale = (*level_scale)[level_idx];
+
+                        Size sz(cvRound(gpu_img->cols / scale), cvRound(gpu_img->rows / scale));
+
+                        if (sz == gpu_img->size())
+                        {
+                            *smaller_img = *gpu_img;
+                        }
+                        else
+                        {
+                            *smaller_img = pool.getBuffer(sz, gpu_img->type());
+                        }
+
+                        bool do_resize = false;
+
+                        switch(source_config[level_idx])
+                        {
+                            case node_A:
+                                do_resize = true;
+                                break;
+                            default:
+                                break;
+                        }
+
+                        if (!do_resize)
+                        {
+                            struct params_resize *out_buf = (struct params_resize *)out_buf_ptrs[level_idx];
+                            out_buf->gpu_img = in_buf->gpu_img;
+                            out_buf->found = in_buf->found;
+                            out_buf->img_to_show = in_buf->img_to_show;
+                            out_buf->smaller_img = smaller_img;
+                            out_buf->labels = labels;
+                            out_buf->level_scale = level_scale;
+                            out_buf->confidences = confidences;
+                            out_buf->index = level_idx;
+                            out_buf->frame_index = in_buf->frame_index;
+                            out_buf->start_time = in_buf->start_time;
+                        }
+
+                        if (do_resize)
+                        {
+                            /* ===========================
+                            * resize image
+                            */
+                            if (smaller_img->size() != gpu_img->size())
+                            {
+                                switch (gpu_img->type())
+                                {
+                                    case CV_8UC1: hog::resize_8UC1_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index); break;
+                                    case CV_8UC4: hog::resize_8UC4_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index); break;
+                                }
+                            }
+
+                            CV_Assert( smaller_img->type() == CV_8UC1 || smaller_img->type() == CV_8UC4 );
+                            CV_Assert( win_stride_.width % block_stride_.width == 0 && win_stride_.height % block_stride_.height == 0 );
+                            /*
+                            * end of resize image
+                            * =========================== */
+
+                            struct params_compute_gradients *out_buf = (struct params_compute_gradients *)out_buf_ptrs[level_idx];
+
+                            out_buf->gpu_img = in_buf->gpu_img;
+                            out_buf->found = in_buf->found;
+                            out_buf->img_to_show = in_buf->img_to_show;
+                            out_buf->smaller_img = smaller_img;
+                            out_buf->labels = labels;
+                            out_buf->level_scale = level_scale;
+                            out_buf->confidences = confidences;
+                            out_buf->index = level_idx;
+                            out_buf->frame_index = in_buf->frame_index;
+                            out_buf->start_time = in_buf->start_time;
+                        }
+                    }
+
+                    CheckError(pgm_complete(node));
+
+                    if (t_info.realtime)
+                        sleep_next_period(); /* this calls the system call sys_complete_job. With early releasing, this shouldn't block.*/
+                    /*
+                     * end of compute scale levels
+                     * =========================== */
+                }
+                else
+                {
+#ifdef LOG_DEBUG
+                    fprintf(stdout, "%s- %d terminates\n", tabbuf, node.node);
+#endif
+                    //pgm_terminate(node);
+                }
+
+            } while(ret != PGM_TERMINATE);
+        }
+
+        pthread_barrier_wait(init_barrier);
+
+        CheckError(pgm_release_node(node));
+
+        free(in_edge);
+        free(out_edges);
+        free(out_buf_ptrs);
         if (t_info.realtime)
             CALL( task_mode(BACKGROUND_TASK) );
         pthread_exit(0);
