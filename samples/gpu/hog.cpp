@@ -2306,6 +2306,7 @@ void App::sched_configurable_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
     bool is_source_A = false;
     bool is_source_B = false;
     bool is_source_C = false;
+    bool is_source_D = false;
     for (unsigned i = 0; i < source_config.size(); i++)
     {
         if (source_config[i] == node_A)
@@ -2319,6 +2320,10 @@ void App::sched_configurable_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
         else if (source_config[i] == node_ABC)
         {
             is_source_C = true;
+        }
+        else if (source_config[i] == node_ABCD)
+        {
+            is_source_D = true;
         }
     }
 
@@ -2586,7 +2591,11 @@ void App::sched_configurable_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
                          &color_convert_node, fine_init_barrier, gpu_hog, cpu_hog, frames, t_info, g_idx);
 
         void* (cv::cuda::HOG::* compute_scales_func)(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info);
-        if (is_source_C)
+        if (is_source_D)
+        {
+            compute_scales_func = &cv::cuda::HOG::thread_fine_S_ABCD;
+        }
+        else if (is_source_C)
         {
             compute_scales_func = &cv::cuda::HOG::thread_fine_S_ABC;
         }
