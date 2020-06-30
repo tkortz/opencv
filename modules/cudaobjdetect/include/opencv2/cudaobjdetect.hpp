@@ -288,6 +288,7 @@ public:
     /* source-node combinations */
     virtual void* thread_fine_S_A(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0;     // compute-levels +  resize
     virtual void* thread_fine_S_AB(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0;    // compute-levels -> compute grads
+    virtual void* thread_fine_S_ABC(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0;   // compute-levels -> compute hists
 
     /* sink-node combinations */
     virtual void* thread_fine_ABCDE_T(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0; // resize          -> collect-locations
