@@ -290,6 +290,7 @@ public:
     virtual void* thread_fine_S_AB(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0;    // compute-levels -> compute grads
     virtual void* thread_fine_S_ABC(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0;   // compute-levels -> compute hists
     virtual void* thread_fine_S_ABCD(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0;  // compute-levels -> normalize hists
+    virtual void* thread_fine_S_ABCDE(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0; // compute-levels -> classify hists
 
     /* sink-node combinations */
     virtual void* thread_fine_ABCDE_T(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0; // resize          -> collect-locations
