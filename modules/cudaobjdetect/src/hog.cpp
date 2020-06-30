@@ -88,6 +88,8 @@ if(__ret < 0) { \
             pthread_self(), __ret, errstr, errno, __FILE__, __FUNCTION__, __LINE__); \
 }}while(0)
 
+//#define LOG_NODE_MERGING
+
 #if !defined (HAVE_CUDA) || defined (CUDA_DISABLER)
 
 Ptr<cuda::HOG> cv::cuda::HOG::create(Size, Size, Size, Size, int) { throw_no_cuda(); return Ptr<cuda::HOG>(); }
@@ -3974,6 +3976,10 @@ go_ahead:
 
                         if (do_resize)
                         {
+#ifdef LOG_NODE_MERGING
+                            fprintf(stdout, "[S] Resizing for level %d.\n", level_idx);
+#endif
+
                             if (t_info.sched == configurable && t_info.early)
                                 gpu_period_guard(t_info.s_info_in, t_info.s_info_out);
 
@@ -4193,6 +4199,9 @@ go_ahead:
 
                         if (do_resize)
                         {
+#ifdef LOG_NODE_MERGING
+                            fprintf(stdout, "[S] Resizing for level %d.\n", level_idx);
+#endif
                             if (t_info.sched == configurable && t_info.early)
                                 gpu_period_guard(t_info.s_info_in, t_info.s_info_out);
 
@@ -4236,6 +4245,10 @@ go_ahead:
 
                         if (do_compute_grads)
                         {
+#ifdef LOG_NODE_MERGING
+                            fprintf(stdout, "[S] Computing gradients for level %d.\n", level_idx);
+#endif
+
                             /* ===========================
                             * compute gradients
                             */
@@ -4475,6 +4488,10 @@ go_ahead:
 
                         if (do_resize)
                         {
+#ifdef LOG_NODE_MERGING
+                            fprintf(stdout, "[S] Resizing for level %d.\n", level_idx);
+#endif
+
                             if (t_info.sched == configurable && t_info.early)
                                 gpu_period_guard(t_info.s_info_in, t_info.s_info_out);
 
@@ -4518,6 +4535,10 @@ go_ahead:
 
                         if (do_compute_grads)
                         {
+#ifdef LOG_NODE_MERGING
+                            fprintf(stdout, "[S] Computing gradients for level %d.\n", level_idx);
+#endif
+
                             /* ===========================
                             * compute gradients
                             */
@@ -4574,6 +4595,10 @@ go_ahead:
 
                         if (do_compute_hists)
                         {
+#ifdef LOG_NODE_MERGING
+                            fprintf(stdout, "[S] Computing histograms for level %d.\n", level_idx);
+#endif
+
                             block_hists = new GpuMat();
 
                             /* ===========================
@@ -4809,6 +4834,10 @@ go_ahead:
 
                         if (do_resize)
                         {
+#ifdef LOG_NODE_MERGING
+                            fprintf(stdout, "[S] Resizing for level %d.\n", level_idx);
+#endif
+
                             if (t_info.sched == configurable && t_info.early)
                                 gpu_period_guard(t_info.s_info_in, t_info.s_info_out);
 
@@ -4852,6 +4881,10 @@ go_ahead:
 
                         if (do_compute_grads)
                         {
+#ifdef LOG_NODE_MERGING
+                            fprintf(stdout, "[S] Computing gradients for level %d.\n", level_idx);
+#endif
+
                             /* ===========================
                             * compute gradients
                             */
@@ -4908,6 +4941,10 @@ go_ahead:
 
                         if (do_compute_hists)
                         {
+#ifdef LOG_NODE_MERGING
+                            fprintf(stdout, "[S] Computing histograms for level %d.\n", level_idx);
+#endif
+
                             block_hists = new GpuMat();
 
                             /* ===========================
@@ -4951,6 +4988,10 @@ go_ahead:
 
                         if (do_normalize_hists)
                         {
+#ifdef LOG_NODE_MERGING
+                            fprintf(stdout, "[S] Normalizing histograms for level %d.\n", level_idx);
+#endif
+
                             /* ===========================
                             * normalize histograms
                             */
@@ -5186,6 +5227,10 @@ go_ahead:
 
                         if (do_resize)
                         {
+#ifdef LOG_NODE_MERGING
+                            fprintf(stdout, "[S] Resizing for level %d.\n", level_idx);
+#endif
+
                             if (t_info.sched == configurable && t_info.early)
                                 gpu_period_guard(t_info.s_info_in, t_info.s_info_out);
 
@@ -5229,6 +5274,10 @@ go_ahead:
 
                         if (do_compute_grads)
                         {
+#ifdef LOG_NODE_MERGING
+                            fprintf(stdout, "[S] Computing gradients for level %d.\n", level_idx);
+#endif
+
                             /* ===========================
                             * compute gradients
                             */
@@ -5285,6 +5334,10 @@ go_ahead:
 
                         if (do_compute_hists)
                         {
+#ifdef LOG_NODE_MERGING
+                            fprintf(stdout, "[S] Computing histograms for level %d.\n", level_idx);
+#endif
+
                             block_hists = new GpuMat();
 
                             /* ===========================
@@ -5328,6 +5381,10 @@ go_ahead:
 
                         if (do_normalize_hists)
                         {
+#ifdef LOG_NODE_MERGING
+                            fprintf(stdout, "[S] Normalizing histograms for level %d.\n", level_idx);
+#endif
+
                             /* ===========================
                             * normalize histograms
                             */
@@ -5363,6 +5420,10 @@ go_ahead:
 
                         if (do_classify_hists)
                         {
+#ifdef LOG_NODE_MERGING
+                            fprintf(stdout, "[S] Classifying histograms for level %d.\n", level_idx);
+#endif
+
                             /* ===========================
                             * classify
                             */
@@ -5533,6 +5594,10 @@ go_ahead:
                         }
 
                         a_level_to_process = level_idx;
+
+#ifdef LOG_NODE_MERGING
+                        fprintf(stdout, "[T] Classifying histograms for level %d.\n", level_idx);
+#endif
 
                         struct params_fine_classify * in_buf = (struct params_fine_classify *)in_buf_ptrs[level_idx];
 
@@ -5796,6 +5861,10 @@ go_ahead:
 
                         if (do_normalize_hists)
                         {
+#ifdef LOG_NODE_MERGING
+                            fprintf(stdout, "[T] Normalizing histograms for level %d.\n", level_idx);
+#endif
+
                             struct params_fine_normalize *in_buf = (struct params_fine_normalize *)in_buf_ptrs[level_idx];
 
                             smaller_img = in_buf->smaller_img;
@@ -5835,6 +5904,10 @@ go_ahead:
                             confidences = in_buf->confidences;
                             labels = in_buf->labels;
                         }
+
+#ifdef LOG_NODE_MERGING
+                        fprintf(stdout, "[T] Classifying histograms for level %d.\n", level_idx);
+#endif
 
                         /* ===========================
                         * classify
@@ -6098,6 +6171,10 @@ go_ahead:
 
                         if (do_compute_hists)
                         {
+#ifdef LOG_NODE_MERGING
+                            fprintf(stdout, "[T] Computing histograms for level %d.\n", level_idx);
+#endif
+
                             struct params_compute_histograms *in_buf = (struct params_compute_histograms *)in_buf_ptrs[level_idx];
 
                             smaller_img = in_buf->smaller_img;
@@ -6135,6 +6212,10 @@ go_ahead:
 
                         if (do_normalize_hists)
                         {
+#ifdef LOG_NODE_MERGING
+                            fprintf(stdout, "[T] Normalizing histograms for level %d.\n", level_idx);
+#endif
+
                             if (!do_compute_hists)
                             {
                                 struct params_fine_normalize *in_buf = (struct params_fine_normalize *)in_buf_ptrs[level_idx];
@@ -6180,6 +6261,10 @@ go_ahead:
                             confidences = in_buf->confidences;
                             labels = in_buf->labels;
                         }
+
+#ifdef LOG_NODE_MERGING
+                        fprintf(stdout, "[T] Classifying histograms for level %d.\n", level_idx);
+#endif
 
                         /* ===========================
                         * classify
@@ -6449,6 +6534,10 @@ go_ahead:
 
                         if (do_compute_grads)
                         {
+#ifdef LOG_NODE_MERGING
+                            fprintf(stdout, "[T] Computing gradients for level %d.\n", level_idx);
+#endif
+
                             struct params_compute_gradients *in_buf = (struct params_compute_gradients *)in_buf_ptrs[level_idx];
 
                             smaller_img = in_buf->smaller_img;
@@ -6494,6 +6583,10 @@ go_ahead:
 
                         if (do_compute_hists)
                         {
+#ifdef LOG_NODE_MERGING
+                            fprintf(stdout, "[T] Computing histograms for level %d.\n", level_idx);
+#endif
+
                             if (!do_compute_grads)
                             {
                                 struct params_compute_histograms *in_buf = (struct params_compute_histograms *)in_buf_ptrs[level_idx];
@@ -6537,6 +6630,10 @@ go_ahead:
 
                         if (do_normalize_hists)
                         {
+#ifdef LOG_NODE_MERGING
+                            fprintf(stdout, "[T] Normalizing histograms for level %d.\n", level_idx);
+#endif
+
                             if (!do_compute_hists)
                             {
                                 struct params_fine_normalize *in_buf = (struct params_fine_normalize *)in_buf_ptrs[level_idx];
@@ -6582,6 +6679,10 @@ go_ahead:
                             confidences = in_buf->confidences;
                             labels = in_buf->labels;
                         }
+
+#ifdef LOG_NODE_MERGING
+                        fprintf(stdout, "[T] Classifying histograms for level %d.\n", level_idx);
+#endif
 
                         /* ===========================
                         * classify
@@ -6863,6 +6964,10 @@ go_ahead:
 
                         if (do_resize)
                         {
+#ifdef LOG_NODE_MERGING
+                            fprintf(stdout, "[T] Resizing for level %d.\n", level_idx);
+#endif
+
                             struct params_resize *in_buf = (struct params_resize *)in_buf_ptrs[level_idx];
 
                             smaller_img = in_buf->smaller_img;
@@ -6894,6 +6999,10 @@ go_ahead:
 
                         if (do_compute_grads)
                         {
+#ifdef LOG_NODE_MERGING
+                            fprintf(stdout, "[T] Computing gradients for level %d.\n", level_idx);
+#endif
+
                             if (!do_resize)
                             {
                                 struct params_compute_gradients *in_buf = (struct params_compute_gradients *)in_buf_ptrs[level_idx];
@@ -6945,6 +7054,10 @@ go_ahead:
 
                         if (do_compute_hists)
                         {
+#ifdef LOG_NODE_MERGING
+                            fprintf(stdout, "[T] Computing histograms for level %d.\n", level_idx);
+#endif
+
                             if (!do_compute_grads)
                             {
                                 struct params_compute_histograms *in_buf = (struct params_compute_histograms *)in_buf_ptrs[level_idx];
@@ -6988,6 +7101,10 @@ go_ahead:
 
                         if (do_normalize_hists)
                         {
+#ifdef LOG_NODE_MERGING
+                            fprintf(stdout, "[T] Normalizing histograms for level %d.\n", level_idx);
+#endif
+
                             if (!do_compute_hists)
                             {
                                 struct params_fine_normalize *in_buf = (struct params_fine_normalize *)in_buf_ptrs[level_idx];
@@ -7033,6 +7150,10 @@ go_ahead:
                             confidences = in_buf->confidences;
                             labels = in_buf->labels;
                         }
+
+#ifdef LOG_NODE_MERGING
+                        fprintf(stdout, "[T] Classifying histograms for level %d.\n", level_idx);
+#endif
 
                         /* ===========================
                         * classify
