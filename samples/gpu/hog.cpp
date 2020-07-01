@@ -114,6 +114,7 @@ public:
     scheduling_option sched;
     int count;
     bool display;
+    int num_hog_inst;
     int num_fine_graphs;
     int cluster;
     int task_id;
@@ -466,6 +467,7 @@ Args::Args()
 
     sched = fine_grained;
     count = 1000;
+    num_hog_inst = 1;
     num_fine_graphs = 1;
     display = false;
     cluster = -1;
@@ -718,6 +720,12 @@ Args Args::read(int argc, char** argv)
         else if (string(argv[i]) == "--graph_bound") {
             int bound = atoi(argv[++i]);
             args.num_fine_graphs = (bound - 1) / PERIOD + 1; // floor
+        }
+        else if (string(argv[i]) == "--num_inst") {
+            int num_inst = atoi(argv[++i]);
+            if (num_inst <= 0)
+                throw runtime_error((string("non-positive number of HOG instances: ") + argv[i]));
+            args.num_hog_inst = num_inst;
         }
         else if (string(argv[i]) == "--cluster") { args.cluster = atoi(argv[++i]); }
         else if (string(argv[i]) == "--id") { args.task_id = atoi(argv[++i]); }
@@ -2374,406 +2382,441 @@ void App::sched_configurable_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
         hp_threads.push_back(hp_thread);
     }
 
-    pthread_barrier_t arr_fine_init_barrier[args.num_fine_graphs];
-
-    /* graph construction */
-    graph_t arr_g [args.num_fine_graphs];
-
-    // Not all sync info structs will be used
-    struct sync_info arr_level_sync_info  [args.num_fine_graphs][NUM_SCALE_LEVELS][5];
-    struct sync_info arr_source_sync_info [args.num_fine_graphs];
-    struct sync_info arr_sink_sync_info   [args.num_fine_graphs];
-
-    // Store pointers to the threads for joining later
-    std::vector< std::vector<thread *> > inst_threads;
-
     // Create the graphs
     char buf[30];
     sprintf(buf, "/tmp/graph_t%d", args.task_id);
     CheckError(pgm_init(buf, 1));
 
-    for (int g_idx = 0; g_idx < args.num_fine_graphs; g_idx++)
+    /* graph construction */
+    graph_t arr_arr_g [args.num_hog_inst][args.num_fine_graphs];
+
+    pthread_barrier_t arr_arr_fine_init_barrier[args.num_hog_inst][args.num_fine_graphs];
+
+    // Not all sync info structs will be used
+    struct sync_info arr_arr_level_sync_info  [args.num_hog_inst][args.num_fine_graphs][NUM_SCALE_LEVELS][5];
+    struct sync_info arr_arr_source_sync_info [args.num_hog_inst][args.num_fine_graphs];
+    struct sync_info arr_arr_sink_sync_info   [args.num_hog_inst][args.num_fine_graphs];
+
+    // Store pointers to the threads for joining later
+    std::vector< std::vector< std::vector<thread *> > > all_threads;
+
+    for (unsigned inst_idx = 0; inst_idx < args.num_hog_inst; inst_idx++)
     {
-        fprintf(stderr, "\nInitializing graph %d\n", g_idx);
+        fprintf(stderr, "\nInitializing instance %d\n", inst_idx);
 
-        pthread_barrier_t* fine_init_barrier = arr_fine_init_barrier + g_idx;
+        /* graph construction */
+        graph_t *arr_g = arr_arr_g[inst_idx];
 
-        // A graph consists of the graph itself, nodes, and edges
-        graph_t* g_ptr = arr_g + g_idx;
+        pthread_barrier_t *arr_fine_init_barrier = arr_arr_fine_init_barrier[inst_idx];
 
-        node_t color_convert_node;
-        node_t compute_scales_node;
-        node_t level_nodes [NUM_SCALE_LEVELS][5];
-        node_t collect_locations_node;
-        node_t display_node;
+        // Sync info to keep job execution in order
+        struct sync_info (*arr_level_sync_info)[NUM_SCALE_LEVELS][5] = arr_arr_level_sync_info[inst_idx];
+        struct sync_info (*arr_source_sync_info) = arr_arr_source_sync_info[inst_idx];
+        struct sync_info (*arr_sink_sync_info) = arr_arr_sink_sync_info[inst_idx];
 
-        edge_t e0_1;
-        edge_t level_edges [NUM_SCALE_LEVELS][6];
-        edge_t e7_8;
+        // Store pointers to the threads for joining later
+        std::vector< std::vector<thread *> > inst_threads;
 
-        // Initialize the graph
-        sprintf(buf, "hog_%d", g_idx);
-        CheckError(pgm_init_graph(g_ptr, buf));
-        graph_t g = *g_ptr;
-
-        // Initialize the nodes
-        const char* level_node_names[] = { "node_1st", "node_2nd", "node_3rd", "node_4th", "node_5th" };
-        CheckError(pgm_init_node(&color_convert_node, g, "color_convert"));
-        CheckError(pgm_init_node(&compute_scales_node, g, "compute_scales"));
-        for (unsigned i = 0; i < NUM_SCALE_LEVELS; i++)
+        for (int g_idx = 0; g_idx < args.num_fine_graphs; g_idx++)
         {
-            unsigned int num_nodes = level_configs[i].size();
-            for (unsigned node_idx = 0; node_idx < num_nodes; node_idx++)
+            fprintf(stderr, "Initializing graph %d\n", g_idx);
+
+            pthread_barrier_t* fine_init_barrier = arr_fine_init_barrier + g_idx;
+
+            // A graph consists of the graph itself, nodes, and edges
+            graph_t* g_ptr = arr_g + g_idx;
+
+            node_t color_convert_node;
+            node_t compute_scales_node;
+            node_t level_nodes [NUM_SCALE_LEVELS][5];
+            node_t collect_locations_node;
+            node_t display_node;
+
+            edge_t e0_1;
+            edge_t level_edges [NUM_SCALE_LEVELS][6];
+            edge_t e7_8;
+
+            // Initialize the graph
+            sprintf(buf, "hog_%d", g_idx);
+            CheckError(pgm_init_graph(g_ptr, buf));
+            graph_t g = *g_ptr;
+
+            // Initialize the nodes
+            const char* level_node_names[] = { "node_1st", "node_2nd", "node_3rd", "node_4th", "node_5th" };
+            CheckError(pgm_init_node(&color_convert_node, g, "color_convert"));
+            CheckError(pgm_init_node(&compute_scales_node, g, "compute_scales"));
+            for (unsigned i = 0; i < NUM_SCALE_LEVELS; i++)
             {
-                CheckError(pgm_init_node(&(level_nodes[i][node_idx]), g, level_node_names[node_idx]));
+                unsigned int num_nodes = level_configs[i].size();
+                for (unsigned node_idx = 0; node_idx < num_nodes; node_idx++)
+                {
+                    CheckError(pgm_init_node(&(level_nodes[i][node_idx]), g, level_node_names[node_idx]));
+                }
             }
-        }
-        CheckError(pgm_init_node(&collect_locations_node, g, "collect_locations"));
-        CheckError(pgm_init_node(&display_node, g, "display"));
+            CheckError(pgm_init_node(&collect_locations_node, g, "collect_locations"));
+            CheckError(pgm_init_node(&display_node, g, "display"));
 
-        // Initialize the edges
-        const char* level_edge_name_formats[] = { "e1_1st_%d", "e1st_2nd_%d", "e2nd_3rd_%d", "e3rd_4th_%d", "e4th_5th_%d", "e5th_7_%d" };
-        edge_attr_t fast_mq_attr;
-        memset(&fast_mq_attr, 0, sizeof(fast_mq_attr));
-        fast_mq_attr.type = pgm_fast_fifo_edge;
+            // Initialize the edges
+            const char* level_edge_name_formats[] = { "e1_1st_%d", "e1st_2nd_%d", "e2nd_3rd_%d", "e3rd_4th_%d", "e4th_5th_%d", "e5th_7_%d" };
+            edge_attr_t fast_mq_attr;
+            memset(&fast_mq_attr, 0, sizeof(fast_mq_attr));
+            fast_mq_attr.type = pgm_fast_fifo_edge;
 
-        fast_mq_attr.nr_produce = sizeof(struct params_compute);
-        fast_mq_attr.nr_consume = sizeof(struct params_compute);
-        fast_mq_attr.nr_threshold = sizeof(struct params_compute);
-        CheckError(pgm_init_edge(&e0_1, color_convert_node, compute_scales_node, "e0_1", &fast_mq_attr));
+            fast_mq_attr.nr_produce = sizeof(struct params_compute);
+            fast_mq_attr.nr_consume = sizeof(struct params_compute);
+            fast_mq_attr.nr_threshold = sizeof(struct params_compute);
+            CheckError(pgm_init_edge(&e0_1, color_convert_node, compute_scales_node, "e0_1", &fast_mq_attr));
 
-        for (unsigned i = 0; i < NUM_SCALE_LEVELS; i++)
-        {
-            unsigned num_nodes = level_configs[i].size();
-            size_t params_sizes[num_nodes + 1];
-
-            for (unsigned edge_idx = 0; edge_idx < num_nodes; edge_idx++)
+            for (unsigned i = 0; i < NUM_SCALE_LEVELS; i++)
             {
-                switch (level_configs[i][edge_idx]) {
-                    case node_A:
-                    case node_AB:
-                    case node_ABC:
-                    case node_ABCD:
+                unsigned num_nodes = level_configs[i].size();
+                size_t params_sizes[num_nodes + 1];
+
+                for (unsigned edge_idx = 0; edge_idx < num_nodes; edge_idx++)
+                {
+                    switch (level_configs[i][edge_idx]) {
+                        case node_A:
+                        case node_AB:
+                        case node_ABC:
+                        case node_ABCD:
+                        case node_ABCDE:
+                            params_sizes[edge_idx] = sizeof(struct params_resize);
+                            break;
+                        case node_B:
+                        case node_BC:
+                        case node_BCD:
+                        case node_BCDE:
+                            params_sizes[edge_idx] = sizeof(struct params_compute_gradients);
+                            break;
+                        case node_C:
+                        case node_CD:
+                        case node_CDE:
+                            params_sizes[edge_idx] = sizeof(struct params_compute_histograms);
+                            break;
+                        case node_D:
+                        case node_DE:
+                            params_sizes[edge_idx] = sizeof(struct params_fine_normalize);
+                            break;
+                        case node_E:
+                            params_sizes[edge_idx] = sizeof(struct params_fine_classify);
+                            break;
+                        default:
+                            break;
+                    }
+                }
+
+                switch (sink_config[i])
+                {
                     case node_ABCDE:
-                        params_sizes[edge_idx] = sizeof(struct params_resize);
+                        params_sizes[num_nodes] = sizeof(struct params_resize);
                         break;
-                    case node_B:
-                    case node_BC:
-                    case node_BCD:
                     case node_BCDE:
-                        params_sizes[edge_idx] = sizeof(struct params_compute_gradients);
+                        params_sizes[num_nodes] = sizeof(struct params_compute_gradients);
                         break;
-                    case node_C:
-                    case node_CD:
                     case node_CDE:
-                        params_sizes[edge_idx] = sizeof(struct params_compute_histograms);
+                        params_sizes[num_nodes] = sizeof(struct params_compute_histograms);
                         break;
-                    case node_D:
                     case node_DE:
-                        params_sizes[edge_idx] = sizeof(struct params_fine_normalize);
+                        params_sizes[num_nodes] = sizeof(struct params_fine_normalize);
                         break;
                     case node_E:
-                        params_sizes[edge_idx] = sizeof(struct params_fine_classify);
+                        params_sizes[num_nodes] = sizeof(struct params_fine_classify);
+                        break;
+                    case node_none:
+                        params_sizes[num_nodes] = sizeof(struct params_fine_collect_locations);
                         break;
                     default:
+                        fprintf(stdout, "Invalid sink node configuration for level %d.\n", i);
                         break;
+                }
+
+                for (unsigned edge_idx = 0; edge_idx < num_nodes+1; edge_idx++)
+                {
+                    // Edge parameters: name, token counts
+                    sprintf(buf, level_edge_name_formats[edge_idx], i);
+                    fast_mq_attr.nr_produce = params_sizes[edge_idx];
+                    fast_mq_attr.nr_consume = params_sizes[edge_idx];
+                    fast_mq_attr.nr_threshold = params_sizes[edge_idx];
+
+                    // Choose the nodes connected by the edge and initialize the edge
+                    node_t node_start = edge_idx == 0         ? compute_scales_node    : level_nodes[i][edge_idx-1];
+                    node_t node_end   = edge_idx == num_nodes ? collect_locations_node : level_nodes[i][edge_idx];
+                    CheckError(pgm_init_edge(&(level_edges[i][edge_idx]),
+                                                node_start, node_end,
+                                                buf, &fast_mq_attr));
                 }
             }
 
-            switch (sink_config[i])
-            {
-                case node_ABCDE:
-                    params_sizes[num_nodes] = sizeof(struct params_resize);
-                    break;
-                case node_BCDE:
-                    params_sizes[num_nodes] = sizeof(struct params_compute_gradients);
-                    break;
-                case node_CDE:
-                    params_sizes[num_nodes] = sizeof(struct params_compute_histograms);
-                    break;
-                case node_DE:
-                    params_sizes[num_nodes] = sizeof(struct params_fine_normalize);
-                    break;
-                case node_E:
-                    params_sizes[num_nodes] = sizeof(struct params_fine_classify);
-                    break;
-                case node_none:
-                    params_sizes[num_nodes] = sizeof(struct params_fine_collect_locations);
-                    break;
-                default:
-                    fprintf(stdout, "Invalid sink node configuration for level %d.\n", i);
-                    break;
-            }
+            fast_mq_attr.nr_produce = sizeof(struct params_display);
+            fast_mq_attr.nr_consume = sizeof(struct params_display);
+            fast_mq_attr.nr_threshold = sizeof(struct params_display);
+            CheckError(pgm_init_edge(&e7_8, collect_locations_node, display_node, "e7_8", &fast_mq_attr));
 
-            for (unsigned edge_idx = 0; edge_idx < num_nodes+1; edge_idx++)
-            {
-                // Edge parameters: name, token counts
-                sprintf(buf, level_edge_name_formats[edge_idx], i);
-                fast_mq_attr.nr_produce = params_sizes[edge_idx];
-                fast_mq_attr.nr_consume = params_sizes[edge_idx];
-                fast_mq_attr.nr_threshold = params_sizes[edge_idx];
+            // Initialize the threads (one per node)
+            pthread_barrier_init(fine_init_barrier, 0, num_total_level_nodes + 4);
 
-                // Choose the nodes connected by the edge and initialize the edge
-                node_t node_start = edge_idx == 0         ? compute_scales_node    : level_nodes[i][edge_idx-1];
-                node_t node_end   = edge_idx == num_nodes ? collect_locations_node : level_nodes[i][edge_idx];
-                CheckError(pgm_init_edge(&(level_edges[i][edge_idx]),
-                                            node_start, node_end,
-                                            buf, &fast_mq_attr));
-            }
-        }
+            std::vector<thread *> graph_threads;
 
-        fast_mq_attr.nr_produce = sizeof(struct params_display);
-        fast_mq_attr.nr_consume = sizeof(struct params_display);
-        fast_mq_attr.nr_threshold = sizeof(struct params_display);
-        CheckError(pgm_init_edge(&e7_8, collect_locations_node, display_node, "e7_8", &fast_mq_attr));
+            struct sync_info (* in_sync_info)[5]  = arr_level_sync_info[((g_idx + args.num_fine_graphs - 1) % args.num_fine_graphs)];
+            struct sync_info (* out_sync_info)[5] = arr_level_sync_info[g_idx];
 
-        // Initialize the threads (one per node)
-        pthread_barrier_init(fine_init_barrier, 0, num_total_level_nodes + 4);
-
-        std::vector<thread *> graph_threads;
-
-        struct sync_info (* in_sync_info)[5]  = arr_level_sync_info[((g_idx + args.num_fine_graphs - 1) % args.num_fine_graphs)];
-        struct sync_info (* out_sync_info)[5] = arr_level_sync_info[g_idx];
-
-        for (unsigned i = 0; i < level_configs.size(); i++) {
-            for (unsigned node_idx = 0; node_idx < level_configs[i].size(); node_idx++)
-            {
-                sync_info_init(&(in_sync_info[i][node_idx]));
-                sync_info_init(&(out_sync_info[i][node_idx]));
-            }
-        }
-
-        struct sync_info in_source_sync_info  = arr_source_sync_info[((g_idx + args.num_fine_graphs - 1) % args.num_fine_graphs)];
-        struct sync_info out_source_sync_info = arr_source_sync_info[g_idx];
-
-        sync_info_init(&in_source_sync_info);
-        sync_info_init(&out_source_sync_info);
-
-        struct sync_info in_sink_sync_info  = arr_sink_sync_info[((g_idx + args.num_fine_graphs - 1) % args.num_fine_graphs)];
-        struct sync_info out_sink_sync_info = arr_sink_sync_info[g_idx];
-
-        sync_info_init(&in_sink_sync_info);
-        sync_info_init(&out_sink_sync_info);
-
-        // WCETs and response-time bounds for each node
-        float bound_color_convert           = args.non_level_bounds[0];
-        float bound_compute_scales          = args.non_level_costs[1];
-        vector<vector<float>> bound_levels  = args.level_bounds;
-
-        float cost_color_convert           = args.non_level_costs[0];
-        float cost_compute_scales          = args.non_level_costs[1];
-        vector<vector<float>> cost_levels  = args.level_costs;
-        float cost_collect_locations       = args.non_level_costs[2];
-
-        /* | first graph release      | second graph release     | first graph release again
-         *  <---------PERIOD--------->
-         *  <--------------- PERIOD * args.num_fine_graphs ---------->
-         */
-        unsigned task_id = 0;
-        int period = PERIOD * args.num_fine_graphs;
-        struct task_info t_info;
-        t_info.early = args.early;
-        t_info.realtime = args.realtime;
-        t_info.sched = configurable;
-        t_info.period = period;
-        t_info.relative_deadline = period; // use EDF
-        t_info.phase = PERIOD * g_idx;
-        t_info.id = task_id++;
-        t_info.source_config = &args.source_configuration;
-        t_info.sink_config = &args.sink_configuration;
-        if (args.cluster != -1)
-            t_info.cluster = args.cluster;
-        else
-            t_info.cluster = args.cluster;
-        thread *t0 = new thread(&App::thread_color_convert, this,
-                                &color_convert_node, fine_init_barrier, gpu_hog, cpu_hog, frames, t_info, g_idx);
-        graph_threads.push_back(t0);
-
-        void* (cv::cuda::HOG::* compute_scales_func)(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info);
-        if (is_source_E)
-        {
-            compute_scales_func = &cv::cuda::HOG::thread_fine_S_ABCDE;
-        }
-        else if (is_source_D)
-        {
-            compute_scales_func = &cv::cuda::HOG::thread_fine_S_ABCD;
-        }
-        else if (is_source_C)
-        {
-            compute_scales_func = &cv::cuda::HOG::thread_fine_S_ABC;
-        }
-        else if (is_source_B)
-        {
-            compute_scales_func = &cv::cuda::HOG::thread_fine_S_AB;
-        }
-        else if (is_source_A)
-        {
-            compute_scales_func = &cv::cuda::HOG::thread_fine_S_A;
-        }
-        else
-        {
-            compute_scales_func = &cv::cuda::HOG::thread_fine_compute_scales;
-        }
-        t_info.id = task_id++;
-        t_info.phase = t_info.phase + bound_color_convert;
-        t_info.s_info_in = &in_source_sync_info;
-        t_info.s_info_out = &out_source_sync_info;
-        thread *t1 = new thread(compute_scales_func, gpu_hog,
-                                &compute_scales_node, fine_init_barrier, t_info);
-        graph_threads.push_back(t1);
-
-        float level_start_phase = PERIOD * g_idx + bound_color_convert + bound_compute_scales;
-        float max_level_end_phase = level_start_phase;
-
-        for (unsigned i = 0; i < NUM_SCALE_LEVELS; i++) {
-            unsigned num_nodes = level_configs[i].size();
-
-            if (num_nodes == 0)
-            {
-                continue;
-            }
-
-            void* (cv::cuda::HOG::* level_funcs[num_nodes])(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info);
-
-            for (unsigned node_idx = 0; node_idx < num_nodes; node_idx++)
-            {
-                switch (level_configs[i][node_idx]) {
-                    case node_A:
-                        level_funcs[node_idx] = &cv::cuda::HOG::thread_fine_resize;
-                        break;
-                    case node_B:
-                        level_funcs[node_idx] = &cv::cuda::HOG::thread_fine_compute_gradients;
-                        break;
-                    case node_C:
-                        level_funcs[node_idx] = &cv::cuda::HOG::thread_fine_compute_histograms;
-                        break;
-                    case node_D:
-                        level_funcs[node_idx] = &cv::cuda::HOG::thread_fine_normalize_histograms;
-                        break;
-                    case node_E:
-                        level_funcs[node_idx] = &cv::cuda::HOG::thread_fine_classify;
-                        break;
-                    case node_AB:
-                        level_funcs[node_idx] = &cv::cuda::HOG::thread_fine_AB;
-                        break;
-                    case node_BC:
-                        level_funcs[node_idx] = &cv::cuda::HOG::thread_fine_BC;
-                        break;
-                    case node_CD:
-                        level_funcs[node_idx] = &cv::cuda::HOG::thread_fine_CD;
-                        break;
-                    case node_DE:
-                        level_funcs[node_idx] = &cv::cuda::HOG::thread_fine_DE;
-                        break;
-                    case node_ABC:
-                        level_funcs[node_idx] = &cv::cuda::HOG::thread_fine_ABC;
-                        break;
-                    case node_BCD:
-                        level_funcs[node_idx] = &cv::cuda::HOG::thread_fine_BCD;
-                        break;
-                    case node_CDE:
-                        level_funcs[node_idx] = &cv::cuda::HOG::thread_fine_CDE;
-                        break;
-                    case node_ABCD:
-                        level_funcs[node_idx] = &cv::cuda::HOG::thread_fine_ABCD;
-                        break;
-                    case node_BCDE:
-                        level_funcs[node_idx] = &cv::cuda::HOG::thread_fine_BCDE;
-                        break;
-                    case node_ABCDE:
-                        level_funcs[node_idx] = &cv::cuda::HOG::thread_fine_ABCDE;
-                        break;
-                    default:
-                        break;
+            for (unsigned i = 0; i < level_configs.size(); i++) {
+                for (unsigned node_idx = 0; node_idx < level_configs[i].size(); node_idx++)
+                {
+                    sync_info_init(&(in_sync_info[i][node_idx]));
+                    sync_info_init(&(out_sync_info[i][node_idx]));
                 }
             }
 
-            for (unsigned node_idx = 0; node_idx < num_nodes; node_idx++)
+            struct sync_info in_source_sync_info  = arr_source_sync_info[((g_idx + args.num_fine_graphs - 1) % args.num_fine_graphs)];
+            struct sync_info out_source_sync_info = arr_source_sync_info[g_idx];
+
+            sync_info_init(&in_source_sync_info);
+            sync_info_init(&out_source_sync_info);
+
+            struct sync_info in_sink_sync_info  = arr_sink_sync_info[((g_idx + args.num_fine_graphs - 1) % args.num_fine_graphs)];
+            struct sync_info out_sink_sync_info = arr_sink_sync_info[g_idx];
+
+            sync_info_init(&in_sink_sync_info);
+            sync_info_init(&out_sink_sync_info);
+
+            // WCETs and response-time bounds for each node
+            float bound_color_convert           = args.non_level_bounds[0];
+            float bound_compute_scales          = args.non_level_costs[1];
+            vector<vector<float>> bound_levels  = args.level_bounds;
+
+            float cost_color_convert           = args.non_level_costs[0];
+            float cost_compute_scales          = args.non_level_costs[1];
+            vector<vector<float>> cost_levels  = args.level_costs;
+            float cost_collect_locations       = args.non_level_costs[2];
+
+            /* | first graph release      | second graph release     | first graph release again
+            *  <---------PERIOD--------->
+            *  <--------------- PERIOD * args.num_fine_graphs ---------->
+            */
+            unsigned task_id = 0;
+            int period = PERIOD * args.num_fine_graphs;
+            struct task_info t_info;
+            t_info.early = args.early;
+            t_info.realtime = args.realtime;
+            t_info.sched = configurable;
+            t_info.period = period;
+            t_info.relative_deadline = period; // use EDF
+            t_info.phase = PERIOD * g_idx;
+            t_info.id = task_id++;
+            t_info.source_config = &args.source_configuration;
+            t_info.sink_config = &args.sink_configuration;
+            if (args.cluster != -1)
+                t_info.cluster = args.cluster;
+            else
+                t_info.cluster = args.cluster;
+            thread *t0 = new thread(&App::thread_color_convert, this,
+                                    &color_convert_node, fine_init_barrier, gpu_hog, cpu_hog, frames, t_info, g_idx);
+            graph_threads.push_back(t0);
+
+            void* (cv::cuda::HOG::* compute_scales_func)(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info);
+            if (is_source_E)
             {
-                t_info.id = task_id++;
-                t_info.phase = node_idx == 0 \
-                                    ? level_start_phase \
-                                    : t_info.phase + bound_levels[i][node_idx - 1];
-                t_info.s_info_in = &(in_sync_info[i][node_idx]);
-                t_info.s_info_out = &(out_sync_info[i][node_idx]);
-                thread *tlevel = new thread(level_funcs[node_idx], gpu_hog,
-                                            &(level_nodes[i][node_idx]), fine_init_barrier, t_info);
-                graph_threads.push_back(tlevel);
+                compute_scales_func = &cv::cuda::HOG::thread_fine_S_ABCDE;
+            }
+            else if (is_source_D)
+            {
+                compute_scales_func = &cv::cuda::HOG::thread_fine_S_ABCD;
+            }
+            else if (is_source_C)
+            {
+                compute_scales_func = &cv::cuda::HOG::thread_fine_S_ABC;
+            }
+            else if (is_source_B)
+            {
+                compute_scales_func = &cv::cuda::HOG::thread_fine_S_AB;
+            }
+            else if (is_source_A)
+            {
+                compute_scales_func = &cv::cuda::HOG::thread_fine_S_A;
+            }
+            else
+            {
+                compute_scales_func = &cv::cuda::HOG::thread_fine_compute_scales;
+            }
+            t_info.id = task_id++;
+            t_info.phase = t_info.phase + bound_color_convert;
+            t_info.s_info_in = &in_source_sync_info;
+            t_info.s_info_out = &out_source_sync_info;
+            thread *t1 = new thread(compute_scales_func, gpu_hog,
+                                    &compute_scales_node, fine_init_barrier, t_info);
+            graph_threads.push_back(t1);
+
+            float level_start_phase = PERIOD * g_idx + bound_color_convert + bound_compute_scales;
+            float max_level_end_phase = level_start_phase;
+
+            for (unsigned i = 0; i < NUM_SCALE_LEVELS; i++) {
+                unsigned num_nodes = level_configs[i].size();
+
+                if (num_nodes == 0)
+                {
+                    continue;
+                }
+
+                void* (cv::cuda::HOG::* level_funcs[num_nodes])(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info);
+
+                for (unsigned node_idx = 0; node_idx < num_nodes; node_idx++)
+                {
+                    switch (level_configs[i][node_idx]) {
+                        case node_A:
+                            level_funcs[node_idx] = &cv::cuda::HOG::thread_fine_resize;
+                            break;
+                        case node_B:
+                            level_funcs[node_idx] = &cv::cuda::HOG::thread_fine_compute_gradients;
+                            break;
+                        case node_C:
+                            level_funcs[node_idx] = &cv::cuda::HOG::thread_fine_compute_histograms;
+                            break;
+                        case node_D:
+                            level_funcs[node_idx] = &cv::cuda::HOG::thread_fine_normalize_histograms;
+                            break;
+                        case node_E:
+                            level_funcs[node_idx] = &cv::cuda::HOG::thread_fine_classify;
+                            break;
+                        case node_AB:
+                            level_funcs[node_idx] = &cv::cuda::HOG::thread_fine_AB;
+                            break;
+                        case node_BC:
+                            level_funcs[node_idx] = &cv::cuda::HOG::thread_fine_BC;
+                            break;
+                        case node_CD:
+                            level_funcs[node_idx] = &cv::cuda::HOG::thread_fine_CD;
+                            break;
+                        case node_DE:
+                            level_funcs[node_idx] = &cv::cuda::HOG::thread_fine_DE;
+                            break;
+                        case node_ABC:
+                            level_funcs[node_idx] = &cv::cuda::HOG::thread_fine_ABC;
+                            break;
+                        case node_BCD:
+                            level_funcs[node_idx] = &cv::cuda::HOG::thread_fine_BCD;
+                            break;
+                        case node_CDE:
+                            level_funcs[node_idx] = &cv::cuda::HOG::thread_fine_CDE;
+                            break;
+                        case node_ABCD:
+                            level_funcs[node_idx] = &cv::cuda::HOG::thread_fine_ABCD;
+                            break;
+                        case node_BCDE:
+                            level_funcs[node_idx] = &cv::cuda::HOG::thread_fine_BCDE;
+                            break;
+                        case node_ABCDE:
+                            level_funcs[node_idx] = &cv::cuda::HOG::thread_fine_ABCDE;
+                            break;
+                        default:
+                            break;
+                    }
+                }
+
+                for (unsigned node_idx = 0; node_idx < num_nodes; node_idx++)
+                {
+                    t_info.id = task_id++;
+                    t_info.phase = node_idx == 0 \
+                                        ? level_start_phase \
+                                        : t_info.phase + bound_levels[i][node_idx - 1];
+                    t_info.s_info_in = &(in_sync_info[i][node_idx]);
+                    t_info.s_info_out = &(out_sync_info[i][node_idx]);
+                    thread *tlevel = new thread(level_funcs[node_idx], gpu_hog,
+                                                &(level_nodes[i][node_idx]), fine_init_barrier, t_info);
+                    graph_threads.push_back(tlevel);
+                }
+
+                float level_end_phase = t_info.phase + bound_levels[i][num_nodes-1];
+                if (level_end_phase > max_level_end_phase)
+                {
+                    max_level_end_phase = level_end_phase;
+                }
             }
 
-            float level_end_phase = t_info.phase + bound_levels[i][num_nodes-1];
-            if (level_end_phase > max_level_end_phase)
+            void* (cv::cuda::HOG::* collect_locations_func)(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info);
+            if (is_sink_A)
             {
-                max_level_end_phase = level_end_phase;
+                collect_locations_func = &cv::cuda::HOG::thread_fine_ABCDE_T;
             }
+            else if (is_sink_B)
+            {
+                collect_locations_func = &cv::cuda::HOG::thread_fine_BCDE_T;
+            }
+            else if (is_sink_C)
+            {
+                collect_locations_func = &cv::cuda::HOG::thread_fine_CDE_T;
+            }
+            else if (is_sink_D)
+            {
+                collect_locations_func = &cv::cuda::HOG::thread_fine_DE_T;
+            }
+            else if (is_sink_E)
+            {
+                collect_locations_func = &cv::cuda::HOG::thread_fine_E_T;
+            }
+            else
+            {
+                collect_locations_func = &cv::cuda::HOG::thread_fine_collect_locations;
+            }
+            t_info.id = task_id++;
+            t_info.phase = max_level_end_phase;
+            t_info.s_info_in = &in_sink_sync_info;
+            t_info.s_info_out = &out_sink_sync_info;
+            thread *t7 = new thread(collect_locations_func, gpu_hog,
+                                    &collect_locations_node, fine_init_barrier, t_info);
+            graph_threads.push_back(t7);
+
+            thread *t8 = new thread(&App::thread_display, this,
+                                    &display_node, fine_init_barrier, g_idx == 0 && args.display);
+            graph_threads.push_back(t8);
+
+            fprintf(stdout, "Created %d tasks\n", task_id);
+
+            inst_threads.push_back(graph_threads);
         }
 
-        void* (cv::cuda::HOG::* collect_locations_func)(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info);
-        if (is_sink_A)
-        {
-            collect_locations_func = &cv::cuda::HOG::thread_fine_ABCDE_T;
-        }
-        else if (is_sink_B)
-        {
-            collect_locations_func = &cv::cuda::HOG::thread_fine_BCDE_T;
-        }
-        else if (is_sink_C)
-        {
-            collect_locations_func = &cv::cuda::HOG::thread_fine_CDE_T;
-        }
-        else if (is_sink_D)
-        {
-            collect_locations_func = &cv::cuda::HOG::thread_fine_DE_T;
-        }
-        else if (is_sink_E)
-        {
-            collect_locations_func = &cv::cuda::HOG::thread_fine_E_T;
-        }
-        else
-        {
-            collect_locations_func = &cv::cuda::HOG::thread_fine_collect_locations;
-        }
-        t_info.id = task_id++;
-        t_info.phase = max_level_end_phase;
-        t_info.s_info_in = &in_sink_sync_info;
-        t_info.s_info_out = &out_sink_sync_info;
-        thread *t7 = new thread(collect_locations_func, gpu_hog,
-                                &collect_locations_node, fine_init_barrier, t_info);
-        graph_threads.push_back(t7);
-
-        thread *t8 = new thread(&App::thread_display, this,
-                                &display_node, fine_init_barrier, g_idx == 0 && args.display);
-        graph_threads.push_back(t8);
-
-        fprintf(stdout, "Created %d tasks\n", task_id);
-
-        inst_threads.push_back(graph_threads);
+        all_threads.push_back(inst_threads);
     }
 
     /* graph construction finishes */
 
     printf("Joining pthreads...\n");
 
-    for (int g_idx = 0; g_idx < args.num_fine_graphs; g_idx++)
+    for (int inst_idx = 0; inst_idx < args.num_hog_inst; inst_idx++)
     {
-        graph_t g = arr_g[g_idx];
+        printf("Joining for instance %d\n", inst_idx);
 
-        std::vector<thread *> &graph_threads = inst_threads[g_idx];
-        for (unsigned t_idx = 0; t_idx < graph_threads.size(); t_idx++)
+        graph_t *arr_g = arr_arr_g[inst_idx];
+
+        for (int g_idx = 0; g_idx < args.num_fine_graphs; g_idx++)
         {
-            thread *t = graph_threads[t_idx];
-            t->join();
-            delete t;
-        }
+            printf("Joining for graph %d in instance %d\n", g_idx, inst_idx);
 
-        CheckError(pgm_destroy_graph(g));
+            graph_t g = arr_g[g_idx];
+
+            std::vector<thread *> &graph_threads = all_threads[inst_idx][g_idx];
+            for (unsigned t_idx = 0; t_idx < graph_threads.size(); t_idx++)
+            {
+                printf("Joining thread %d\n", t_idx);
+                thread *t = graph_threads[t_idx];
+                if (t->joinable()) t->join();
+                // delete t;
+            }
+            for (unsigned t_idx = 0; t_idx < graph_threads.size(); t_idx++)
+            {
+                thread *t = graph_threads[t_idx];
+                delete t;
+            }
+
+            CheckError(pgm_destroy_graph(g));
+        }
     }
 
     this->completed_video = true;
 
     printf("Joining high-priority threads...\n");
 
-    for (int hp_idx = 0; hp_idx < hp_threads.size(); hp_idx++)
+    for (unsigned hp_idx = 0; hp_idx < hp_threads.size(); hp_idx++)
     {
         thread* hp_thread = hp_threads[hp_idx];
         hp_thread->join();
