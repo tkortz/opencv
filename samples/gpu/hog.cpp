@@ -2361,6 +2361,19 @@ void App::sched_configurable_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
         }
     }
 
+    // Create the high-priority tasks
+    unsigned hp_task_id = 1000;
+    std::vector<thread *> hp_threads;
+    for (int hp_idx = 0; hp_idx < args.hp_task_count; hp_idx++)
+    {
+        struct task_info t_info;
+        t_info.realtime = args.realtime;
+        t_info.id = hp_task_id++;
+
+        thread *hp_thread = new thread(&App::thread_hp_task, this, t_info);
+        hp_threads.push_back(hp_thread);
+    }
+
     pthread_barrier_t arr_fine_init_barrier[args.num_fine_graphs];
 
     /* graph construction */
@@ -2371,26 +2384,8 @@ void App::sched_configurable_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
     struct sync_info arr_source_sync_info [args.num_fine_graphs];
     struct sync_info arr_sink_sync_info   [args.num_fine_graphs];
 
-    thread** arr_t0  = (thread**) calloc(args.num_fine_graphs, sizeof(std::thread *));
-    thread** arr_t1  = (thread**) calloc(args.num_fine_graphs, sizeof(std::thread *));
-    thread** arr_tlevel = (thread**) calloc(args.num_fine_graphs * num_total_level_nodes, sizeof(std::thread *));
-    thread** arr_t7  = (thread**) calloc(args.num_fine_graphs, sizeof(std::thread *));
-    thread** arr_t8  = (thread**) calloc(args.num_fine_graphs, sizeof(std::thread *));
-
-    thread** arr_hp = (thread**) calloc(args.hp_task_count, sizeof(std::thread *));
-
-    // Create the high-priority tasks
-    unsigned hp_task_id = 1000;
-    for (int hp_idx = 0; hp_idx < args.hp_task_count; hp_idx++)
-    {
-        thread** hp_task   = arr_hp + hp_idx;
-
-        struct task_info t_info;
-        t_info.realtime = args.realtime;
-        t_info.id = hp_task_id++;
-
-        *hp_task = new thread(&App::thread_hp_task, this, t_info);
-    }
+    // Store pointers to the threads for joining later
+    std::vector< std::vector<thread *> > inst_threads;
 
     // Create the graphs
     char buf[30];
@@ -2399,6 +2394,8 @@ void App::sched_configurable_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
 
     for (int g_idx = 0; g_idx < args.num_fine_graphs; g_idx++)
     {
+        fprintf(stderr, "\nInitializing graph %d\n", g_idx);
+
         pthread_barrier_t* fine_init_barrier = arr_fine_init_barrier + g_idx;
 
         // A graph consists of the graph itself, nodes, and edges
@@ -2533,11 +2530,7 @@ void App::sched_configurable_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
         // Initialize the threads (one per node)
         pthread_barrier_init(fine_init_barrier, 0, num_total_level_nodes + 4);
 
-        thread** t0   = arr_t0 + g_idx;
-        thread** t1   = arr_t1 + g_idx;
-        thread** tlevel = arr_tlevel + g_idx * num_total_level_nodes;
-        thread** t7   = arr_t7 + g_idx;
-        thread** t8   = arr_t8 + g_idx;
+        std::vector<thread *> graph_threads;
 
         struct sync_info (* in_sync_info)[5]  = arr_level_sync_info[((g_idx + args.num_fine_graphs - 1) % args.num_fine_graphs)];
         struct sync_info (* out_sync_info)[5] = arr_level_sync_info[g_idx];
@@ -2592,8 +2585,9 @@ void App::sched_configurable_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
             t_info.cluster = args.cluster;
         else
             t_info.cluster = args.cluster;
-        *t0 = new thread(&App::thread_color_convert, this,
-                         &color_convert_node, fine_init_barrier, gpu_hog, cpu_hog, frames, t_info, g_idx);
+        thread *t0 = new thread(&App::thread_color_convert, this,
+                                &color_convert_node, fine_init_barrier, gpu_hog, cpu_hog, frames, t_info, g_idx);
+        graph_threads.push_back(t0);
 
         void* (cv::cuda::HOG::* compute_scales_func)(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info);
         if (is_source_E)
@@ -2624,8 +2618,9 @@ void App::sched_configurable_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
         t_info.phase = t_info.phase + bound_color_convert;
         t_info.s_info_in = &in_source_sync_info;
         t_info.s_info_out = &out_source_sync_info;
-        *t1 = new thread(compute_scales_func, gpu_hog,
-                         &compute_scales_node, fine_init_barrier, t_info);
+        thread *t1 = new thread(compute_scales_func, gpu_hog,
+                                &compute_scales_node, fine_init_barrier, t_info);
+        graph_threads.push_back(t1);
 
         float level_start_phase = PERIOD * g_idx + bound_color_convert + bound_compute_scales;
         float max_level_end_phase = level_start_phase;
@@ -2701,8 +2696,9 @@ void App::sched_configurable_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
                                     : t_info.phase + bound_levels[i][node_idx - 1];
                 t_info.s_info_in = &(in_sync_info[i][node_idx]);
                 t_info.s_info_out = &(out_sync_info[i][node_idx]);
-                tlevel[t_info.id-2] = new thread(level_funcs[node_idx], gpu_hog,
-                                                 &(level_nodes[i][node_idx]), fine_init_barrier, t_info);
+                thread *tlevel = new thread(level_funcs[node_idx], gpu_hog,
+                                            &(level_nodes[i][node_idx]), fine_init_barrier, t_info);
+                graph_threads.push_back(tlevel);
             }
 
             float level_end_phase = t_info.phase + bound_levels[i][num_nodes-1];
@@ -2741,13 +2737,17 @@ void App::sched_configurable_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
         t_info.phase = max_level_end_phase;
         t_info.s_info_in = &in_sink_sync_info;
         t_info.s_info_out = &out_sink_sync_info;
-        *t7 = new thread(collect_locations_func, gpu_hog,
-                         &collect_locations_node, fine_init_barrier, t_info);
+        thread *t7 = new thread(collect_locations_func, gpu_hog,
+                                &collect_locations_node, fine_init_barrier, t_info);
+        graph_threads.push_back(t7);
 
-        *t8 = new thread(&App::thread_display, this,
-                         &display_node, fine_init_barrier, g_idx == 0 && args.display);
+        thread *t8 = new thread(&App::thread_display, this,
+                                &display_node, fine_init_barrier, g_idx == 0 && args.display);
+        graph_threads.push_back(t8);
 
         fprintf(stdout, "Created %d tasks\n", task_id);
+
+        inst_threads.push_back(graph_threads);
     }
 
     /* graph construction finishes */
@@ -2758,45 +2758,27 @@ void App::sched_configurable_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
     {
         graph_t g = arr_g[g_idx];
 
-        thread* t0 = arr_t0[g_idx];
-        thread* t1 = arr_t1[g_idx];
-        thread** tlevel = arr_tlevel + g_idx * num_total_level_nodes;
-        thread* t7 = arr_t7[g_idx];
-        thread* t8 = arr_t8[g_idx];
-        t0->join();
-        t1->join();
-        delete t0;
-        delete t1;
-        for (unsigned i = 0; i < num_total_level_nodes; i++)
+        std::vector<thread *> &graph_threads = inst_threads[g_idx];
+        for (unsigned t_idx = 0; t_idx < graph_threads.size(); t_idx++)
         {
-            if (tlevel[i]->joinable()) tlevel[i]->join();
+            thread *t = graph_threads[t_idx];
+            t->join();
+            delete t;
         }
-        for (unsigned i = 0; i < num_total_level_nodes; i++)
-        {
-            delete tlevel[i];
-        }
-        t7->join();
-        t8->join();
-        delete t7;
-        delete t8;
+
         CheckError(pgm_destroy_graph(g));
     }
-    free(arr_t1);
-    free(arr_tlevel);
-    free(arr_t7);
-    free(arr_t8);
 
     this->completed_video = true;
 
     printf("Joining high-priority threads...\n");
 
-    for (int hp_idx = 0; hp_idx < args.hp_task_count; hp_idx++)
+    for (int hp_idx = 0; hp_idx < hp_threads.size(); hp_idx++)
     {
-        thread* hp_task = arr_hp[hp_idx];
-        hp_task->join();
-        delete hp_task;
+        thread* hp_thread = hp_threads[hp_idx];
+        hp_thread->join();
+        delete hp_thread;
     }
-    free(arr_hp);
 
     //CheckError(pgm_destroy_graph(g));
     CheckError(pgm_destroy());
