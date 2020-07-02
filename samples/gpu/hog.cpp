@@ -126,6 +126,7 @@ public:
 
     string config_filepath;
     std::vector< std::vector<node_config> > level_configurations;
+    bool merge_color_convert;
     std::vector<node_config> source_configuration;
     std::vector<node_config> sink_configuration;
     std::vector<float> non_level_costs;
@@ -320,8 +321,13 @@ public:
 
     void sched_configurable_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog, Mat* frames);
 
+    void thread_fine_CC_S_ABCDE(node_t* _node, pthread_barrier_t* init_barrier,
+                                cv::Ptr<cv::cuda::HOG> gpu_hog,
+                                Mat* frames, struct task_info t_info, int graph_idx);
+
     void thread_color_convert(node_t *_node, pthread_barrier_t* init_barrier,
-            cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog, Mat* frames, struct task_info t_info, int graph_idx);
+                              cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog,
+                              Mat* frames, struct task_info t_info, int graph_idx);
 
     void* thread_display(node_t* node, pthread_barrier_t* init_barrier, bool shouldDisplay);
 
@@ -499,6 +505,9 @@ Args::Args()
         non_level_bounds.push_back(0.0f);
     }
 
+    // Default to not merging color convert in with the source
+    merge_color_convert = false;
+
     // Default to not merging with the source ("compute scale levels")
     for (unsigned  i = 0; i < NUM_SCALE_LEVELS; i++)
     {
@@ -632,6 +641,10 @@ void Args::parseGraphConfiguration(char *filepath)
         if (token == "L")
         {
             this->parseLevelConfig(line.substr(pos+1), config);
+        }
+        else if (token == "CC")
+        {
+            this->merge_color_convert = true;
         }
         else if (token == "S")
         {
@@ -1305,7 +1318,8 @@ void App::sched_coarse_grained_unrolled_for_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, 
 }
 
 void App::thread_color_convert(node_t *_node, pthread_barrier_t* init_barrier,
-        cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog, Mat* frames, struct task_info t_info, int graph_idx)
+                               cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog,
+                               Mat* frames, struct task_info t_info, int graph_idx)
 {
     fprintf(stdout, "node name: color_convert(source), task id: %d, node tid: %d\n", t_info.id, gettid());
     node_t node = *_node;
@@ -2414,7 +2428,7 @@ void App::sched_configurable_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
     // Store pointers to the threads for joining later
     std::vector< std::vector< std::vector<thread *> > > all_threads;
 
-    for (unsigned inst_idx = 0; inst_idx < args.num_hog_inst; inst_idx++)
+    for (int inst_idx = 0; inst_idx < args.num_hog_inst; inst_idx++)
     {
         fprintf(stderr, "\nInitializing instance %d\n", inst_idx);
 
@@ -2425,8 +2439,8 @@ void App::sched_configurable_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
 
         // Sync info to keep job execution in order
         struct sync_info (*arr_level_sync_info)[NUM_SCALE_LEVELS][5] = arr_arr_level_sync_info[inst_idx];
-        struct sync_info (*arr_source_sync_info) = arr_arr_source_sync_info[inst_idx];
-        struct sync_info (*arr_sink_sync_info) = arr_arr_sink_sync_info[inst_idx];
+        struct sync_info *arr_source_sync_info = arr_arr_source_sync_info[inst_idx];
+        struct sync_info *arr_sink_sync_info = arr_arr_sink_sync_info[inst_idx];
 
         // Store pointers to the threads for joining later
         std::vector< std::vector<thread *> > inst_threads;
@@ -2457,7 +2471,10 @@ void App::sched_configurable_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
 
             // Initialize the nodes
             const char* level_node_names[] = { "node_1st", "node_2nd", "node_3rd", "node_4th", "node_5th" };
-            CheckError(pgm_init_node(&color_convert_node, g, "color_convert"));
+            if (!args.merge_color_convert)
+            {
+                CheckError(pgm_init_node(&color_convert_node, g, "color_convert"));
+            }
             CheckError(pgm_init_node(&compute_scales_node, g, "compute_scales"));
             for (unsigned i = 0; i < NUM_SCALE_LEVELS; i++)
             {
@@ -2476,10 +2493,13 @@ void App::sched_configurable_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
             memset(&fast_mq_attr, 0, sizeof(fast_mq_attr));
             fast_mq_attr.type = pgm_fast_fifo_edge;
 
-            fast_mq_attr.nr_produce = sizeof(struct params_compute);
-            fast_mq_attr.nr_consume = sizeof(struct params_compute);
-            fast_mq_attr.nr_threshold = sizeof(struct params_compute);
-            CheckError(pgm_init_edge(&e0_1, color_convert_node, compute_scales_node, "e0_1", &fast_mq_attr));
+            if (!args.merge_color_convert)
+            {
+                fast_mq_attr.nr_produce = sizeof(struct params_compute);
+                fast_mq_attr.nr_consume = sizeof(struct params_compute);
+                fast_mq_attr.nr_threshold = sizeof(struct params_compute);
+                CheckError(pgm_init_edge(&e0_1, color_convert_node, compute_scales_node, "e0_1", &fast_mq_attr));
+            }
 
             for (unsigned i = 0; i < NUM_SCALE_LEVELS; i++)
             {
@@ -2567,14 +2587,22 @@ void App::sched_configurable_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
             CheckError(pgm_init_edge(&e7_8, collect_locations_node, display_node, "e7_8", &fast_mq_attr));
 
             // Initialize the threads (one per node)
-            pthread_barrier_init(fine_init_barrier, 0, num_total_level_nodes + 4);
+            if (args.merge_color_convert)
+            {
+                pthread_barrier_init(fine_init_barrier, 0, num_total_level_nodes + 3);
+            }
+            else
+            {
+                pthread_barrier_init(fine_init_barrier, 0, num_total_level_nodes + 4);
+            }
 
             std::vector<thread *> graph_threads;
 
             struct sync_info (* in_sync_info)[5]  = arr_level_sync_info[((g_idx + args.num_fine_graphs - 1) % args.num_fine_graphs)];
             struct sync_info (* out_sync_info)[5] = arr_level_sync_info[g_idx];
 
-            for (unsigned i = 0; i < level_configs.size(); i++) {
+            for (unsigned i = 0; i < level_configs.size(); i++)
+            {
                 for (unsigned node_idx = 0; node_idx < level_configs[i].size(); node_idx++)
                 {
                     sync_info_init(&(in_sync_info[i][node_idx]));
@@ -2616,55 +2644,80 @@ void App::sched_configurable_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
             t_info.sched = configurable;
             t_info.period = period;
             t_info.relative_deadline = period; // use EDF
-            t_info.phase = PERIOD * g_idx;
-            t_info.id = task_id++;
             t_info.source_config = &args.source_configuration;
             t_info.sink_config = &args.sink_configuration;
             if (args.cluster != -1)
                 t_info.cluster = args.cluster;
             else
                 t_info.cluster = args.cluster;
-            thread *t0 = new thread(&App::thread_color_convert, this,
-                                    &color_convert_node, fine_init_barrier, gpu_hog, cpu_hog, frames, t_info, g_idx);
-            graph_threads.push_back(t0);
 
-            void* (cv::cuda::HOG::* compute_scales_func)(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info);
-            if (is_source_E)
+            t_info.phase = PERIOD * g_idx;
+            t_info.id = task_id++;
+            if (!args.merge_color_convert)
             {
-                compute_scales_func = &cv::cuda::HOG::thread_fine_S_ABCDE;
-            }
-            else if (is_source_D)
-            {
-                compute_scales_func = &cv::cuda::HOG::thread_fine_S_ABCD;
-            }
-            else if (is_source_C)
-            {
-                compute_scales_func = &cv::cuda::HOG::thread_fine_S_ABC;
-            }
-            else if (is_source_B)
-            {
-                compute_scales_func = &cv::cuda::HOG::thread_fine_S_AB;
-            }
-            else if (is_source_A)
-            {
-                compute_scales_func = &cv::cuda::HOG::thread_fine_S_A;
+                // If the color-convert node is not merged, spawn is thread and the
+                // compute-scale-levels thread separately
+                thread *t0 = new thread(&App::thread_color_convert, this,
+                                        &color_convert_node, fine_init_barrier, gpu_hog, cpu_hog, frames, t_info, g_idx);
+                graph_threads.push_back(t0);
+            
+                void* (cv::cuda::HOG::* compute_scales_func)(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info);
+                if (is_source_E)
+                {
+                    compute_scales_func = &cv::cuda::HOG::thread_fine_S_ABCDE;
+                }
+                else if (is_source_D)
+                {
+                    compute_scales_func = &cv::cuda::HOG::thread_fine_S_ABCD;
+                }
+                else if (is_source_C)
+                {
+                    compute_scales_func = &cv::cuda::HOG::thread_fine_S_ABC;
+                }
+                else if (is_source_B)
+                {
+                    compute_scales_func = &cv::cuda::HOG::thread_fine_S_AB;
+                }
+                else if (is_source_A)
+                {
+                    compute_scales_func = &cv::cuda::HOG::thread_fine_S_A;
+                }
+                else
+                {
+                    compute_scales_func = &cv::cuda::HOG::thread_fine_compute_scales;
+                }
+                t_info.id = task_id++;
+                t_info.phase = t_info.phase + bound_color_convert;
+                t_info.s_info_in = &in_source_sync_info;
+                t_info.s_info_out = &out_source_sync_info;
+                thread *t1 = new thread(compute_scales_func, gpu_hog,
+                                        &compute_scales_node, fine_init_barrier, t_info);
+                graph_threads.push_back(t1);
             }
             else
             {
-                compute_scales_func = &cv::cuda::HOG::thread_fine_compute_scales;
+                // Otherwise, just spawn the merged node
+                t_info.s_info_in = &in_source_sync_info;
+                t_info.s_info_out = &out_source_sync_info;
+                thread *t1 = new thread(&App::thread_fine_CC_S_ABCDE, this,
+                                        &compute_scales_node, fine_init_barrier, gpu_hog,
+                                        frames, t_info, g_idx);
+                graph_threads.push_back(t1);
             }
-            t_info.id = task_id++;
-            t_info.phase = t_info.phase + bound_color_convert;
-            t_info.s_info_in = &in_source_sync_info;
-            t_info.s_info_out = &out_source_sync_info;
-            thread *t1 = new thread(compute_scales_func, gpu_hog,
-                                    &compute_scales_node, fine_init_barrier, t_info);
-            graph_threads.push_back(t1);
 
-            float level_start_phase = PERIOD * g_idx + bound_color_convert + bound_compute_scales;
+            float level_start_phase = 0.0f;
+            if (!args.merge_color_convert)
+            {
+                float level_start_phase = PERIOD * g_idx + bound_color_convert + bound_compute_scales;
+            }
+            else
+            {
+                float level_start_phase = PERIOD * g_idx + bound_compute_scales;
+            }
             float max_level_end_phase = level_start_phase;
 
-            for (unsigned i = 0; i < NUM_SCALE_LEVELS; i++) {
+            for (unsigned i = 0; i < NUM_SCALE_LEVELS; i++)
+            {
                 unsigned num_nodes = level_configs[i].size();
 
                 if (num_nodes == 0)
@@ -2840,4 +2893,132 @@ void App::sched_configurable_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
     //CheckError(pgm_destroy_graph(g));
     CheckError(pgm_destroy());
     fprintf(stdout, "cleaned up ...");
+}
+
+void App::thread_fine_CC_S_ABCDE(node_t* _node, pthread_barrier_t* init_barrier,
+                                 cv::Ptr<cv::cuda::HOG> gpu_hog, Mat* frames,
+                                 struct task_info t_info, int graph_idx)
+{
+    fprintf(stdout, "node name: color_convert->classify_hists(source), task id: %d, node tid: %d\n", t_info.id, gettid());
+    node_t node = *_node;
+#ifdef LOG_DEBUG
+    char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
+    tabbuf[node.node] = '\0';
+#endif
+
+    CheckError(pgm_claim_node(node));
+
+    edge_t *out_edges = (edge_t *)calloc(NUM_SCALE_LEVELS, sizeof(edge_t));
+    CheckError(pgm_get_edges_out(node, out_edges, NUM_SCALE_LEVELS));
+    void **out_buf_ptrs = (void **)calloc(NUM_SCALE_LEVELS, sizeof(void *));
+    for (int i = 0; i < NUM_SCALE_LEVELS; i++) {
+        out_buf_ptrs[i] = (void *)pgm_get_edge_buf_p(out_edges[i]);
+        if (out_buf_ptrs[i] == NULL)
+            fprintf(stderr, "color_convert->classify_hists node out buffer is NULL\n");
+    }
+
+    // Color convert
+    Size win_stride(args.win_stride_width, args.win_stride_height);
+    Size win_size(args.win_width, args.win_width * 2);
+
+    Mat img_aux;
+    Mat* img = new Mat();
+    Mat* img_to_show;
+    cuda::GpuMat* gpu_img = new cuda::GpuMat();
+    vector<Rect>* found = new vector<Rect>();
+    Mat frame;
+
+    // Source (compute scale levels)
+    cv::cuda::Stream stream;
+    gpu_hog->set_up_constants(stream);
+
+    /* initialization is finished */
+    pthread_barrier_wait(init_barrier);
+
+    if (t_info.realtime) {
+        if (t_info.cluster != -1)
+            CALL(be_migrate_to_domain(t_info.cluster));
+        struct rt_task param;
+        init_rt_task_param(&param);
+        param.exec_cost = ms2ns(EXEC_COST);
+        param.period = ms2ns(t_info.period);
+        param.relative_deadline = ms2ns(t_info.relative_deadline);
+        param.phase = ms2ns(t_info.phase);
+        param.budget_policy = NO_ENFORCEMENT;
+        param.cls = RT_CLASS_SOFT;
+        param.priority = LITMUS_LOWEST_PRIORITY;
+        if (t_info.cluster != -1)
+            param.cpu = domain_to_first_cpu(t_info.cluster);
+        CALL( init_litmus() );
+        CALL( set_rt_task_param(gettid(), &param) );
+        CALL( task_mode(LITMUS_RT_TASK) );
+        CALL( wait_for_ts_release() );
+    }
+
+    int count_frame = 0;
+    while (count_frame < args.count / args.num_fine_graphs && running)
+    {
+        for (int j = graph_idx; j < 100; j += args.num_fine_graphs)
+        {
+            if (!t_info.realtime)
+                usleep(30000);
+            if (count_frame >= args.count / args.num_fine_graphs)
+                break;
+            frame = frames[j];
+            workBegin();
+
+            /* ===========================
+             * color convert
+             */
+
+            /* color convert node starts below */
+            // Change format of the image
+            if (make_gray) cvtColor(frame, img_aux, COLOR_BGR2GRAY);
+            else if (use_gpu) cvtColor(frame, img_aux, COLOR_BGR2BGRA);
+            else frame.copyTo(img_aux);
+
+            // Resize image
+            if (args.resize_src) resize(img_aux, *img, Size(args.width, args.height));
+            else *img = img_aux;
+            img_to_show = img;
+
+            // Prep HOG classification
+            hogWorkBegin();
+            gpu_img->upload(*img, stream);
+            cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
+            gpu_hog->setNumLevels(nlevels);
+            gpu_hog->setHitThreshold(hit_threshold);
+            gpu_hog->setScaleFactor(scale);
+            gpu_hog->setGroupThreshold(gr_threshold);
+            /*
+             * end of color convert
+             * =========================== */
+
+            gpu_hog->fine_CC_S_ABCDE(t_info, out_buf_ptrs, gpu_img, found,
+                                     img_to_show, j, stream, hog_work_begin);
+
+            CheckError(pgm_complete(node));
+
+            gpu_img = new cuda::GpuMat();
+            found = new vector<Rect>();
+            img = new Mat();
+            count_frame++;
+
+            if (t_info.realtime)
+                sleep_next_period();
+        }
+    }
+
+    free(out_edges);
+    free(out_buf_ptrs);
+
+    CheckError(pgm_terminate(node));
+
+    pthread_barrier_wait(init_barrier);
+
+    CheckError(pgm_release_node(node));
+
+    if (t_info.realtime)
+        CALL( task_mode(BACKGROUND_TASK) );
+    pthread_exit(0);
 }

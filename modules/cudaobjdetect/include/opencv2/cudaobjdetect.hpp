@@ -293,6 +293,11 @@ public:
     /* five-node entire-level combination */
     virtual void* thread_fine_ABCDE(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0; // resize -> classify hists
 
+    /* color-convert and source-node combination */
+    virtual void fine_CC_S_ABCDE(struct task_info &t_info, void** out_buf_ptrs,
+                                 cuda::GpuMat* gpu_img, std::vector<Rect>* found,
+                                 Mat *img, int frame_idx, Stream stream, int64 hog_work_begin) = 0; // color-convert -> classify hists (maybe not all the way)
+
     /* source-node combinations */
     virtual void* thread_fine_S_A(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0;     // compute-levels +  resize
     virtual void* thread_fine_S_AB(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0;    // compute-levels -> compute grads
@@ -306,6 +311,8 @@ public:
     virtual void* thread_fine_CDE_T(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0;   // compute hists   -> collect-locations
     virtual void* thread_fine_DE_T(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0;    // normalize hists -> collect-locations
     virtual void* thread_fine_E_T(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0;     // classify hists   + collect-locations
+
+    virtual void set_up_constants(Stream stream) = 0;
 };
 
 //

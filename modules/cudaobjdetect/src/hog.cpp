@@ -279,6 +279,11 @@ namespace
         /* five-node entire-level combination */
         void* thread_fine_ABCDE(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info); // resize -> classify hists
 
+        /* color-convert and source-node combination */
+        void fine_CC_S_ABCDE(struct task_info &t_info, void** out_buf_ptrs,
+                             cuda::GpuMat* gpu_img, std::vector<Rect>* found,
+                             Mat *img, int frame_idx, Stream stream, int64 hog_work_begin); // color-convert -> classify hists (maybe not all the way)
+
         /* source-node combinations */
         void* thread_fine_S_A(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info);     // compute-levels +  resize
         void* thread_fine_S_AB(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info);    // compute-levels -> compute grads
@@ -292,6 +297,8 @@ namespace
         void* thread_fine_CDE_T(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info);   // compute hists   -> collect-locations
         void* thread_fine_DE_T(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info);    // normalize hists -> collect-locations
         void* thread_fine_E_T(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info);     // classify hists   + collect-locations
+
+        void set_up_constants(Stream stream);
 
     private:
         Size win_size_;
@@ -5514,6 +5521,394 @@ go_ahead:
         if (t_info.realtime)
             CALL( task_mode(BACKGROUND_TASK) );
         pthread_exit(0);
+    }
+
+    void HOG_Impl::set_up_constants(Stream stream)
+    {
+        cv::Size blocks_per_win = numPartsWithin(win_size_, block_size_, block_stride_);
+        hog::set_up_constants(nbins_,
+                              block_stride_.width, block_stride_.height,
+                              blocks_per_win.width, blocks_per_win.height,
+                              cells_per_block_.width, cells_per_block_.height,
+                              StreamAccessor::getStream(stream));
+        cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
+    }
+
+    void HOG_Impl::fine_CC_S_ABCDE(struct task_info &t_info, void** out_buf_ptrs,
+                                   cuda::GpuMat* gpu_img, std::vector<Rect>* found,
+                                   Mat *img, int frame_idx, Stream stream, int64 hog_work_begin)
+    {
+        const std::vector<node_config> &source_config = *t_info.source_config;
+
+        if (hog_errors)
+        {
+            fprintf(stderr, "HOG ERROR!!!\n");
+        }
+
+        /* ===========================
+         * compute scale levels
+         */
+        std::vector<double> *confidences = NULL;
+
+        CV_Assert( gpu_img->type() == CV_8UC1 || gpu_img->type() == CV_8UC4 );
+        CV_Assert( confidences == NULL || group_threshold_ == 0 );
+
+        std::vector<double> *level_scale = new std::vector<double>();
+        double scale = 1.0;
+        int levels = 0;
+
+        BufferPool pool(stream);
+
+        for (levels = 0; levels < nlevels_; levels++)
+        {
+            level_scale->push_back(scale);
+
+            if (cvRound(gpu_img->cols / scale) < win_size_.width ||
+                    cvRound(gpu_img->rows / scale) < win_size_.height ||
+                    scale0_ <= 1)
+            {
+                break;
+            }
+
+            scale *= scale0_;
+        }
+        levels = std::max(levels, 1);
+        level_scale->resize(levels);
+
+        GpuMat * smaller_img_array = new GpuMat[level_scale->size()];
+        GpuMat * labels_array = new GpuMat[level_scale->size()];
+
+        for (size_t level_idx = 0; level_idx < level_scale->size(); level_idx++)
+        {
+            // Compute a scale level
+            GpuMat * smaller_img = smaller_img_array + level_idx;
+            GpuMat * labels = labels_array + level_idx;
+
+            if (detector_.empty())
+                break;
+
+            scale = (*level_scale)[level_idx];
+
+            Size sz(cvRound(gpu_img->cols / scale), cvRound(gpu_img->rows / scale));
+
+            if (sz == gpu_img->size())
+            {
+                *smaller_img = *gpu_img;
+            }
+            else
+            {
+                *smaller_img = pool.getBuffer(sz, gpu_img->type());
+            }
+
+            bool do_resize = false;
+            bool do_compute_grads = false;
+            bool do_compute_hists = false;
+            bool do_normalize_hists = false;
+            bool do_classify_hists = false;
+
+            switch(source_config[level_idx])
+            {
+                case node_A:
+                    do_resize = true;
+                    break;
+                case node_AB:
+                    do_resize = true;
+                    do_compute_grads = true;
+                    break;
+                case node_ABC:
+                    do_resize = true;
+                    do_compute_grads = true;
+                    do_compute_hists = true;
+                    break;
+                case node_ABCD:
+                    do_resize = true;
+                    do_compute_grads = true;
+                    do_compute_hists = true;
+                    do_normalize_hists = true;
+                    break;
+                case node_ABCDE:
+                    do_resize = true;
+                    do_compute_grads = true;
+                    do_compute_hists = true;
+                    do_normalize_hists = true;
+                    do_classify_hists = true;
+                    break;
+                default:
+                    break;
+            }
+
+            if (!do_resize)
+            {
+                struct params_resize *out_buf = (struct params_resize *)out_buf_ptrs[level_idx];
+                out_buf->gpu_img = gpu_img;
+                out_buf->found = found;
+                out_buf->img_to_show = img;
+                out_buf->smaller_img = smaller_img;
+                out_buf->labels = labels;
+                out_buf->level_scale = level_scale;
+                out_buf->confidences = confidences;
+                out_buf->index = level_idx;
+                out_buf->frame_index = frame_idx;
+                out_buf->start_time = hog_work_begin;
+            }
+
+            if (do_resize)
+            {
+#ifdef LOG_NODE_MERGING
+                fprintf(stdout, "[CC] Resizing for level %d.\n", level_idx);
+#endif
+
+                if (t_info.sched == configurable && t_info.early)
+                    gpu_period_guard(t_info.s_info_in, t_info.s_info_out);
+
+                /* ===========================
+                 * resize image
+                 */
+                if (smaller_img->size() != gpu_img->size())
+                {
+                    switch (gpu_img->type())
+                    {
+                        case CV_8UC1: hog::resize_8UC1_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), frame_idx); break;
+                        case CV_8UC4: hog::resize_8UC4_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), frame_idx); break;
+                    }
+                }
+
+                CV_Assert( smaller_img->type() == CV_8UC1 || smaller_img->type() == CV_8UC4 );
+                CV_Assert( win_stride_.width % block_stride_.width == 0 && win_stride_.height % block_stride_.height == 0 );
+                /*
+                 * end of resize image
+                 * =========================== */
+
+                if (!do_compute_grads)
+                {
+                    struct params_compute_gradients *out_buf = (struct params_compute_gradients *)out_buf_ptrs[level_idx];
+
+                    out_buf->gpu_img = gpu_img;
+                    out_buf->found = found;
+                    out_buf->img_to_show = img;
+                    out_buf->smaller_img = smaller_img;
+                    out_buf->labels = labels;
+                    out_buf->level_scale = level_scale;
+                    out_buf->confidences = confidences;
+                    out_buf->index = level_idx;
+                    out_buf->frame_index = frame_idx;
+                    out_buf->start_time = hog_work_begin;
+                }
+            }
+
+            GpuMat * grad;
+            GpuMat * qangle;
+
+            if (do_compute_grads)
+            {
+#ifdef LOG_NODE_MERGING
+                fprintf(stdout, "[CC] Computing gradients for level %d.\n", level_idx);
+#endif
+
+                /* ===========================
+                 * compute gradients
+                 */
+                grad = new GpuMat();
+                qangle = new GpuMat();
+
+                float  angleScale = static_cast<float>(nbins_ / CV_PI);
+                *grad       = pool.getBuffer(smaller_img->size(), CV_32FC2);
+                *qangle     = pool.getBuffer(smaller_img->size(), CV_8UC2);
+
+                switch (smaller_img->type())
+                {
+                    case CV_8UC1:
+                        hog::compute_gradients_8UC1(nbins_,
+                                smaller_img->rows, smaller_img->cols, *smaller_img,
+                                angleScale,
+                                *grad, *qangle,
+                                gamma_correction_,
+                                StreamAccessor::getStream(stream));
+                        break;
+                    case CV_8UC4:
+                        hog::compute_gradients_8UC4(nbins_,
+                                smaller_img->rows, smaller_img->cols, *smaller_img,
+                                angleScale,
+                                *grad, *qangle,
+                                gamma_correction_,
+                                StreamAccessor::getStream(stream));
+                        break;
+                }
+                /*
+                 * end of compute gradients
+                 * =========================== */
+
+                if (!do_compute_hists)
+                {
+                    struct params_compute_histograms *out_buf = (struct params_compute_histograms *)out_buf_ptrs[level_idx];
+
+                    out_buf->gpu_img = gpu_img;
+                    out_buf->found = found;
+                    out_buf->img_to_show = img;
+                    out_buf->smaller_img = smaller_img;
+                    out_buf->level_scale = level_scale;
+                    out_buf->confidences = confidences;
+                    out_buf->labels = labels;
+                    out_buf->grad= grad;
+                    out_buf->qangle= qangle;
+                    out_buf->index = level_idx;
+                    out_buf->frame_index = frame_idx;
+                    out_buf->start_time = hog_work_begin;
+                }
+            }
+
+            GpuMat * block_hists;
+
+            if (do_compute_hists)
+            {
+#ifdef LOG_NODE_MERGING
+                fprintf(stdout, "[CC] Computing histograms for level %d.\n", level_idx);
+#endif
+
+                block_hists = new GpuMat();
+
+                /* ===========================
+                 * compute histograms
+                 */
+                *block_hists = pool.getBuffer(1, getTotalHistSize(smaller_img->size()), CV_32FC1);
+
+                hog::compute_hists(nbins_,
+                        block_stride_.width, block_stride_.height,
+                        smaller_img->rows, smaller_img->cols,
+                        *grad, *qangle,
+                        (float)getWinSigma(),
+                        block_hists->ptr<float>(),
+                        cell_size_.width, cell_size_.height,
+                        cells_per_block_.width, cells_per_block_.height,
+                        StreamAccessor::getStream(stream));
+
+                grad->release();
+                qangle->release();
+                /*
+                 * end of compute histograms
+                 * =========================== */
+
+                if (!do_normalize_hists)
+                {
+                    struct params_fine_normalize *out_buf = (struct params_fine_normalize *)out_buf_ptrs[level_idx];
+
+                    out_buf->gpu_img = gpu_img;
+                    out_buf->found = found;
+                    out_buf->img_to_show = img;
+                    out_buf->smaller_img = smaller_img;
+                    out_buf->level_scale = level_scale;
+                    out_buf->confidences = confidences;
+                    out_buf->index = level_idx;
+                    out_buf->labels = labels;
+                    out_buf->frame_index = frame_idx;
+                    out_buf->start_time = hog_work_begin;
+                    out_buf->block_hists = block_hists;
+                }
+            }
+
+            if (do_normalize_hists)
+            {
+#ifdef LOG_NODE_MERGING
+                fprintf(stdout, "[CC] Normalizing histograms for level %d.\n", level_idx);
+#endif
+
+                /* ===========================
+                 * normalize histograms
+                 */
+                hog::normalize_hists(nbins_,
+                        block_stride_.width, block_stride_.height,
+                        smaller_img->rows, smaller_img->cols,
+                        block_hists->ptr<float>(),
+                        (float)threshold_L2hys_,
+                        cell_size_.width, cell_size_.height,
+                        cells_per_block_.width, cells_per_block_.height,
+                        StreamAccessor::getStream(stream));
+                /*
+                 * end of nomalize histograms
+                 * =========================== */
+ 
+                if (!do_classify_hists)
+                {
+                    struct params_fine_classify *out_buf = (struct params_fine_classify *)out_buf_ptrs[level_idx];
+
+                    out_buf->gpu_img = gpu_img;
+                    out_buf->found = found;
+                    out_buf->img_to_show = img;
+                    out_buf->smaller_img = smaller_img;
+                    out_buf->level_scale = level_scale;
+                    out_buf->confidences = confidences;
+                    out_buf->index = level_idx;
+                    out_buf->labels = labels;
+                    out_buf->frame_index = frame_idx;
+                    out_buf->start_time = hog_work_begin;
+                    out_buf->block_hists = block_hists;
+                }
+            }
+
+            if (do_classify_hists)
+            {
+#ifdef LOG_NODE_MERGING
+                fprintf(stdout, "[CC] Classifying histograms for level %d.\n", level_idx);
+#endif
+
+                /* ===========================
+                 * classify
+                 */
+                Size wins_per_img = numPartsWithin(smaller_img->size(), win_size_, win_stride_);
+
+                if (confidences == NULL)
+                {
+                    *labels = pool.getBuffer(1, wins_per_img.area(), CV_8UC1);
+
+                    hog::classify_hists(win_size_.height, win_size_.width,
+                            block_stride_.height, block_stride_.width,
+                            win_stride_.height, win_stride_.width,
+                            smaller_img->rows, smaller_img->cols,
+                            block_hists->ptr<float>(),
+                            detector_.ptr<float>(),
+                            (float)free_coef_,
+                            (float)hit_threshold_,
+                            cell_size_.width, cells_per_block_.width,
+                            labels->ptr());
+                }
+                else
+                {
+                    *labels = pool.getBuffer(1, wins_per_img.area(), CV_32FC1);
+
+                    hog::compute_confidence_hists(win_size_.height, win_size_.width,
+                            block_stride_.height, block_stride_.width,
+                            win_stride_.height, win_stride_.width,
+                            smaller_img->rows, smaller_img->cols,
+                            block_hists->ptr<float>(),
+                            detector_.ptr<float>(),
+                            (float)free_coef_,
+                            (float)hit_threshold_,
+                            cell_size_.width, cells_per_block_.width,
+                            labels->ptr<float>());
+                }
+                /*
+                 * end of classify
+                 * =========================== */
+
+                block_hists->release();
+
+                struct params_fine_collect_locations *out_buf = (struct params_fine_collect_locations *)out_buf_ptrs[level_idx];
+
+                out_buf->gpu_img = gpu_img;
+                out_buf->found = found;
+                out_buf->img_to_show = img;
+                out_buf->smaller_img = smaller_img;
+                out_buf->level_scale = level_scale;
+                out_buf->confidences = confidences;
+                out_buf->labels = labels;
+                out_buf->index = level_idx;
+                out_buf->frame_index = frame_idx;
+                out_buf->start_time = hog_work_begin;
+            }
+        }
+        /*
+         * end of compute scale levels
+         * =========================== */
     }
 
     void* HOG_Impl::thread_fine_E_T(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info)
