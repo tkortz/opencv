@@ -46,6 +46,8 @@
 #include "opencv2/core/cuda/reduce.hpp"
 #include "opencv2/core/cuda/functional.hpp"
 #include "opencv2/core/cuda/warp_shuffle.hpp"
+#include "opencv2/cudaobjdetect.hpp"
+
 
 namespace cv { namespace cuda { namespace device
 {
@@ -104,25 +106,25 @@ namespace cv { namespace cuda { namespace device
                               int ncells_block_x, int ncells_block_y,
                               const cudaStream_t& stream)
         {
-            cudaSafeCall(cudaMemcpyToSymbolAsync(cnbins,               &nbins,               sizeof(nbins),               0, cudaMemcpyHostToDevice, stream));
-            cudaSafeCall(cudaMemcpyToSymbolAsync(cblock_stride_x,      &block_stride_x,      sizeof(block_stride_x),      0, cudaMemcpyHostToDevice, stream));
-            cudaSafeCall(cudaMemcpyToSymbolAsync(cblock_stride_y,      &block_stride_y,      sizeof(block_stride_y),      0, cudaMemcpyHostToDevice, stream));
-            cudaSafeCall(cudaMemcpyToSymbolAsync(cnblocks_win_x,       &nblocks_win_x,       sizeof(nblocks_win_x),       0, cudaMemcpyHostToDevice, stream));
-            cudaSafeCall(cudaMemcpyToSymbolAsync(cnblocks_win_y,       &nblocks_win_y,       sizeof(nblocks_win_y),       0, cudaMemcpyHostToDevice, stream));
-            cudaSafeCall(cudaMemcpyToSymbolAsync(cncells_block_x,      &ncells_block_x,      sizeof(ncells_block_x),      0, cudaMemcpyHostToDevice, stream));
-            cudaSafeCall(cudaMemcpyToSymbolAsync(cncells_block_y,      &ncells_block_y,      sizeof(ncells_block_y),      0, cudaMemcpyHostToDevice, stream));
+            cudaSafeCall(cudaMemcpyToSymbolAsync(cnbins,               &nbins,               sizeof(nbins),               0, cudaMemcpyHostToDevice));
+            cudaSafeCall(cudaMemcpyToSymbolAsync(cblock_stride_x,      &block_stride_x,      sizeof(block_stride_x),      0, cudaMemcpyHostToDevice));
+            cudaSafeCall(cudaMemcpyToSymbolAsync(cblock_stride_y,      &block_stride_y,      sizeof(block_stride_y),      0, cudaMemcpyHostToDevice));
+            cudaSafeCall(cudaMemcpyToSymbolAsync(cnblocks_win_x,       &nblocks_win_x,       sizeof(nblocks_win_x),       0, cudaMemcpyHostToDevice));
+            cudaSafeCall(cudaMemcpyToSymbolAsync(cnblocks_win_y,       &nblocks_win_y,       sizeof(nblocks_win_y),       0, cudaMemcpyHostToDevice));
+            cudaSafeCall(cudaMemcpyToSymbolAsync(cncells_block_x,      &ncells_block_x,      sizeof(ncells_block_x),      0, cudaMemcpyHostToDevice));
+            cudaSafeCall(cudaMemcpyToSymbolAsync(cncells_block_y,      &ncells_block_y,      sizeof(ncells_block_y),      0, cudaMemcpyHostToDevice));
 
             int block_hist_size = nbins * ncells_block_x * ncells_block_y;
-            cudaSafeCall(cudaMemcpyToSymbolAsync(cblock_hist_size,     &block_hist_size,     sizeof(block_hist_size),     0, cudaMemcpyHostToDevice, stream));
+            cudaSafeCall(cudaMemcpyToSymbolAsync(cblock_hist_size,     &block_hist_size,     sizeof(block_hist_size),     0, cudaMemcpyHostToDevice));
 
             int block_hist_size_2up = power_2up(block_hist_size);
-            cudaSafeCall(cudaMemcpyToSymbolAsync(cblock_hist_size_2up, &block_hist_size_2up, sizeof(block_hist_size_2up), 0, cudaMemcpyHostToDevice, stream));
+            cudaSafeCall(cudaMemcpyToSymbolAsync(cblock_hist_size_2up, &block_hist_size_2up, sizeof(block_hist_size_2up), 0, cudaMemcpyHostToDevice));
 
             int descr_width = nblocks_win_x * block_hist_size;
-            cudaSafeCall(cudaMemcpyToSymbolAsync(cdescr_width,         &descr_width,         sizeof(descr_width),         0, cudaMemcpyHostToDevice, stream));
+            cudaSafeCall(cudaMemcpyToSymbolAsync(cdescr_width,         &descr_width,         sizeof(descr_width),         0, cudaMemcpyHostToDevice));
 
             int descr_size = descr_width * nblocks_win_y;
-            cudaSafeCall(cudaMemcpyToSymbolAsync(cdescr_size,          &descr_size,          sizeof(descr_size),          0, cudaMemcpyHostToDevice, stream));
+            cudaSafeCall(cudaMemcpyToSymbolAsync(cdescr_size,          &descr_size,          sizeof(descr_size),          0, cudaMemcpyHostToDevice));
         }
 
 
@@ -268,25 +270,27 @@ namespace cv { namespace cuda { namespace device
             int final_hists_size = (nbins * ncells_block * nblocks) * sizeof(float);
             int smem = hists_size + final_hists_size;
 
-            // TODO: lock
+            enter_np();
+            if (!hp_deadlines_ptr->empty())
+                fzlp.wait(*min_element(hp_deadlines_ptr->begin(), hp_deadlines_ptr->end()));
 
             if (nblocks == 4)
-                compute_hists_kernel_many_blocks<4><<<grid, threads, smem, stream>>>(img_block_width, grad, qangle, scale, block_hists, cell_size_x, patch_size, block_patch_size, threads_cell, threads_block, half_cell_size);
+                compute_hists_kernel_many_blocks<4><<<grid, threads, smem>>>(img_block_width, grad, qangle, scale, block_hists, cell_size_x, patch_size, block_patch_size, threads_cell, threads_block, half_cell_size);
             else if (nblocks == 3)
-                compute_hists_kernel_many_blocks<3><<<grid, threads, smem, stream>>>(img_block_width, grad, qangle, scale, block_hists, cell_size_x, patch_size, block_patch_size, threads_cell, threads_block, half_cell_size);
+                compute_hists_kernel_many_blocks<3><<<grid, threads, smem>>>(img_block_width, grad, qangle, scale, block_hists, cell_size_x, patch_size, block_patch_size, threads_cell, threads_block, half_cell_size);
             else if (nblocks == 2)
-                compute_hists_kernel_many_blocks<2><<<grid, threads, smem, stream>>>(img_block_width, grad, qangle, scale, block_hists, cell_size_x, patch_size, block_patch_size, threads_cell, threads_block, half_cell_size);
+                compute_hists_kernel_many_blocks<2><<<grid, threads, smem>>>(img_block_width, grad, qangle, scale, block_hists, cell_size_x, patch_size, block_patch_size, threads_cell, threads_block, half_cell_size);
             else
-                compute_hists_kernel_many_blocks<1><<<grid, threads, smem, stream>>>(img_block_width, grad, qangle, scale, block_hists, cell_size_x, patch_size, block_patch_size, threads_cell, threads_block, half_cell_size);
+                compute_hists_kernel_many_blocks<1><<<grid, threads, smem>>>(img_block_width, grad, qangle, scale, block_hists, cell_size_x, patch_size, block_patch_size, threads_cell, threads_block, half_cell_size);
 
             cudaSafeCall( cudaGetLastError() );
 
             if (should_sync)
             {
-                cudaSafeCall(cudaStreamSynchronize(stream));
+                cudaSafeCall(cudaStreamSynchronize(0));
             }
 
-            // TODO: unlock
+            exit_np();
         }
 
 
@@ -381,18 +385,20 @@ namespace cv { namespace cuda { namespace device
             int img_block_height = (height - ncells_block_y * cell_size_y + block_stride_y) / block_stride_y;
             dim3 grid(divUp(img_block_width, nblocks), img_block_height);
 
-            // TODO: lock
+            enter_np();
+            if (!hp_deadlines_ptr->empty())
+                fzlp.wait(*min_element(hp_deadlines_ptr->begin(), hp_deadlines_ptr->end()));
 
             if (nthreads == 32)
-                normalize_hists_kernel_many_blocks<32, nblocks><<<grid, threads, 0, stream>>>(block_hist_size, img_block_width, block_hists, threshold);
+                normalize_hists_kernel_many_blocks<32, nblocks><<<grid, threads>>>(block_hist_size, img_block_width, block_hists, threshold);
             else if (nthreads == 64)
-                normalize_hists_kernel_many_blocks<64, nblocks><<<grid, threads, 0, stream>>>(block_hist_size, img_block_width, block_hists, threshold);
+                normalize_hists_kernel_many_blocks<64, nblocks><<<grid, threads>>>(block_hist_size, img_block_width, block_hists, threshold);
             else if (nthreads == 128)
-                normalize_hists_kernel_many_blocks<128, nblocks><<<grid, threads, 0, stream>>>(block_hist_size, img_block_width, block_hists, threshold);
+                normalize_hists_kernel_many_blocks<128, nblocks><<<grid, threads>>>(block_hist_size, img_block_width, block_hists, threshold);
             else if (nthreads == 256)
-                normalize_hists_kernel_many_blocks<256, nblocks><<<grid, threads, 0, stream>>>(block_hist_size, img_block_width, block_hists, threshold);
+                normalize_hists_kernel_many_blocks<256, nblocks><<<grid, threads>>>(block_hist_size, img_block_width, block_hists, threshold);
             else if (nthreads == 512)
-                normalize_hists_kernel_many_blocks<512, nblocks><<<grid, threads, 0, stream>>>(block_hist_size, img_block_width, block_hists, threshold);
+                normalize_hists_kernel_many_blocks<512, nblocks><<<grid, threads>>>(block_hist_size, img_block_width, block_hists, threshold);
             else
                 CV_Error(cv::Error::StsBadArg, "normalize_hists: histogram's size is too big, try to decrease number of bins");
 
@@ -400,10 +406,10 @@ namespace cv { namespace cuda { namespace device
 
             if (should_sync)
             {
-                cudaSafeCall(cudaStreamSynchronize(stream));
+                cudaSafeCall(cudaStreamSynchronize(0));
             }
 
-            // TODO: unlock
+            exit_np();
         }
 
         template <int nthreads, // Number of threads per one histogram block
@@ -461,19 +467,20 @@ namespace cv { namespace cuda { namespace device
             cudaSafeCall(cudaStreamCreate(&stream));
             int img_block_width = (width - ncells_block_x * cell_size_x + block_stride_x) / block_stride_x;
 
-            // TODO: lock
+            enter_np();
+            if (!hp_deadlines_ptr->empty())
+                fzlp.wait(*min_element(hp_deadlines_ptr->begin(), hp_deadlines_ptr->end()));
 
             classify_hists_kernel_many_blocks<nthreads, nblocks><<<grid,
-                threads, 0, stream>>>(
+                threads>>>(
                 img_win_width, img_block_width, win_block_stride_x, win_block_stride_y,
                 block_hists, coefs, free_coef, threshold, labels);
             cudaSafeCall( cudaGetLastError() );
 
-            cudaSafeCall(cudaStreamSynchronize(stream));
+            cudaSafeCall(cudaStreamSynchronize(0));
             cudaSafeCall(cudaStreamDestroy(stream));
-            //cudaSafeCall( cudaDeviceSynchronize() );
 
-            // TODO: unlock
+            exit_np();
         }
 
         //---------------------------------------------------------------------
@@ -535,20 +542,21 @@ namespace cv { namespace cuda { namespace device
 
            int img_block_width = (width - ncells_block_x * cell_size_x + block_stride_x) /
                                                        block_stride_x;
-           cudaStream_t stream;
-           cudaSafeCall(cudaStreamCreate(&stream));
+           //cudaStream_t stream;
+           //cudaSafeCall(cudaStreamCreate(&stream));
 
-           // TODO: lock
+            enter_np();
+            if (!hp_deadlines_ptr->empty())
+                fzlp.wait(*min_element(hp_deadlines_ptr->begin(), hp_deadlines_ptr->end()));
 
            compute_confidence_hists_kernel_many_blocks<nthreads,
-               nblocks><<<grid, threads, 0, stream>>>(
+               nblocks><<<grid, threads>>>(
                    img_win_width, img_block_width, win_block_stride_x, win_block_stride_y,
                    block_hists, coefs, free_coef, threshold, confidences);
-           cudaSafeCall(cudaStreamSynchronize(stream));
-           cudaSafeCall(cudaStreamDestroy(stream));
-           //cudaSafeCall(cudaThreadSynchronize());
+           cudaSafeCall(cudaStreamSynchronize(0));
+           //cudaSafeCall(cudaStreamDestroy(stream));
 
-            // TODO: unlock
+            exit_np();
        }
 
 
@@ -598,9 +606,10 @@ namespace cv { namespace cuda { namespace device
             dim3 grid(img_win_width, img_win_height);
 
             int img_block_width = (width - ncells_block_x * cell_size_x + block_stride_x) / block_stride_x;
-            extract_descrs_by_rows_kernel<nthreads><<<grid, threads, 0, stream>>>(img_block_width, win_block_stride_x, win_block_stride_y, block_hists, descriptors);
+            extract_descrs_by_rows_kernel<nthreads><<<grid, threads>>>(img_block_width, win_block_stride_x, win_block_stride_y, block_hists, descriptors);
 
             cudaSafeCall( cudaGetLastError() );
+            cudaSafeCall( cudaStreamSynchronize(0) );
         }
 
 
@@ -651,9 +660,10 @@ namespace cv { namespace cuda { namespace device
             dim3 grid(img_win_width, img_win_height);
 
             int img_block_width = (width - ncells_block_x * cell_size_x + block_stride_x) / block_stride_x;
-            extract_descrs_by_cols_kernel<nthreads><<<grid, threads, 0, stream>>>(img_block_width, win_block_stride_x, win_block_stride_y, block_hists, descriptors);
+            extract_descrs_by_cols_kernel<nthreads><<<grid, threads>>>(img_block_width, win_block_stride_x, win_block_stride_y, block_hists, descriptors);
 
             cudaSafeCall( cudaGetLastError() );
+            cudaSafeCall( cudaStreamSynchronize(0) );
         }
 
         //----------------------------------------------------------------------------
@@ -777,21 +787,23 @@ namespace cv { namespace cuda { namespace device
             dim3 bdim(nthreads, 1);
             dim3 gdim(divUp(width, bdim.x), divUp(height, bdim.y));
 
-            // TODO: lock
+            enter_np();
+            if (!hp_deadlines_ptr->empty())
+                fzlp.wait(*min_element(hp_deadlines_ptr->begin(), hp_deadlines_ptr->end()));
 
             if (correct_gamma)
-                compute_gradients_8UC4_kernel<nthreads, 1><<<gdim, bdim, 0, stream>>>(height, width, img, angle_scale, grad, qangle);
+                compute_gradients_8UC4_kernel<nthreads, 1><<<gdim, bdim>>>(height, width, img, angle_scale, grad, qangle);
             else
-                compute_gradients_8UC4_kernel<nthreads, 0><<<gdim, bdim, 0, stream>>>(height, width, img, angle_scale, grad, qangle);
+                compute_gradients_8UC4_kernel<nthreads, 0><<<gdim, bdim>>>(height, width, img, angle_scale, grad, qangle);
 
             cudaSafeCall( cudaGetLastError() );
 
             if (should_sync)
             {
-                cudaSafeCall(cudaStreamSynchronize(stream));
+                cudaSafeCall(cudaStreamSynchronize(0));
             }
 
-            // TODO: unlock
+            exit_np();
         }
 
         template <int nthreads, int correct_gamma>
@@ -862,21 +874,23 @@ namespace cv { namespace cuda { namespace device
             dim3 bdim(nthreads, 1);
             dim3 gdim(divUp(width, bdim.x), divUp(height, bdim.y));
 
-            // TODO: lock
+            enter_np();
+            if (!hp_deadlines_ptr->empty())
+                fzlp.wait(*min_element(hp_deadlines_ptr->begin(), hp_deadlines_ptr->end()));
 
             if (correct_gamma)
-                compute_gradients_8UC1_kernel<nthreads, 1><<<gdim, bdim, 0, stream>>>(height, width, img, angle_scale, grad, qangle);
+                compute_gradients_8UC1_kernel<nthreads, 1><<<gdim, bdim>>>(height, width, img, angle_scale, grad, qangle);
             else
-                compute_gradients_8UC1_kernel<nthreads, 0><<<gdim, bdim, 0, stream>>>(height, width, img, angle_scale, grad, qangle);
+                compute_gradients_8UC1_kernel<nthreads, 0><<<gdim, bdim>>>(height, width, img, angle_scale, grad, qangle);
 
             cudaSafeCall( cudaGetLastError() );
 
             if (should_sync)
             {
-                cudaSafeCall(cudaStreamSynchronize(stream));
+                cudaSafeCall(cudaStreamSynchronize(0));
             }
 
-            // TODO: unlock
+            exit_np();
         }
 
 
@@ -1009,24 +1023,19 @@ namespace cv { namespace cuda { namespace device
             float sx = static_cast<float>(src.cols) / dst.cols;
             float sy = static_cast<float>(src.rows) / dst.rows;
 
-            // TODO: lock
+            enter_np();
+            if (!hp_deadlines_ptr->empty())
+                fzlp.wait(*min_element(hp_deadlines_ptr->begin(), hp_deadlines_ptr->end()));
 
-            //cudaStream_t stream;
-            //cudaSafeCall(cudaStreamCreate(&stream));
-            resize_for_hog_kernel<<<grid, threads, 0, stream>>>(sx, sy, (PtrStepSz<T>)dst, colOfs, tex_index);
+            resize_for_hog_kernel<<<grid, threads>>>(sx, sy, (PtrStepSz<T>)dst, colOfs, tex_index);
             cudaSafeCall( cudaGetLastError() );
 
             if (should_sync)
             {
-                cudaSafeCall(cudaStreamSynchronize(stream));
+                cudaSafeCall(cudaStreamSynchronize(0));
             }
 
-            //cudaSafeCall(cudaStreamDestroy(stream));
-            //cudaSafeCall( cudaDeviceSynchronize() );
-
-            //cudaSafeCall( cudaUnbindTexture(tex) );
-
-            // TODO: unlock
+            exit_np();
         }
 
         void resize_8UC1(const PtrStepSzb& src, PtrStepSzb dst,

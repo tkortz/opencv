@@ -1,5 +1,15 @@
 ocv_install_example_src(gpu *.cpp *.hpp CMakeLists.txt)
 
+ocv_include_directories($ENV{PGM_RT_DIR}/include)
+ocv_include_directories($ENV{FZLP_DIR}/include)
+ocv_include_directories($ENV{LIBLITMUS_DIR}/include)
+ocv_include_directories($ENV{LIBLITMUS_DIR}/arch/x86/include)
+ocv_include_directories($ENV{LIBLITMUS_DIR}/arch/x86/include/uapi)
+ocv_include_directories($ENV{LIBLITMUS_DIR}/arch/x86/include/generated/uapi)
+link_directories($ENV{PGM_RT_DIR})
+link_directories($ENV{FZLP_DIR}/lib/)
+link_directories($ENV{LIBLITMUS_DIR})
+
 set(OPENCV_CUDA_SAMPLES_REQUIRED_DEPS
   opencv_core
   opencv_flann
@@ -23,6 +33,8 @@ set(OPENCV_CUDA_SAMPLES_REQUIRED_DEPS
   opencv_cudastereo
   opencv_cudalegacy
   opencv_cudaobjdetect
+  pgm
+  fzlp
   litmus)
 ocv_check_dependencies(${OPENCV_CUDA_SAMPLES_REQUIRED_DEPS})
 

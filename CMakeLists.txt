@@ -610,17 +610,7 @@ endif()
 include(cmake/OpenCVPCHSupport.cmake)
 include(cmake/OpenCVModule.cmake)
 
-# -----
-# Hard-coded linked library of pgmrt
-# -----
-set(OPENCV_LINKER_LIBS ${OPENCV_LINKER_LIBS} pgm boost_graph boost_filesystem boost_system)# litmus)
-ocv_include_directories("/home/tamert/pgm/include")
-ocv_include_directories("/home/tamert/litmus/liblitmus/include")
-ocv_include_directories("/home/tamert/litmus/liblitmus/arch/x86/include")
-ocv_include_directories("/home/tamert/litmus/liblitmus/arch/x86/include/uapi")
-ocv_include_directories("/home/tamert/litmus/liblitmus/arch/x86/include/generated/uapi")
-link_directories("/home/tamert/pgm/")
-link_directories("/home/tamert/litmus/liblitmus/")
+set(OPENCV_LINKER_LIBS ${OPENCV_LINKER_LIBS} boost_graph boost_filesystem boost_system)
 
 # ----------------------------------------------------------------------------
 #  Detect endianness of build platform

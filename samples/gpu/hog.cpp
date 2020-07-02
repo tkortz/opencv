@@ -44,6 +44,8 @@ int hog_sample_errors;
 
 __thread char hog_sample_errstr[80];
 
+
+#define HP_TASK_START_ID 1000
 //#define LOG_DEBUG 1
 #define NUM_SCALE_LEVELS 13
 #define FAIR_LATENESS_PP(m, period, cost) (period - (float)m * cost / (m - 1))
@@ -68,6 +70,7 @@ if(__ret < 0) { \
     fprintf(stderr, "%s ok.\n", #exp); \
 } while (0)
 
+std::vector<lt_t> hp_deadlines;
 
 bool help_showed = false;
 
@@ -743,6 +746,7 @@ Args Args::read(int argc, char** argv)
 App::App(const Args& s)
 {
     cv::cuda::printShortCudaDeviceInfo(cv::cuda::getDevice());
+    cudaSetDeviceFlags(cudaDeviceScheduleSpin);
 
     args = s;
     cout << "\nControls:\n"
@@ -885,6 +889,8 @@ void* App::thread_display(node_t* _node, pthread_barrier_t* init_barrier, bool s
         } while(ret != PGM_TERMINATE);
     }
 
+    completed_video = true;
+
     pthread_barrier_wait(init_barrier);
 
     CheckError(pgm_release_node(node));
@@ -969,9 +975,10 @@ void App::thread_hp_task(struct task_info t_info)
         CALL( task_mode(LITMUS_RT_TASK) );
         CALL( wait_for_ts_release() );
     }
-
+    get_current_deadline(&hp_deadlines.at(t_info.id - HP_TASK_START_ID));
     while (!this->completed_video)
     {
+        printf("updated deadline of hp %d: %llu\n", t_info.id, hp_deadlines.at(t_info.id - HP_TASK_START_ID));
         if (t_info.id == 1000)
         {
             fprintf(stdout, "HP Task starting job at %u\n", wctime());
@@ -990,7 +997,10 @@ void App::thread_hp_task(struct task_info t_info)
 
         if (t_info.realtime)
             sleep_next_period();
+        get_current_deadline(&hp_deadlines.at(t_info.id - HP_TASK_START_ID));
     }
+
+    printf("hp %d is existing\n", t_info.id);
 
     if (args.realtime)
         CALL( task_mode(BACKGROUND_TASK) );
@@ -1349,7 +1359,7 @@ void App::thread_color_convert(node_t *_node, pthread_barrier_t* init_barrier,
         for (int j = graph_idx; j < 100; j += args.num_fine_graphs) {
             if (!t_info.realtime)
                 usleep(30000);
-            if (count_frame >= args.count)
+            if (count_frame >= args.count / args.num_fine_graphs)
                 break;
             frame = frames[j];
             workBegin();
@@ -2160,6 +2170,8 @@ void App::run()
     cout << "cpusvmDescriptorSize : " << cpu_hog.getDescriptorSize()
          << endl;
 
+    gpu_hog->setHPDeadlines(&hp_deadlines);
+
     VideoCapture vc;
     Mat frames[100];
     vector<String> filenames;
@@ -2369,8 +2381,10 @@ void App::sched_configurable_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
         }
     }
 
+    hp_deadlines.resize(args.hp_task_count);
+
     // Create the high-priority tasks
-    unsigned hp_task_id = 1000;
+    unsigned hp_task_id = HP_TASK_START_ID;
     std::vector<thread *> hp_threads;
     for (int hp_idx = 0; hp_idx < args.hp_task_count; hp_idx++)
     {
