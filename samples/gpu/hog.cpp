@@ -1704,7 +1704,6 @@ void App::sched_fine_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
         t_info.period = period;
         t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, cost_color_convert);
         t_info.phase = PERIOD * g_idx;
-        // t_info.fzlp_nodes = (fzlp_node_t *)calloc(NUM_SCALE_LEVELS, sizeof(fzlp_node_t));
         t_info.id = 0;
         if (args.cluster != -1)
             t_info.cluster = args.cluster;// + g_idx;
@@ -2184,7 +2183,9 @@ void App::run()
     cout << "cpusvmDescriptorSize : " << cpu_hog.getDescriptorSize()
          << endl;
 
+#ifdef USE_FZLP_LOCK
     gpu_hog->setHPDeadlines(&hp_deadlines);
+#endif
 
     VideoCapture vc;
     Mat frames[100];

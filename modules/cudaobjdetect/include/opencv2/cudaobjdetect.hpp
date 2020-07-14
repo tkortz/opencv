@@ -49,11 +49,15 @@
 
 #include "opencv2/core/cuda.hpp"
 #include <pgm.h>
-#include <fzlp.h>
 #include <litmus.h>
 #include <vector>
 
+//#define USE_FZLP_LOCK
+
+#ifdef USE_FZLP_LOCK
+#include <fzlp.h>
 extern FZLP_Lock fzlp;
+#endif
 
 enum scheduling_option
 {
@@ -92,7 +96,9 @@ struct sync_info
     int job_no;
 };
 
+#ifdef USE_FZLP_LOCK
 extern std::vector<lt_t> *hp_deadlines_ptr;
+#endif
 
 struct task_info
 {
@@ -151,7 +157,10 @@ class CV_EXPORTS HOG : public Algorithm
 {
 public:
 
+#ifdef USE_FZLP_LOCK
     virtual void setHPDeadlines(std::vector<lt_t> *hp_deadlines) = 0;
+#endif
+
     enum
     {
         DESCR_FORMAT_ROW_BY_ROW,

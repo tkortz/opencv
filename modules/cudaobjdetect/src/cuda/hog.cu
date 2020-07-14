@@ -234,6 +234,14 @@ namespace cv { namespace cuda { namespace device
             }
         }
 
+#ifdef USE_FZLP_LOCK
+        void wait_forbidden_zone()
+        {
+            if (!hp_deadlines_ptr->empty())
+                fzlp.wait(*min_element(hp_deadlines_ptr->begin(), hp_deadlines_ptr->end()));
+        }
+#endif
+
         //declaration of variables and invoke the kernel with the calculated number of blocks
         void compute_hists(int nbins,
                            int block_stride_x, int block_stride_y,
@@ -270,9 +278,10 @@ namespace cv { namespace cuda { namespace device
             int final_hists_size = (nbins * ncells_block * nblocks) * sizeof(float);
             int smem = hists_size + final_hists_size;
 
+#ifdef USE_FZLP_LOCK
             enter_np();
-            if (!hp_deadlines_ptr->empty())
-                fzlp.wait(*min_element(hp_deadlines_ptr->begin(), hp_deadlines_ptr->end()));
+            wait_forbidden_zone();
+#endif
 
             if (nblocks == 4)
                 compute_hists_kernel_many_blocks<4><<<grid, threads, smem>>>(img_block_width, grad, qangle, scale, block_hists, cell_size_x, patch_size, block_patch_size, threads_cell, threads_block, half_cell_size);
@@ -290,7 +299,9 @@ namespace cv { namespace cuda { namespace device
                 cudaSafeCall(cudaStreamSynchronize(0));
             }
 
+#ifdef USE_FZLP_LOCK
             exit_np();
+#endif
         }
 
 
@@ -385,9 +396,10 @@ namespace cv { namespace cuda { namespace device
             int img_block_height = (height - ncells_block_y * cell_size_y + block_stride_y) / block_stride_y;
             dim3 grid(divUp(img_block_width, nblocks), img_block_height);
 
+#ifdef USE_FZLP_LOCK
             enter_np();
-            if (!hp_deadlines_ptr->empty())
-                fzlp.wait(*min_element(hp_deadlines_ptr->begin(), hp_deadlines_ptr->end()));
+            wait_forbidden_zone();
+#endif
 
             if (nthreads == 32)
                 normalize_hists_kernel_many_blocks<32, nblocks><<<grid, threads>>>(block_hist_size, img_block_width, block_hists, threshold);
@@ -409,7 +421,9 @@ namespace cv { namespace cuda { namespace device
                 cudaSafeCall(cudaStreamSynchronize(0));
             }
 
+#ifdef USE_FZLP_LOCK
             exit_np();
+#endif
         }
 
         template <int nthreads, // Number of threads per one histogram block
@@ -467,9 +481,10 @@ namespace cv { namespace cuda { namespace device
             cudaSafeCall(cudaStreamCreate(&stream));
             int img_block_width = (width - ncells_block_x * cell_size_x + block_stride_x) / block_stride_x;
 
+#ifdef USE_FZLP_LOCK
             enter_np();
-            if (!hp_deadlines_ptr->empty())
-                fzlp.wait(*min_element(hp_deadlines_ptr->begin(), hp_deadlines_ptr->end()));
+            wait_forbidden_zone();
+#endif
 
             classify_hists_kernel_many_blocks<nthreads, nblocks><<<grid,
                 threads>>>(
@@ -480,7 +495,9 @@ namespace cv { namespace cuda { namespace device
             cudaSafeCall(cudaStreamSynchronize(0));
             cudaSafeCall(cudaStreamDestroy(stream));
 
+#ifdef USE_FZLP_LOCK
             exit_np();
+#endif
         }
 
         //---------------------------------------------------------------------
@@ -545,9 +562,10 @@ namespace cv { namespace cuda { namespace device
            //cudaStream_t stream;
            //cudaSafeCall(cudaStreamCreate(&stream));
 
+#ifdef USE_FZLP_LOCK
             enter_np();
-            if (!hp_deadlines_ptr->empty())
-                fzlp.wait(*min_element(hp_deadlines_ptr->begin(), hp_deadlines_ptr->end()));
+            wait_forbidden_zone();
+#endif
 
            compute_confidence_hists_kernel_many_blocks<nthreads,
                nblocks><<<grid, threads>>>(
@@ -556,7 +574,9 @@ namespace cv { namespace cuda { namespace device
            cudaSafeCall(cudaStreamSynchronize(0));
            //cudaSafeCall(cudaStreamDestroy(stream));
 
+#ifdef USE_FZLP_LOCK
             exit_np();
+#endif
        }
 
 
@@ -787,9 +807,10 @@ namespace cv { namespace cuda { namespace device
             dim3 bdim(nthreads, 1);
             dim3 gdim(divUp(width, bdim.x), divUp(height, bdim.y));
 
+#ifdef USE_FZLP_LOCK
             enter_np();
-            if (!hp_deadlines_ptr->empty())
-                fzlp.wait(*min_element(hp_deadlines_ptr->begin(), hp_deadlines_ptr->end()));
+            wait_forbidden_zone();
+#endif
 
             if (correct_gamma)
                 compute_gradients_8UC4_kernel<nthreads, 1><<<gdim, bdim>>>(height, width, img, angle_scale, grad, qangle);
@@ -803,7 +824,9 @@ namespace cv { namespace cuda { namespace device
                 cudaSafeCall(cudaStreamSynchronize(0));
             }
 
+#ifdef USE_FZLP_LOCK
             exit_np();
+#endif
         }
 
         template <int nthreads, int correct_gamma>
@@ -874,9 +897,10 @@ namespace cv { namespace cuda { namespace device
             dim3 bdim(nthreads, 1);
             dim3 gdim(divUp(width, bdim.x), divUp(height, bdim.y));
 
+#ifdef USE_FZLP_LOCK
             enter_np();
-            if (!hp_deadlines_ptr->empty())
-                fzlp.wait(*min_element(hp_deadlines_ptr->begin(), hp_deadlines_ptr->end()));
+            wait_forbidden_zone();
+#endif
 
             if (correct_gamma)
                 compute_gradients_8UC1_kernel<nthreads, 1><<<gdim, bdim>>>(height, width, img, angle_scale, grad, qangle);
@@ -890,7 +914,9 @@ namespace cv { namespace cuda { namespace device
                 cudaSafeCall(cudaStreamSynchronize(0));
             }
 
+#ifdef USE_FZLP_LOCK
             exit_np();
+#endif
         }
 
 
@@ -1023,9 +1049,10 @@ namespace cv { namespace cuda { namespace device
             float sx = static_cast<float>(src.cols) / dst.cols;
             float sy = static_cast<float>(src.rows) / dst.rows;
 
+#ifdef USE_FZLP_LOCK
             enter_np();
-            if (!hp_deadlines_ptr->empty())
-                fzlp.wait(*min_element(hp_deadlines_ptr->begin(), hp_deadlines_ptr->end()));
+            wait_forbidden_zone();
+#endif
 
             resize_for_hog_kernel<<<grid, threads>>>(sx, sy, (PtrStepSz<T>)dst, colOfs, tex_index);
             cudaSafeCall( cudaGetLastError() );
@@ -1035,7 +1062,9 @@ namespace cv { namespace cuda { namespace device
                 cudaSafeCall(cudaStreamSynchronize(0));
             }
 
+#ifdef USE_FZLP_LOCK
             exit_np();
+#endif
         }
 
         void resize_8UC1(const PtrStepSzb& src, PtrStepSzb dst,
