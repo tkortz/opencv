@@ -61,33 +61,33 @@ extern FZLP_Lock fzlp;
 
 enum scheduling_option
 {
-    end_to_end = 0,
-    coarse_grained,      // 1
-    fine_grained,        // 2
-    coarse_unrolled,     // 3
-    configurable,        // 4
-    scheduling_option_end,
+    END_TO_END = 0,
+    COARSE_GRAINED,      // 1
+    FINE_GRAINED,        // 2
+    COARSE_UNROLLED,     // 3
+    CONFIGURABLE,        // 4
+    SCHEDULING_OPTION_END
 };
 
 enum node_config
 {
-    node_invalid = 0,
-    node_A,     //  1
-    node_B,     //  2
-    node_C,     //  3
-    node_D,     //  4
-    node_E,     //  5
-    node_AB,    //  6
-    node_BC,    //  7
-    node_CD,    //  8
-    node_DE,    //  9
-    node_ABC,   // 10
-    node_BCD,   // 11
-    node_CDE,   // 12
-    node_ABCD,  // 13
-    node_BCDE,  // 14
-    node_ABCDE, // 15
-    node_none   // 16
+    NODE_INVALID = 0,
+    NODE_A,     //  1
+    NODE_B,     //  2
+    NODE_C,     //  3
+    NODE_D,     //  4
+    NODE_E,     //  5
+    NODE_AB,    //  6
+    NODE_BC,    //  7
+    NODE_CD,    //  8
+    NODE_DE,    //  9
+    NODE_ABC,   // 10
+    NODE_BCD,   // 11
+    NODE_CDE,   // 12
+    NODE_ABCD,  // 13
+    NODE_BCDE,  // 14
+    NODE_ABCDE, // 15
+    NODE_NONE   // 16
 };
 
 struct sync_info

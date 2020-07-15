@@ -744,7 +744,7 @@ go_ahead:
 #ifdef LOG_DEBUG
                     fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
 #endif
-                    if (t_info.sched == fine_grained && t_info.early)
+                    if (t_info.sched == FINE_GRAINED && t_info.early)
                         gpu_period_guard(t_info.s_info_in, t_info.s_info_out);
 
                     smaller_img = in_buf->smaller_img;
@@ -753,7 +753,7 @@ go_ahead:
                      * resize image
                      */
                     unsigned long long curr_deadline;
-                    bool change_deadline = t_info.realtime && t_info.sched == fine_grained;
+                    bool change_deadline = t_info.realtime && t_info.sched == FINE_GRAINED;
                     if (smaller_img->size() != gpu_img->size())
                     {
                         switch (gpu_img->type())
@@ -864,7 +864,7 @@ go_ahead:
 #ifdef LOG_DEBUG
                     fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
 #endif
-                    if (t_info.sched == fine_grained && t_info.early)
+                    if (t_info.sched == FINE_GRAINED && t_info.early)
                         gpu_period_guard(t_info.s_info_in, t_info.s_info_out);
 
                     smaller_img = in_buf->smaller_img;
@@ -878,7 +878,7 @@ go_ahead:
                     *grad       = pool.getBuffer(smaller_img->size(), CV_32FC2);
                     *qangle     = pool.getBuffer(smaller_img->size(), CV_8UC2);
 
-                    bool change_deadline = t_info.realtime && t_info.sched == fine_grained;
+                    bool change_deadline = t_info.realtime && t_info.sched == FINE_GRAINED;
 
                     switch (smaller_img->type())
                     {
@@ -1006,7 +1006,7 @@ go_ahead:
 #ifdef LOG_DEBUG
                     fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
 #endif
-                    if (t_info.sched == fine_grained && t_info.early)
+                    if (t_info.sched == FINE_GRAINED && t_info.early)
                         gpu_period_guard(t_info.s_info_in, t_info.s_info_out);
 
                     smaller_img = in_buf->smaller_img;
@@ -1020,7 +1020,7 @@ go_ahead:
                      */
                     *block_hists      = pool.getBuffer(1, getTotalHistSize(smaller_img->size()), CV_32FC1);
 
-                    bool change_deadline = t_info.realtime && t_info.sched == fine_grained;
+                    bool change_deadline = t_info.realtime && t_info.sched == FINE_GRAINED;
 
                     hog::compute_hists(nbins_,
                             block_stride_.width, block_stride_.height,
@@ -1136,7 +1136,7 @@ go_ahead:
 #ifdef LOG_DEBUG
                     fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
 #endif
-                    if (t_info.sched == fine_grained && t_info.early)
+                    if (t_info.sched == FINE_GRAINED && t_info.early)
                         gpu_period_guard(t_info.s_info_in, t_info.s_info_out);
 
                     smaller_img = in_buf->smaller_img;
@@ -1145,7 +1145,7 @@ go_ahead:
                     /* ===========================
                      * normalize histograms
                      */
-                    bool change_deadline = t_info.realtime && t_info.sched == fine_grained;
+                    bool change_deadline = t_info.realtime && t_info.sched == FINE_GRAINED;
 
                     hog::normalize_hists(nbins_,
                             block_stride_.width, block_stride_.height,
@@ -1259,7 +1259,7 @@ go_ahead:
 #ifdef LOG_DEBUG
                     fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
 #endif
-                    if (t_info.sched == fine_grained && t_info.early)
+                    if (t_info.sched == FINE_GRAINED && t_info.early)
                         gpu_period_guard(t_info.s_info_in, t_info.s_info_out);
 
                     smaller_img = in_buf->smaller_img;
@@ -1273,7 +1273,7 @@ go_ahead:
                     wins_per_img = numPartsWithin(smaller_img->size(), win_size_, win_stride_);
 
                     unsigned long long curr_deadline;
-                    if (t_info.realtime && t_info.sched == fine_grained) {
+                    if (t_info.realtime && t_info.sched == FINE_GRAINED) {
                         CALL(get_current_deadline(&curr_deadline));
                     }
 
@@ -1281,7 +1281,7 @@ go_ahead:
                     {
                         *labels = pool.getBuffer(1, wins_per_img.area(), CV_8UC1);
 
-                        if (t_info.realtime && t_info.sched == fine_grained) {
+                        if (t_info.realtime && t_info.sched == FINE_GRAINED) {
                             CALL(set_current_deadline(curr_deadline + param.period));
                         }
 
@@ -1300,7 +1300,7 @@ go_ahead:
                     {
                         *labels = pool.getBuffer(1, wins_per_img.area(), CV_32FC1);
 
-                        if (t_info.realtime && t_info.sched == fine_grained) {
+                        if (t_info.realtime && t_info.sched == FINE_GRAINED) {
                             CALL(set_current_deadline(curr_deadline + param.period));
                         }
 
@@ -1335,7 +1335,7 @@ go_ahead:
 
                     CheckError(pgm_complete(node));
 
-                    if (t_info.realtime && t_info.sched == fine_grained) {
+                    if (t_info.realtime && t_info.sched == FINE_GRAINED) {
                         CALL(set_current_deadline(curr_deadline));
                     }
 
@@ -2138,7 +2138,7 @@ go_ahead:
                     fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
 #endif
 
-                    if (t_info.sched == configurable && t_info.early)
+                    if (t_info.sched == CONFIGURABLE && t_info.early)
                         gpu_period_guard(t_info.s_info_in, t_info.s_info_out);
 
                     smaller_img = in_buf->smaller_img;
@@ -2285,7 +2285,7 @@ go_ahead:
                     fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
 #endif
 
-                    if (t_info.sched == configurable && t_info.early)
+                    if (t_info.sched == CONFIGURABLE && t_info.early)
                         gpu_period_guard(t_info.s_info_in, t_info.s_info_out);
 
                     smaller_img = in_buf->smaller_img;
@@ -2439,7 +2439,7 @@ go_ahead:
                     fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
 #endif
 
-                    if (t_info.sched == configurable && t_info.early)
+                    if (t_info.sched == CONFIGURABLE && t_info.early)
                         gpu_period_guard(t_info.s_info_in, t_info.s_info_out);
 
                     smaller_img = in_buf->smaller_img;
@@ -2576,7 +2576,7 @@ go_ahead:
                     fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
 #endif
 
-                    if (t_info.sched == configurable && t_info.early)
+                    if (t_info.sched == CONFIGURABLE && t_info.early)
                         gpu_period_guard(t_info.s_info_in, t_info.s_info_out);
 
                     smaller_img = in_buf->smaller_img;
@@ -2733,7 +2733,7 @@ go_ahead:
                     fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
 #endif
 
-                    if (t_info.sched == configurable && t_info.early)
+                    if (t_info.sched == CONFIGURABLE && t_info.early)
                         gpu_period_guard(t_info.s_info_in, t_info.s_info_out);
 
                     smaller_img = in_buf->smaller_img;
@@ -2905,7 +2905,7 @@ go_ahead:
                     fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
 #endif
 
-                    if (t_info.sched == configurable && t_info.early)
+                    if (t_info.sched == CONFIGURABLE && t_info.early)
                         gpu_period_guard(t_info.s_info_in, t_info.s_info_out);
 
                     smaller_img = in_buf->smaller_img;
@@ -3077,7 +3077,7 @@ go_ahead:
                     fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
 #endif
 
-                    if (t_info.sched == configurable && t_info.early)
+                    if (t_info.sched == CONFIGURABLE && t_info.early)
                         gpu_period_guard(t_info.s_info_in, t_info.s_info_out);
 
                     smaller_img = in_buf->smaller_img;
@@ -3259,7 +3259,7 @@ go_ahead:
                     fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
 #endif
 
-                    if (t_info.sched == configurable && t_info.early)
+                    if (t_info.sched == CONFIGURABLE && t_info.early)
                         gpu_period_guard(t_info.s_info_in, t_info.s_info_out);
 
                     smaller_img = in_buf->smaller_img;
@@ -3450,7 +3450,7 @@ go_ahead:
                     fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
 #endif
 
-                    if (t_info.sched == configurable && t_info.early)
+                    if (t_info.sched == CONFIGURABLE && t_info.early)
                         gpu_period_guard(t_info.s_info_in, t_info.s_info_out);
 
                     smaller_img = in_buf->smaller_img;
@@ -3667,7 +3667,7 @@ go_ahead:
                     fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
 #endif
 
-                    if (t_info.sched == configurable && t_info.early)
+                    if (t_info.sched == CONFIGURABLE && t_info.early)
                         gpu_period_guard(t_info.s_info_in, t_info.s_info_out);
 
                     smaller_img = in_buf->smaller_img;
@@ -3968,7 +3968,7 @@ go_ahead:
 
                         switch(source_config[level_idx])
                         {
-                            case node_A:
+                            case NODE_A:
                                 do_resize = true;
                                 break;
                             default:
@@ -3996,7 +3996,7 @@ go_ahead:
                             fprintf(stdout, "[S] Resizing for level %d.\n", level_idx);
 #endif
 
-                            if (t_info.sched == configurable && t_info.early)
+                            if (t_info.sched == CONFIGURABLE && t_info.early)
                                 gpu_period_guard(t_info.s_info_in, t_info.s_info_out);
 
                             /* ===========================
@@ -4187,10 +4187,10 @@ go_ahead:
 
                         switch(source_config[level_idx])
                         {
-                            case node_A:
+                            case NODE_A:
                                 do_resize = true;
                                 break;
-                            case node_AB:
+                            case NODE_AB:
                                 do_resize = true;
                                 do_compute_grads = true;
                                 break;
@@ -4218,7 +4218,7 @@ go_ahead:
 #ifdef LOG_NODE_MERGING
                             fprintf(stdout, "[S] Resizing for level %d.\n", level_idx);
 #endif
-                            if (t_info.sched == configurable && t_info.early)
+                            if (t_info.sched == CONFIGURABLE && t_info.early)
                                 gpu_period_guard(t_info.s_info_in, t_info.s_info_out);
 
                             /* ===========================
@@ -4471,14 +4471,14 @@ go_ahead:
 
                         switch(source_config[level_idx])
                         {
-                            case node_A:
+                            case NODE_A:
                                 do_resize = true;
                                 break;
-                            case node_AB:
+                            case NODE_AB:
                                 do_resize = true;
                                 do_compute_grads = true;
                                 break;
-                            case node_ABC:
+                            case NODE_ABC:
                                 do_resize = true;
                                 do_compute_grads = true;
                                 do_compute_hists = true;
@@ -4508,7 +4508,7 @@ go_ahead:
                             fprintf(stdout, "[S] Resizing for level %d.\n", level_idx);
 #endif
 
-                            if (t_info.sched == configurable && t_info.early)
+                            if (t_info.sched == CONFIGURABLE && t_info.early)
                                 gpu_period_guard(t_info.s_info_in, t_info.s_info_out);
 
                             /* ===========================
@@ -4811,19 +4811,19 @@ go_ahead:
 
                         switch(source_config[level_idx])
                         {
-                            case node_A:
+                            case NODE_A:
                                 do_resize = true;
                                 break;
-                            case node_AB:
+                            case NODE_AB:
                                 do_resize = true;
                                 do_compute_grads = true;
                                 break;
-                            case node_ABC:
+                            case NODE_ABC:
                                 do_resize = true;
                                 do_compute_grads = true;
                                 do_compute_hists = true;
                                 break;
-                            case node_ABCD:
+                            case NODE_ABCD:
                                 do_resize = true;
                                 do_compute_grads = true;
                                 do_compute_hists = true;
@@ -4854,7 +4854,7 @@ go_ahead:
                             fprintf(stdout, "[S] Resizing for level %d.\n", level_idx);
 #endif
 
-                            if (t_info.sched == configurable && t_info.early)
+                            if (t_info.sched == CONFIGURABLE && t_info.early)
                                 gpu_period_guard(t_info.s_info_in, t_info.s_info_out);
 
                             /* ===========================
@@ -5197,25 +5197,25 @@ go_ahead:
 
                         switch(source_config[level_idx])
                         {
-                            case node_A:
+                            case NODE_A:
                                 do_resize = true;
                                 break;
-                            case node_AB:
+                            case NODE_AB:
                                 do_resize = true;
                                 do_compute_grads = true;
                                 break;
-                            case node_ABC:
+                            case NODE_ABC:
                                 do_resize = true;
                                 do_compute_grads = true;
                                 do_compute_hists = true;
                                 break;
-                            case node_ABCD:
+                            case NODE_ABCD:
                                 do_resize = true;
                                 do_compute_grads = true;
                                 do_compute_hists = true;
                                 do_normalize_hists = true;
                                 break;
-                            case node_ABCDE:
+                            case NODE_ABCDE:
                                 do_resize = true;
                                 do_compute_grads = true;
                                 do_compute_hists = true;
@@ -5247,7 +5247,7 @@ go_ahead:
                             fprintf(stdout, "[S] Resizing for level %d.\n", level_idx);
 #endif
 
-                            if (t_info.sched == configurable && t_info.early)
+                            if (t_info.sched == CONFIGURABLE && t_info.early)
                                 gpu_period_guard(t_info.s_info_in, t_info.s_info_out);
 
                             /* ===========================
@@ -5612,25 +5612,25 @@ go_ahead:
 
             switch(source_config[level_idx])
             {
-                case node_A:
+                case NODE_A:
                     do_resize = true;
                     break;
-                case node_AB:
+                case NODE_AB:
                     do_resize = true;
                     do_compute_grads = true;
                     break;
-                case node_ABC:
+                case NODE_ABC:
                     do_resize = true;
                     do_compute_grads = true;
                     do_compute_hists = true;
                     break;
-                case node_ABCD:
+                case NODE_ABCD:
                     do_resize = true;
                     do_compute_grads = true;
                     do_compute_hists = true;
                     do_normalize_hists = true;
                     break;
-                case node_ABCDE:
+                case NODE_ABCDE:
                     do_resize = true;
                     do_compute_grads = true;
                     do_compute_hists = true;
@@ -5662,7 +5662,7 @@ go_ahead:
                 fprintf(stdout, "[CC] Resizing for level %d.\n", level_idx);
 #endif
 
-                if (t_info.sched == configurable && t_info.early)
+                if (t_info.sched == CONFIGURABLE && t_info.early)
                     gpu_period_guard(t_info.s_info_in, t_info.s_info_out);
 
                 /* ===========================
@@ -5985,7 +5985,7 @@ go_ahead:
 
                         switch(sink_config[level_idx])
                         {
-                            case node_E:
+                            case NODE_E:
                                 do_classify_hists = true;
                                 break;
                             default:
@@ -6005,7 +6005,7 @@ go_ahead:
 
                         struct params_fine_classify * in_buf = (struct params_fine_classify *)in_buf_ptrs[level_idx];
 
-                        if (t_info.sched == configurable && t_info.early)
+                        if (t_info.sched == CONFIGURABLE && t_info.early)
                             gpu_period_guard(t_info.s_info_in, t_info.s_info_out);
 
                         smaller_img = in_buf->smaller_img;
@@ -6244,11 +6244,11 @@ go_ahead:
 
                         switch(sink_config[level_idx])
                         {
-                            case node_DE:
+                            case NODE_DE:
                                 do_normalize_hists = true;
                                 do_classify_hists = true;
                                 break;
-                            case node_E:
+                            case NODE_E:
                                 do_classify_hists = true;
                                 break;
                             default:
@@ -6260,7 +6260,7 @@ go_ahead:
                             continue; // no work to do!
                         }
 
-                        if (t_info.sched == configurable && t_info.early)
+                        if (t_info.sched == CONFIGURABLE && t_info.early)
                             gpu_period_guard(t_info.s_info_in, t_info.s_info_out);
 
                         if (do_normalize_hists)
@@ -6296,7 +6296,7 @@ go_ahead:
                         }
 
                         // Note that all nodes that are here need to classify histograms,
-                        // otherwise they'd have been node_none and skipped all of this
+                        // otherwise they'd have been NODE_NONE and skipped all of this
                         if (!do_normalize_hists)
                         {
                             struct params_fine_classify *in_buf = (struct params_fine_classify *)in_buf_ptrs[level_idx];
@@ -6549,16 +6549,16 @@ go_ahead:
 
                         switch(sink_config[level_idx])
                         {
-                            case node_CDE:
+                            case NODE_CDE:
                                 do_compute_hists = true;
                                 do_normalize_hists = true;
                                 do_classify_hists = true;
                                 break;
-                            case node_DE:
+                            case NODE_DE:
                                 do_normalize_hists = true;
                                 do_classify_hists = true;
                                 break;
-                            case node_E:
+                            case NODE_E:
                                 do_classify_hists = true;
                                 break;
                             default:
@@ -6570,7 +6570,7 @@ go_ahead:
                             continue; // no work to do!
                         }
 
-                        if (t_info.sched == configurable && t_info.early)
+                        if (t_info.sched == CONFIGURABLE && t_info.early)
                             gpu_period_guard(t_info.s_info_in, t_info.s_info_out);
 
                         if (do_compute_hists)
@@ -6653,7 +6653,7 @@ go_ahead:
                         }
 
                         // Note that all nodes that are here need to classify histograms,
-                        // otherwise they'd have been node_none and skipped all of this
+                        // otherwise they'd have been NODE_NONE and skipped all of this
                         if (!do_normalize_hists)
                         {
                             struct params_fine_classify *in_buf = (struct params_fine_classify *)in_buf_ptrs[level_idx];
@@ -6907,21 +6907,21 @@ go_ahead:
 
                         switch(sink_config[level_idx])
                         {
-                            case node_BCDE:
+                            case NODE_BCDE:
                                 do_compute_grads = true;
                                 do_compute_hists = true;
                                 do_normalize_hists = true;
                                 do_classify_hists = true;
-                            case node_CDE:
+                            case NODE_CDE:
                                 do_compute_hists = true;
                                 do_normalize_hists = true;
                                 do_classify_hists = true;
                                 break;
-                            case node_DE:
+                            case NODE_DE:
                                 do_normalize_hists = true;
                                 do_classify_hists = true;
                                 break;
-                            case node_E:
+                            case NODE_E:
                                 do_classify_hists = true;
                                 break;
                             default:
@@ -6933,7 +6933,7 @@ go_ahead:
                             continue; // no work to do!
                         }
 
-                        if (t_info.sched == configurable && t_info.early)
+                        if (t_info.sched == CONFIGURABLE && t_info.early)
                             gpu_period_guard(t_info.s_info_in, t_info.s_info_out);
 
                         if (do_compute_grads)
@@ -7071,7 +7071,7 @@ go_ahead:
                         }
 
                         // Note that all nodes that are here need to classify histograms,
-                        // otherwise they'd have been node_none and skipped all of this
+                        // otherwise they'd have been NODE_NONE and skipped all of this
                         if (!do_normalize_hists)
                         {
                             struct params_fine_classify *in_buf = (struct params_fine_classify *)in_buf_ptrs[level_idx];
@@ -7329,29 +7329,29 @@ go_ahead:
 
                         switch(sink_config[level_idx])
                         {
-                            case node_ABCDE:
+                            case NODE_ABCDE:
                                 do_resize = true;
                                 do_compute_grads = true;
                                 do_compute_hists = true;
                                 do_normalize_hists = true;
                                 do_classify_hists = true;
                                 break;
-                            case node_BCDE:
+                            case NODE_BCDE:
                                 do_compute_grads = true;
                                 do_compute_hists = true;
                                 do_normalize_hists = true;
                                 do_classify_hists = true;
                                 break;
-                            case node_CDE:
+                            case NODE_CDE:
                                 do_compute_hists = true;
                                 do_normalize_hists = true;
                                 do_classify_hists = true;
                                 break;
-                            case node_DE:
+                            case NODE_DE:
                                 do_normalize_hists = true;
                                 do_classify_hists = true;
                                 break;
-                            case node_E:
+                            case NODE_E:
                                 do_classify_hists = true;
                                 break;
                             default:
@@ -7363,7 +7363,7 @@ go_ahead:
                             continue; // no work to do!
                         }
 
-                        if (t_info.sched == configurable && t_info.early)
+                        if (t_info.sched == CONFIGURABLE && t_info.early)
                             gpu_period_guard(t_info.s_info_in, t_info.s_info_out);
 
                         if (do_resize)
@@ -7542,7 +7542,7 @@ go_ahead:
                         }
 
                         // Note that all nodes that are here need to classify histograms,
-                        // otherwise they'd have been node_none and skipped all of this
+                        // otherwise they'd have been NODE_NONE and skipped all of this
                         if (!do_normalize_hists)
                         {
                             struct params_fine_classify *in_buf = (struct params_fine_classify *)in_buf_ptrs[level_idx];

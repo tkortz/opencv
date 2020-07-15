@@ -401,7 +401,7 @@ static void printHelp()
          << "  [--write_video <bool>] # write video or not\n"
          << "  [--dst_video <path>] # output video path\n"
          << "  [--dst_video_fps <double>] # output video fps\n"
-         << "  [--sched <int>] # scheduling option (0:end_to_end, 1:coarse_grained, 2:fine_grained, 3:unrolled_coarse_grained)\n"
+         << "  [--sched <int>] # scheduling option (0:end-to-end, 1:coarse-grained, 2:fine-grained, 3:unrolled-coarse-grained, 4:configurable-nodes)\n"
          << "  [--count <int>] # num of frames to process\n"
          << "  [--graph_bound <int>] # response time bound of fine-grained HOG\n"
          << "  [--cluster <int>] # cluster ID of this task\n"
@@ -474,7 +474,7 @@ Args::Args()
 
     gamma_corr = true;
 
-    sched = fine_grained;
+    sched = FINE_GRAINED;
     count = 1000;
     num_hog_inst = 1;
     num_fine_graphs = 1;
@@ -487,7 +487,7 @@ Args::Args()
     //  Default to fine-grained levels with all nodes separate
     for (unsigned i = 0; i < NUM_SCALE_LEVELS; i++)
     {
-        std::vector<node_config> level_config = { node_A, node_B, node_C, node_D, node_E };
+        std::vector<node_config> level_config = { NODE_A, NODE_B, NODE_C, NODE_D, NODE_E };
         level_configurations.push_back(level_config);
 
         std::vector<float> costs = { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
@@ -511,13 +511,13 @@ Args::Args()
     // Default to not merging with the source ("compute scale levels")
     for (unsigned  i = 0; i < NUM_SCALE_LEVELS; i++)
     {
-        source_configuration.push_back(node_none);
+        source_configuration.push_back(NODE_NONE);
     }
 
     // Default to not merging with the sink ("collect locations")
     for (unsigned  i = 0; i < NUM_SCALE_LEVELS; i++)
     {
-        sink_configuration.push_back(node_none);
+        sink_configuration.push_back(NODE_NONE);
     }
 
     // Default to no high-priority tasks
@@ -539,9 +539,9 @@ void Args::parseLevelConfig(std::string line, std::vector<std::vector<node_confi
         std::string node_config_str = line.substr(prev_pos, pos - prev_pos);
         node_config node = (node_config) stoi(node_config_str);
 
-        // If the node is valid, add it (it might be node_none if the entire
+        // If the node is valid, add it (it might be NODE_NONE if the entire
         // level is merged into the node before or after the split)
-        if (node != node_none)
+        if (node != NODE_NONE)
         {
             level_config.push_back(node);
         }
@@ -627,8 +627,8 @@ void Args::parseGraphConfiguration(char *filepath)
     std::vector<float> other_bounds;
     std::vector< std::vector<float> > bounds;
 
-    std::vector<node_config> source_config(NUM_SCALE_LEVELS, node_none);
-    std::vector<node_config> sink_config(NUM_SCALE_LEVELS, node_none);
+    std::vector<node_config> source_config(NUM_SCALE_LEVELS, NODE_NONE);
+    std::vector<node_config> sink_config(NUM_SCALE_LEVELS, NODE_NONE);
 
     // Loop until the end of the file is reached
     std::string line;
@@ -723,7 +723,7 @@ Args Args::read(int argc, char** argv)
         else if (string(argv[i]) == "--svm") { args.svm = argv[++i]; args.svm_load = true;}
         else if (string(argv[i]) == "--sched") {
             int sched = atoi(argv[++i]);
-            if (sched < 0 || sched >= scheduling_option_end)
+            if (sched < 0 || sched >= SCHEDULING_OPTION_END)
                 throw runtime_error((string("unknown scheduling option: ") + argv[i]));
             args.sched = (enum scheduling_option)sched;
         }
@@ -1124,7 +1124,7 @@ void App::sched_coarse_grained_unrolled_for_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, 
     int m_cpus = 16;
     t_info.early = args.early;
     t_info.realtime = args.realtime;
-    t_info.sched = coarse_unrolled;
+    t_info.sched = COARSE_UNROLLED;
     t_info.period = PERIOD;
     t_info.relative_deadline = PERIOD; //FAIR_LATENESS_PP(m_cpus, t_info.period, cost_compute_scales);
     t_info.phase = bound_color_convert;
@@ -1700,7 +1700,7 @@ void App::sched_fine_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
         struct task_info t_info;
         t_info.early = args.early;
         t_info.realtime = args.realtime;
-        t_info.sched = fine_grained;
+        t_info.sched = FINE_GRAINED;
         t_info.period = period;
         t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, cost_color_convert);
         t_info.phase = PERIOD * g_idx;
@@ -2203,17 +2203,17 @@ void App::run()
     vc.release();
 
     switch (args.sched) {
-        case end_to_end:
+        case END_TO_END:
             sched_etoe_hog_preload(gpu_hog, cpu_hog, frames);
             break;
-        case fine_grained:
+        case FINE_GRAINED:
             sched_fine_grained_hog(gpu_hog, cpu_hog, frames);
             break;
-        case coarse_grained:
-        case coarse_unrolled:
+        case COARSE_GRAINED:
+        case COARSE_UNROLLED:
             sched_coarse_grained_unrolled_for_hog(gpu_hog, cpu_hog, frames);
             break;
-        case configurable:
+        case CONFIGURABLE:
             sched_configurable_hog(gpu_hog, cpu_hog, frames);
             break;
         default:
@@ -2345,23 +2345,23 @@ void App::sched_configurable_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
     bool is_source_E = false;
     for (unsigned i = 0; i < source_config.size(); i++)
     {
-        if (source_config[i] == node_A)
+        if (source_config[i] == NODE_A)
         {
             is_source_A = true;
         }
-        else if (source_config[i] == node_AB)
+        else if (source_config[i] == NODE_AB)
         {
             is_source_B = true;
         }
-        else if (source_config[i] == node_ABC)
+        else if (source_config[i] == NODE_ABC)
         {
             is_source_C = true;
         }
-        else if (source_config[i] == node_ABCD)
+        else if (source_config[i] == NODE_ABCD)
         {
             is_source_D = true;
         }
-        else if (source_config[i] == node_ABCDE)
+        else if (source_config[i] == NODE_ABCDE)
         {
             is_source_E = true;
         }
@@ -2374,23 +2374,23 @@ void App::sched_configurable_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
     bool is_sink_E = false;
     for (unsigned i = 0; i < sink_config.size(); i++)
     {
-        if (sink_config[i] == node_ABCDE)
+        if (sink_config[i] == NODE_ABCDE)
         {
             is_sink_A = true;
         }
-        else if (sink_config[i] == node_BCDE)
+        else if (sink_config[i] == NODE_BCDE)
         {
             is_sink_B = true;
         }
-        else if (sink_config[i] == node_CDE)
+        else if (sink_config[i] == NODE_CDE)
         {
             is_sink_C = true;
         }
-        else if (sink_config[i] == node_DE)
+        else if (sink_config[i] == NODE_DE)
         {
             is_sink_D = true;
         }
-        else if (sink_config[i] == node_E)
+        else if (sink_config[i] == NODE_E)
         {
             is_sink_E = true;
         }
@@ -2510,29 +2510,29 @@ void App::sched_configurable_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
                 for (unsigned edge_idx = 0; edge_idx < num_nodes; edge_idx++)
                 {
                     switch (level_configs[i][edge_idx]) {
-                        case node_A:
-                        case node_AB:
-                        case node_ABC:
-                        case node_ABCD:
-                        case node_ABCDE:
+                        case NODE_A:
+                        case NODE_AB:
+                        case NODE_ABC:
+                        case NODE_ABCD:
+                        case NODE_ABCDE:
                             params_sizes[edge_idx] = sizeof(struct params_resize);
                             break;
-                        case node_B:
-                        case node_BC:
-                        case node_BCD:
-                        case node_BCDE:
+                        case NODE_B:
+                        case NODE_BC:
+                        case NODE_BCD:
+                        case NODE_BCDE:
                             params_sizes[edge_idx] = sizeof(struct params_compute_gradients);
                             break;
-                        case node_C:
-                        case node_CD:
-                        case node_CDE:
+                        case NODE_C:
+                        case NODE_CD:
+                        case NODE_CDE:
                             params_sizes[edge_idx] = sizeof(struct params_compute_histograms);
                             break;
-                        case node_D:
-                        case node_DE:
+                        case NODE_D:
+                        case NODE_DE:
                             params_sizes[edge_idx] = sizeof(struct params_fine_normalize);
                             break;
-                        case node_E:
+                        case NODE_E:
                             params_sizes[edge_idx] = sizeof(struct params_fine_classify);
                             break;
                         default:
@@ -2542,22 +2542,22 @@ void App::sched_configurable_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
 
                 switch (sink_config[i])
                 {
-                    case node_ABCDE:
+                    case NODE_ABCDE:
                         params_sizes[num_nodes] = sizeof(struct params_resize);
                         break;
-                    case node_BCDE:
+                    case NODE_BCDE:
                         params_sizes[num_nodes] = sizeof(struct params_compute_gradients);
                         break;
-                    case node_CDE:
+                    case NODE_CDE:
                         params_sizes[num_nodes] = sizeof(struct params_compute_histograms);
                         break;
-                    case node_DE:
+                    case NODE_DE:
                         params_sizes[num_nodes] = sizeof(struct params_fine_normalize);
                         break;
-                    case node_E:
+                    case NODE_E:
                         params_sizes[num_nodes] = sizeof(struct params_fine_classify);
                         break;
-                    case node_none:
+                    case NODE_NONE:
                         params_sizes[num_nodes] = sizeof(struct params_fine_collect_locations);
                         break;
                     default:
@@ -2642,7 +2642,7 @@ void App::sched_configurable_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
             struct task_info t_info;
             t_info.early = args.early;
             t_info.realtime = args.realtime;
-            t_info.sched = configurable;
+            t_info.sched = CONFIGURABLE;
             t_info.period = period;
             t_info.relative_deadline = period; // use EDF
             t_info.source_config = &args.source_configuration;
@@ -2731,49 +2731,49 @@ void App::sched_configurable_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
                 for (unsigned node_idx = 0; node_idx < num_nodes; node_idx++)
                 {
                     switch (level_configs[i][node_idx]) {
-                        case node_A:
+                        case NODE_A:
                             level_funcs[node_idx] = &cv::cuda::HOG::thread_fine_resize;
                             break;
-                        case node_B:
+                        case NODE_B:
                             level_funcs[node_idx] = &cv::cuda::HOG::thread_fine_compute_gradients;
                             break;
-                        case node_C:
+                        case NODE_C:
                             level_funcs[node_idx] = &cv::cuda::HOG::thread_fine_compute_histograms;
                             break;
-                        case node_D:
+                        case NODE_D:
                             level_funcs[node_idx] = &cv::cuda::HOG::thread_fine_normalize_histograms;
                             break;
-                        case node_E:
+                        case NODE_E:
                             level_funcs[node_idx] = &cv::cuda::HOG::thread_fine_classify;
                             break;
-                        case node_AB:
+                        case NODE_AB:
                             level_funcs[node_idx] = &cv::cuda::HOG::thread_fine_AB;
                             break;
-                        case node_BC:
+                        case NODE_BC:
                             level_funcs[node_idx] = &cv::cuda::HOG::thread_fine_BC;
                             break;
-                        case node_CD:
+                        case NODE_CD:
                             level_funcs[node_idx] = &cv::cuda::HOG::thread_fine_CD;
                             break;
-                        case node_DE:
+                        case NODE_DE:
                             level_funcs[node_idx] = &cv::cuda::HOG::thread_fine_DE;
                             break;
-                        case node_ABC:
+                        case NODE_ABC:
                             level_funcs[node_idx] = &cv::cuda::HOG::thread_fine_ABC;
                             break;
-                        case node_BCD:
+                        case NODE_BCD:
                             level_funcs[node_idx] = &cv::cuda::HOG::thread_fine_BCD;
                             break;
-                        case node_CDE:
+                        case NODE_CDE:
                             level_funcs[node_idx] = &cv::cuda::HOG::thread_fine_CDE;
                             break;
-                        case node_ABCD:
+                        case NODE_ABCD:
                             level_funcs[node_idx] = &cv::cuda::HOG::thread_fine_ABCD;
                             break;
-                        case node_BCDE:
+                        case NODE_BCDE:
                             level_funcs[node_idx] = &cv::cuda::HOG::thread_fine_BCDE;
                             break;
-                        case node_ABCDE:
+                        case NODE_ABCDE:
                             level_funcs[node_idx] = &cv::cuda::HOG::thread_fine_ABCDE;
                             break;
                         default:
