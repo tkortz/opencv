@@ -70,7 +70,9 @@ if(__ret < 0) { \
     fprintf(stderr, "%s ok.\n", #exp); \
 } while (0)
 
+#ifdef USE_FZLP_LOCK
 std::vector<lt_t> hp_deadlines;
+#endif
 
 bool help_showed = false;
 
@@ -406,9 +408,9 @@ static void printHelp()
          << "  [--graph_bound <int>] # response time bound of fine-grained HOG\n"
          << "  [--cluster <int>] # cluster ID of this task\n"
          << "  [--id <int>] # task ID of this task\n"
-         << "  [--rt <true/false>] # run under LITMUS^RT scheduler or not\n"
-         << "  [--level_config <string>] # underscore-separated list of comma-separated lists of level configurations\n"
-         << "  [--display <true/false>] # to display result frame or not\n";
+         << "  [--rt <true/false>] # whether to run under the LITMUS^RT scheduler\n"
+         << "  [--level_config_file <file_path>] # file specifying the graph configuration for configurable-nodes scheduling (defaults to fine-grained)\n"
+         << "  [--display <true/false>] # whether to display the resulting frame\n";
 
     help_showed = true;
 }
@@ -988,11 +990,18 @@ void App::thread_hp_task(struct task_info t_info)
         CALL( task_mode(LITMUS_RT_TASK) );
         CALL( wait_for_ts_release() );
     }
+
+#ifdef USE_FZLP_LOCK
     get_current_deadline(&hp_deadlines.at(t_info.id - HP_TASK_START_ID));
+#endif
+
     while (!this->completed_video)
     {
+#ifdef USE_FZLP_LOCK
         printf("updated deadline of hp %d: %llu\n", t_info.id, hp_deadlines.at(t_info.id - HP_TASK_START_ID));
-        if (t_info.id == 1000)
+#endif
+
+        if (t_info.id == HP_TASK_START_ID)
         {
             fprintf(stdout, "HP Task starting job at %u\n", wctime());
         }
@@ -1003,14 +1012,17 @@ void App::thread_hp_task(struct task_info t_info)
         // Loop with no emergency exit
         loop_for(acet, 0);
 
-        if (t_info.id == 1000)
+        if (t_info.id == HP_TASK_START_ID)
         {
             fprintf(stdout, "HP Task ending job at %u\n", wctime());
         }
 
         if (t_info.realtime)
             sleep_next_period();
+
+#ifdef USE_FZLP_LOCK
         get_current_deadline(&hp_deadlines.at(t_info.id - HP_TASK_START_ID));
+#endif
     }
 
     printf("hp %d is existing\n", t_info.id);
@@ -2396,7 +2408,9 @@ void App::sched_configurable_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
         }
     }
 
+#ifdef USE_FZLP_LOCK
     hp_deadlines.resize(args.hp_task_count);
+#endif
 
     // Create the high-priority tasks
     unsigned hp_task_id = HP_TASK_START_ID;

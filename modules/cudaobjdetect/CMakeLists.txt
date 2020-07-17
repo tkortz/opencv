@@ -1,15 +1,13 @@
 ocv_include_directories($ENV{PGM_RT_DIR}/include)
-ocv_include_directories($ENV{FZLP_DIR}/include)
 ocv_include_directories($ENV{LIBLITMUS_DIR}/include)
 ocv_include_directories($ENV{LIBLITMUS_DIR}/arch/x86/include)
 ocv_include_directories($ENV{LIBLITMUS_DIR}/arch/x86/include/uapi)
 ocv_include_directories($ENV{LIBLITMUS_DIR}/arch/x86/include/generated/uapi)
 
 link_directories($ENV{PGM_RT_DIR})
-link_directories($ENV{FZLP_DIR}/lib/)
 link_directories($ENV{LIBLITMUS_DIR})
 
-set(OPENCV_LINKER_LIBS ${OPENCV_LINKER_LIBS} pgm fzlp)
+set(OPENCV_LINKER_LIBS ${OPENCV_LINKER_LIBS} pgm)
 
 if(IOS OR (NOT HAVE_CUDA AND NOT BUILD_CUDA_STUBS))
   ocv_module_disable(cudaobjdetect)
