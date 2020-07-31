@@ -170,12 +170,13 @@ static void printHelp()
          << "  [--write_video <bool>] # write video or not\n"
          << "  [--dst_video <path>] # output video path\n"
          << "  [--dst_video_fps <double>] # output video fps\n"
-         << "  [--history_distribution <string>] # comma-separated distribution of age of history for tracking (e.g., '0.7,0.3' for 70% prior frame, 30% two prior)\n"
-         << "  [--pedestrian_bbox_filename <string>] # filename of pedestrian bounding box results for ground truth"
-         << "  [--vehicle_bbox_filename <string>] # filename of vehicle bounding box results for ground truth"
-         << "  [--write_tracking <bool>] # writer tracking output or not"
-         << "  [--tracking_filename <string>] # tracking output filename\n"
-         << "  [--num_tracking_iters <int>] # number of times to repeat the tracking experiment"
+         << "  [--history_distribution <string>] # comma-separated distribution of age of history for tracking (e.g., '7,3' for 0.7 chance of prior frame, 0.3 chance of two prior)\n"
+         << "  [--pedestrian_bbox_filename <string>] # filename of pedestrian bounding box results for ground truth\n"
+         << "  [--vehicle_bbox_filename <string>] # filename of vehicle bounding box results for ground truth\n"
+         << "  [--write_tracking <bool>] # whether to output the tracking results\n"
+         << "  [--pedestrian_tracking_filepath <string>] # pedestrian-tracking output filename\n"
+         << "  [--vehicle_tracking_filepath] <string>] # vehicle-tracking output filename\n"
+         << "  [--num_tracking_iters <int>] # number of times to repeat the tracking experiment\n"
          << "  [--num_tracking_frames <int>] # number of frames of the video to track\n";
     help_showed = true;
 }
@@ -373,23 +374,7 @@ App::App(const Args& s)
 
     use_provided_history = false;
     provided_history_choices = vector<unsigned>();
-
-    // cout << "Scale: " << scale << endl;
-    // if (args.resize_src)
-    //     cout << "Resized source: (" << args.width << ", " << args.height << ")\n";
-    // cout << "Group threshold: " << gr_threshold << endl;
-    // cout << "Levels number: " << nlevels << endl;
-    // cout << "Win size: (" << args.win_width << ", " << args.win_width*2 << ")\n";
-    // cout << "Win stride: (" << args.win_stride_width << ", " << args.win_stride_height << ")\n";
-    // cout << "Block size: (" << args.block_width << ", " << args.block_width << ")\n";
-    // cout << "Block stride: (" << args.block_stride_width << ", " << args.block_stride_height << ")\n";
-    // cout << "Cell size: (" << args.cell_width << ", " << args.cell_width << ")\n";
-    // cout << "Bins number: " << args.nbins << endl;
-    // cout << "Hit threshold: " << hit_threshold << endl;
-    // cout << "Gamma correction: " << gamma_corr << endl;
-    // cout << endl;
 }
-
 
 void App::run()
 {
