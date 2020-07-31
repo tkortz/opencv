@@ -27,9 +27,9 @@ Our experiments were conducted with CUDA 10.2 and NVIDIA Driver 440.33 on Ubuntu
 
 3. Follow [opencv documentation](https://docs.opencv.org/master/d7/d9f/tutorial_linux_install.html) to get required packages.
 
-4. Make the build directory and navigate into it: `mkdir build && cd build`
+4. Make the build directory and navigate into it: `mkdir build && cd build`.
 
-5. Prepare makefile with cmake:
+5. Prepare the makefile with cmake.  We used this command:
    ```
    cmake -D CMAKE_BUILD_TYPE=Release \
       -D CMAKE_INSTALL_PREFIX=/usr/local \
@@ -44,10 +44,9 @@ Our experiments were conducted with CUDA 10.2 and NVIDIA Driver 440.33 on Ubuntu
       ..
    ```
 
-   Use `-D CUDA_GENERATION=Name` to select CUDA generation it will compile for, e.g.,
-   Volta.
+   Use `-D CUDA_GENERATION=Name` to select CUDA generation it will compile for, e.g., Volta.
 
-6. Compile HOG: `make example_gpu_hog`
+6. Compile HOG (use multiple cores to make it go faster): `make -j8 example_gpu_hog`.
 
 ### Usage
 
