@@ -88,11 +88,6 @@ if(__ret < 0) { \
             pthread_self(), __ret, errstr, errno, __FILE__, __FUNCTION__, __LINE__); \
 }}while(0)
 
-#ifdef USE_FZLP_LOCK
-FZLP_Lock fzlp;
-std::vector<lt_t> *hp_deadlines_ptr;
-#endif
-
 //#define LOG_NODE_MERGING
 
 #if !defined (HAVE_CUDA) || defined (CUDA_DISABLER)
@@ -201,10 +196,6 @@ namespace
                  Size block_stride,
                  Size cell_size,
                  int nbins);
-
-#ifdef USE_FZLP_LOCK
-        virtual void setHPDeadlines(std::vector<lt_t> *hp_deadlines) { hp_deadlines_ptr = hp_deadlines; }
-#endif
 
         virtual void setWinSigma(double win_sigma) { win_sigma_ = win_sigma; }
         virtual double getWinSigma() const;

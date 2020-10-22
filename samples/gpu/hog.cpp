@@ -44,8 +44,6 @@ int hog_sample_errors;
 
 __thread char hog_sample_errstr[80];
 
-
-#define HP_TASK_START_ID 1000
 //#define LOG_DEBUG 1
 #define NUM_SCALE_LEVELS 13
 #define FAIR_LATENESS_PP(m, period, cost) (period - (float)m * cost / (m - 1))
@@ -69,10 +67,6 @@ if(__ret < 0) { \
     else \
     fprintf(stderr, "%s ok.\n", #exp); \
 } while (0)
-
-#ifdef USE_FZLP_LOCK
-std::vector<lt_t> hp_deadlines;
-#endif
 
 bool help_showed = false;
 
@@ -136,20 +130,12 @@ public:
     std::vector<float> non_level_bounds;
     std::vector< std::vector<float> > level_bounds;
 
-    // Mock a single reservation, in which HOG lives, by having high-priority tasks
-    // block out the rest of the timeline
-    int hp_task_count;
-    int hp_task_period;
-    int hp_task_wcet;
-
 private:
     void parseLevelConfig(std::string line, std::vector<std::vector<node_config>> &config);
     void parseSourceSinkConfig(std::string line, std::vector<node_config> &config);
 
     void parseNonLevelCosts(std::string line, std::vector<float> &costs);
     void parseLevelCosts(std::string line, std::vector<std::vector<float>> &costs);
-
-    void parseHighPriorityTaskConfig(std::string line);
 
     void parseGraphConfiguration(char *filepath);
 };
@@ -333,8 +319,6 @@ public:
 
     void* thread_display(node_t* node, pthread_barrier_t* init_barrier, bool shouldDisplay);
 
-    void thread_hp_task(struct task_info t_info);
-
     void handleKey(char key);
 
     void hogWorkBegin();
@@ -371,8 +355,6 @@ private:
     double work_fps;
 
     cv::VideoWriter video_writer;
-
-    bool completed_video;
 };
 
 static void printHelp()
@@ -521,11 +503,6 @@ Args::Args()
     {
         sink_configuration.push_back(NODE_NONE);
     }
-
-    // Default to no high-priority tasks
-    hp_task_count = 0;
-    hp_task_period = 0;
-    hp_task_wcet = 0;
 }
 
 void Args::parseLevelConfig(std::string line, std::vector<std::vector<node_config>> &config)
@@ -601,23 +578,6 @@ void Args::parseLevelCosts(std::string line, std::vector<std::vector<float>> &co
     costs.push_back(level_cost);
 }
 
-void Args::parseHighPriorityTaskConfig(std::string line)
-{
-    size_t pos = line.find(" ", 0);
-
-    std::string num_str = line.substr(0, pos);
-    this->hp_task_count = stoi(num_str);
-
-    size_t prev_pos = pos+1;
-    pos = line.find(" ", prev_pos);
-
-    std::string period_str = line.substr(prev_pos, pos - prev_pos);
-    this->hp_task_period = stoi(period_str);
-
-    std::string wcet_str = line.substr(pos+1);
-    this->hp_task_wcet = stoi(wcet_str);
-}
-
 void Args::parseGraphConfiguration(char *filepath)
 {
     std::ifstream infile(filepath);
@@ -671,10 +631,6 @@ void Args::parseGraphConfiguration(char *filepath)
         else if (token == "BL")
         {
             this->parseLevelCosts(line.substr(pos+1), bounds);
-        }
-        else if (token == "HP")
-        {
-            this->parseHighPriorityTaskConfig(line.substr(pos+1));
         }
     }
 
@@ -904,8 +860,6 @@ void* App::thread_display(node_t* _node, pthread_barrier_t* init_barrier, bool s
         } while(ret != PGM_TERMINATE);
     }
 
-    completed_video = true;
-
     pthread_barrier_wait(init_barrier);
 
     CheckError(pgm_release_node(node));
@@ -929,108 +883,6 @@ static int loop(int count, int *nums, int numCount)
     }
 
     return j;
-}
-
-static int loop_for(double exec_time, double emergency_exit)
-{
-    // Based on rtspin in liblitmus
-    int tmp = 0;
-    int numCount = 4096;
-    int nums[numCount];
-
-    double last_loop = 0;
-    double loop_start;
-    double start = cputime();
-    double now = cputime();
-
-    while (now + last_loop < start + exec_time)
-    {
-        loop_start = now;
-
-        // Spin
-        tmp += loop(4096, nums, numCount);
-
-        now = cputime();
-        last_loop = now - loop_start;
-
-        if (emergency_exit && wctime() > emergency_exit)
-        {
-            // According to rtspin, this should only happen if there
-            // is an issue with parameters or LITMUS^RT
-            fprintf(stderr, "!!! high-priority task %d -- emergency exit!\n", getpid());
-            fprintf(stderr, "Reached timeout while spinning.\n");
-            break;
-        }
-    }
-
-    return tmp;
-}
-
-void App::thread_hp_task(struct task_info t_info)
-{
-    fprintf(stdout, "thread: high-priority thread #: %d, tid: %d\n", t_info.id, gettid());
-
-    if (t_info.realtime) {
-        if (args.cluster != -1)
-            CALL(be_migrate_to_domain(args.cluster));
-        struct rt_task param;
-        init_rt_task_param(&param);
-        param.exec_cost = ms2ns(args.hp_task_wcet);
-        param.period = ms2ns(args.hp_task_period);
-        param.relative_deadline = ms2ns(args.hp_task_period);
-        param.phase = 0;
-        param.budget_policy = NO_ENFORCEMENT;
-        param.cls = RT_CLASS_SOFT;
-        param.priority = LITMUS_LOWEST_PRIORITY;
-        param.timeslice_priority = 100; // big number!
-        if (args.cluster != -1)
-            param.cpu = domain_to_first_cpu(args.cluster);
-        CALL( init_litmus() );
-        CALL( set_rt_task_param(gettid(), &param) );
-        CALL( task_mode(LITMUS_RT_TASK) );
-        CALL( wait_for_ts_release() );
-    }
-
-#ifdef USE_FZLP_LOCK
-    get_current_deadline(&hp_deadlines.at(t_info.id - HP_TASK_START_ID));
-#endif
-
-    while (!this->completed_video)
-    {
-#ifdef USE_FZLP_LOCK
-        printf("updated deadline of hp %d: %llu\n", t_info.id, hp_deadlines.at(t_info.id - HP_TASK_START_ID));
-#endif
-
-        if (t_info.id == HP_TASK_START_ID)
-        {
-            fprintf(stdout, "HP Task starting job at %u\n", wctime());
-        }
-
-        // Do work for the WCET
-        double acet = args.hp_task_wcet * 0.001;
-
-        // Loop with no emergency exit
-        loop_for(acet, 0);
-
-        if (t_info.id == HP_TASK_START_ID)
-        {
-            fprintf(stdout, "HP Task ending job at %u\n", wctime());
-        }
-
-        if (t_info.realtime)
-            sleep_next_period();
-
-#ifdef USE_FZLP_LOCK
-        get_current_deadline(&hp_deadlines.at(t_info.id - HP_TASK_START_ID));
-#endif
-    }
-
-    printf("hp %d is existing\n", t_info.id);
-
-    if (args.realtime)
-        CALL( task_mode(BACKGROUND_TASK) );
-
-    pthread_exit(0);
 }
 
 void App::sched_coarse_grained_unrolled_for_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog, Mat* frames)
@@ -2148,7 +2000,6 @@ void App::run()
     mlockall(MCL_CURRENT | MCL_FUTURE);
     setNumThreads(0);
     running = true;
-    completed_video = false;
 
     Size win_stride(args.win_stride_width, args.win_stride_height);
     Size win_size(args.win_width, args.win_width * 2);
@@ -2194,10 +2045,6 @@ void App::run()
          << endl;
     cout << "cpusvmDescriptorSize : " << cpu_hog.getDescriptorSize()
          << endl;
-
-#ifdef USE_FZLP_LOCK
-    gpu_hog->setHPDeadlines(&hp_deadlines);
-#endif
 
     VideoCapture vc;
     Mat frames[100];
@@ -2406,23 +2253,6 @@ void App::sched_configurable_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
         {
             is_sink_E = true;
         }
-    }
-
-#ifdef USE_FZLP_LOCK
-    hp_deadlines.resize(args.hp_task_count);
-#endif
-
-    // Create the high-priority tasks
-    unsigned hp_task_id = HP_TASK_START_ID;
-    std::vector<thread *> hp_threads;
-    for (int hp_idx = 0; hp_idx < args.hp_task_count; hp_idx++)
-    {
-        struct task_info t_info;
-        t_info.realtime = args.realtime;
-        t_info.id = hp_task_id++;
-
-        thread *hp_thread = new thread(&App::thread_hp_task, this, t_info);
-        hp_threads.push_back(hp_thread);
     }
 
     // Create the graphs
@@ -2892,17 +2722,6 @@ void App::sched_configurable_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
 
             CheckError(pgm_destroy_graph(g));
         }
-    }
-
-    this->completed_video = true;
-
-    printf("Joining high-priority threads...\n");
-
-    for (unsigned hp_idx = 0; hp_idx < hp_threads.size(); hp_idx++)
-    {
-        thread* hp_thread = hp_threads[hp_idx];
-        hp_thread->join();
-        delete hp_thread;
     }
 
     //CheckError(pgm_destroy_graph(g));

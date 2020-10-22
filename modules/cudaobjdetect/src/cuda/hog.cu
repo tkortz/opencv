@@ -237,8 +237,7 @@ namespace cv { namespace cuda { namespace device
 #ifdef USE_FZLP_LOCK
         void wait_forbidden_zone()
         {
-            if (!hp_deadlines_ptr->empty())
-                fzlp.wait(*min_element(hp_deadlines_ptr->begin(), hp_deadlines_ptr->end()));
+            // TODO: add waiting if in a forbidden zone
         }
 #endif
 
@@ -279,7 +278,6 @@ namespace cv { namespace cuda { namespace device
             int smem = hists_size + final_hists_size;
 
 #ifdef USE_FZLP_LOCK
-            enter_np();
             wait_forbidden_zone();
 #endif
 
@@ -300,7 +298,6 @@ namespace cv { namespace cuda { namespace device
             }
 
 #ifdef USE_FZLP_LOCK
-            exit_np();
 #endif
         }
 
@@ -397,7 +394,6 @@ namespace cv { namespace cuda { namespace device
             dim3 grid(divUp(img_block_width, nblocks), img_block_height);
 
 #ifdef USE_FZLP_LOCK
-            enter_np();
             wait_forbidden_zone();
 #endif
 
@@ -422,7 +418,6 @@ namespace cv { namespace cuda { namespace device
             }
 
 #ifdef USE_FZLP_LOCK
-            exit_np();
 #endif
         }
 
@@ -482,7 +477,6 @@ namespace cv { namespace cuda { namespace device
             int img_block_width = (width - ncells_block_x * cell_size_x + block_stride_x) / block_stride_x;
 
 #ifdef USE_FZLP_LOCK
-            enter_np();
             wait_forbidden_zone();
 #endif
 
@@ -496,7 +490,6 @@ namespace cv { namespace cuda { namespace device
             cudaSafeCall(cudaStreamDestroy(stream));
 
 #ifdef USE_FZLP_LOCK
-            exit_np();
 #endif
         }
 
@@ -563,7 +556,6 @@ namespace cv { namespace cuda { namespace device
            //cudaSafeCall(cudaStreamCreate(&stream));
 
 #ifdef USE_FZLP_LOCK
-            enter_np();
             wait_forbidden_zone();
 #endif
 
@@ -575,7 +567,6 @@ namespace cv { namespace cuda { namespace device
            //cudaSafeCall(cudaStreamDestroy(stream));
 
 #ifdef USE_FZLP_LOCK
-            exit_np();
 #endif
        }
 
@@ -808,7 +799,6 @@ namespace cv { namespace cuda { namespace device
             dim3 gdim(divUp(width, bdim.x), divUp(height, bdim.y));
 
 #ifdef USE_FZLP_LOCK
-            enter_np();
             wait_forbidden_zone();
 #endif
 
@@ -825,7 +815,6 @@ namespace cv { namespace cuda { namespace device
             }
 
 #ifdef USE_FZLP_LOCK
-            exit_np();
 #endif
         }
 
@@ -898,7 +887,6 @@ namespace cv { namespace cuda { namespace device
             dim3 gdim(divUp(width, bdim.x), divUp(height, bdim.y));
 
 #ifdef USE_FZLP_LOCK
-            enter_np();
             wait_forbidden_zone();
 #endif
 
@@ -915,7 +903,6 @@ namespace cv { namespace cuda { namespace device
             }
 
 #ifdef USE_FZLP_LOCK
-            exit_np();
 #endif
         }
 
@@ -1050,7 +1037,6 @@ namespace cv { namespace cuda { namespace device
             float sy = static_cast<float>(src.rows) / dst.rows;
 
 #ifdef USE_FZLP_LOCK
-            enter_np();
             wait_forbidden_zone();
 #endif
 
@@ -1063,7 +1049,6 @@ namespace cv { namespace cuda { namespace device
             }
 
 #ifdef USE_FZLP_LOCK
-            exit_np();
 #endif
         }
 
