@@ -295,6 +295,13 @@ namespace
 
         void set_up_constants(Stream stream);
 
+        int use_locks;
+        int omlp_sem_od;
+        void open_lock();
+        void lock_fzlp();
+        void wait_forbidden_zone();
+        void unlock_fzlp();
+
     private:
         Size win_size_;
         Size block_size_;
@@ -642,50 +649,50 @@ namespace
 
     static void gpu_period_guard(struct sync_info *in, struct sync_info *out)
     {
-        struct timespec ts = {0, 0};
-        unsigned long long curr_release;
-        unsigned long long to_sleep = 0;
-        unsigned long long to_sleep_by_release = 0;
-        unsigned long long to_sleep_by_start = 0;
-        unsigned long long now = litmus_clock();
-        CALL(get_current_release(&curr_release));
-        if (now >= curr_release || (out->job_no == 0 && in->job_no ==0)) {
-            goto go_ahead;
-        }
+//         struct timespec ts = {0, 0};
+//         unsigned long long curr_release;
+//         unsigned long long to_sleep = 0;
+//         unsigned long long to_sleep_by_release = 0;
+//         unsigned long long to_sleep_by_start = 0;
+//         unsigned long long now = litmus_clock();
+//         CALL(get_current_release(&curr_release));
+//         if (now >= curr_release || (out->job_no == 0 && in->job_no ==0)) {
+//             goto go_ahead;
+//         }
 
-        if (in->job_no > out->job_no) {
-            to_sleep_by_release = curr_release - now;
-            //fprintf(stdout, "now - start time: %llu\n", now - in->start_time);
-            //fprintf(stdout, "to_sleep_by_start: %llu\n", ms2ns(PERIOD) - (now - in->start_time));
-            if (ms2ns(PERIOD) < (now - in->start_time))
-                goto go_ahead;
-            to_sleep_by_start = ms2ns(PERIOD) - (now - in->start_time);
-            to_sleep = (to_sleep_by_release < to_sleep_by_start) ? to_sleep_by_release : to_sleep_by_start;
-            ts.tv_nsec = to_sleep;
-            nanosleep(&ts, NULL);
-        }
+//         if (in->job_no > out->job_no) {
+//             to_sleep_by_release = curr_release - now;
+//             //fprintf(stdout, "now - start time: %llu\n", now - in->start_time);
+//             //fprintf(stdout, "to_sleep_by_start: %llu\n", ms2ns(PERIOD) - (now - in->start_time));
+//             if (ms2ns(PERIOD) < (now - in->start_time))
+//                 goto go_ahead;
+//             to_sleep_by_start = ms2ns(PERIOD) - (now - in->start_time);
+//             to_sleep = (to_sleep_by_release < to_sleep_by_start) ? to_sleep_by_release : to_sleep_by_start;
+//             ts.tv_nsec = to_sleep;
+//             nanosleep(&ts, NULL);
+//         }
 
-        /*
-        while (in->job_no <= out->job_no) {
-            now = litmus_clock();
-            fprintf(stderr, "Previous instance job is started later??? Come on!\n");
-            to_sleep_by_release = curr_release - now;
-            to_sleep_by_start = ms2ns(PERIOD) - (now - in->start_time);
-            if (to_sleep_by_release < to_sleep_by_start) {
-                ts.tv_nsec = to_sleep_by_release;
-                nanosleep(&ts, NULL);
-                goto go_ahead;
-            } else {
-                ts.tv_nsec = to_sleep_by_start;
-                nanosleep(&ts, NULL);
-            }
-        }
-        */
-go_ahead:
-        out->job_no = in->job_no + 1;
-        //fprintf(stdout, "job no: %d\n", out->job_no);
-        out->start_time = litmus_clock();
-        return;
+//         /*
+//         while (in->job_no <= out->job_no) {
+//             now = litmus_clock();
+//             fprintf(stderr, "Previous instance job is started later??? Come on!\n");
+//             to_sleep_by_release = curr_release - now;
+//             to_sleep_by_start = ms2ns(PERIOD) - (now - in->start_time);
+//             if (to_sleep_by_release < to_sleep_by_start) {
+//                 ts.tv_nsec = to_sleep_by_release;
+//                 nanosleep(&ts, NULL);
+//                 goto go_ahead;
+//             } else {
+//                 ts.tv_nsec = to_sleep_by_start;
+//                 nanosleep(&ts, NULL);
+//             }
+//         }
+//         */
+// go_ahead:
+//         out->job_no = in->job_no + 1;
+//         //fprintf(stdout, "job no: %d\n", out->job_no);
+//         out->start_time = litmus_clock();
+//         return;
     }
 
     void* HOG_Impl::thread_fine_resize(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info)
@@ -753,11 +760,11 @@ go_ahead:
                             case CV_8UC4: hog::resize_8UC4_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index, !change_deadline); break;
                         }
                     }
-                    if (change_deadline) {
-                        CALL(get_current_deadline(&curr_deadline));
-                        CALL(set_current_deadline(curr_deadline + param.period));
-                        cudaStreamSynchronize(StreamAccessor::getStream(stream));
-                    }
+                    // if (change_deadline) {
+                    //     CALL(get_current_deadline(&curr_deadline));
+                    //     CALL(set_current_deadline(curr_deadline + param.period));
+                    //     cudaStreamSynchronize(StreamAccessor::getStream(stream));
+                    // }
 
                     CV_Assert( smaller_img->type() == CV_8UC1 || smaller_img->type() == CV_8UC4 );
                     CV_Assert( win_stride_.width % block_stride_.width == 0 && win_stride_.height % block_stride_.height == 0 );
@@ -778,9 +785,9 @@ go_ahead:
 
                     CheckError(pgm_complete(node));
 
-                    if (change_deadline) {
-                        CALL(set_current_deadline(curr_deadline));
-                    }
+                    // if (change_deadline) {
+                    //     CALL(set_current_deadline(curr_deadline));
+                    // }
 
                     if (t_info.realtime)
                         sleep_next_period(); /* this calls the system call sys_complete_job. With early releasing, this shouldn't block.*/
@@ -893,11 +900,11 @@ go_ahead:
                             break;
                     }
                     unsigned long long curr_deadline;
-                    if (change_deadline) {
-                        CALL(get_current_deadline(&curr_deadline));
-                        CALL(set_current_deadline(curr_deadline + param.period));
-                        cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
-                    }
+                    // if (change_deadline) {
+                    //     CALL(get_current_deadline(&curr_deadline));
+                    //     CALL(set_current_deadline(curr_deadline + param.period));
+                    //     cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
+                    // }
                     /*
                      * end of compute gradients
                      * =========================== */
@@ -917,9 +924,9 @@ go_ahead:
 
                     CheckError(pgm_complete(node));
 
-                    if (change_deadline) {
-                        CALL(set_current_deadline(curr_deadline));
-                    }
+                    // if (change_deadline) {
+                    //     CALL(set_current_deadline(curr_deadline));
+                    // }
 
                     if (t_info.realtime)
                         sleep_next_period(); /* this calls the system call sys_complete_job. With early releasing, this shouldn't block.*/
@@ -1025,11 +1032,11 @@ go_ahead:
                             !change_deadline);
 
                     unsigned long long curr_deadline;
-                    if (change_deadline) {
-                        CALL(get_current_deadline(&curr_deadline));
-                        CALL(set_current_deadline(curr_deadline + param.period));
-                        cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
-                    }
+                    // if (change_deadline) {
+                    //     CALL(get_current_deadline(&curr_deadline));
+                    //     CALL(set_current_deadline(curr_deadline + param.period));
+                    //     cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
+                    // }
 
                     grad->release();
                     qangle->release();
@@ -1052,9 +1059,9 @@ go_ahead:
 
                     CheckError(pgm_complete(node));
 
-                    if (change_deadline) {
-                        CALL(set_current_deadline(curr_deadline));
-                    }
+                    // if (change_deadline) {
+                    //     CALL(set_current_deadline(curr_deadline));
+                    // }
 
                     if (t_info.realtime)
                         sleep_next_period(); /* this calls the system call sys_complete_job. With early releasing, this shouldn't block.*/
@@ -1148,12 +1155,12 @@ go_ahead:
                             StreamAccessor::getStream(stream),
                             !change_deadline);
 
-                    unsigned long long curr_deadline;
-                    if (change_deadline) {
-                        CALL(get_current_deadline(&curr_deadline));
-                        CALL(set_current_deadline(curr_deadline + param.period));
-                        cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
-                    }
+                    // unsigned long long curr_deadline;
+                    // if (change_deadline) {
+                    //     CALL(get_current_deadline(&curr_deadline));
+                    //     CALL(set_current_deadline(curr_deadline + param.period));
+                    //     cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
+                    // }
                     /*
                      * end of nomalize histograms
                      * =========================== */
@@ -1172,9 +1179,9 @@ go_ahead:
 
                     CheckError(pgm_complete(node));
 
-                    if (change_deadline) {
-                        CALL(set_current_deadline(curr_deadline));
-                    }
+                    // if (change_deadline) {
+                    //     CALL(set_current_deadline(curr_deadline));
+                    // }
 
                     if (t_info.realtime)
                         sleep_next_period(); /* this calls the system call sys_complete_job. With early releasing, this shouldn't block.*/
@@ -1263,18 +1270,18 @@ go_ahead:
                      */
                     wins_per_img = numPartsWithin(smaller_img->size(), win_size_, win_stride_);
 
-                    unsigned long long curr_deadline;
-                    if (t_info.realtime && t_info.sched == FINE_GRAINED) {
-                        CALL(get_current_deadline(&curr_deadline));
-                    }
+                    // unsigned long long curr_deadline;
+                    // if (t_info.realtime && t_info.sched == FINE_GRAINED) {
+                    //     CALL(get_current_deadline(&curr_deadline));
+                    // }
 
                     if (confidences == NULL)
                     {
                         *labels = pool.getBuffer(1, wins_per_img.area(), CV_8UC1);
 
-                        if (t_info.realtime && t_info.sched == FINE_GRAINED) {
-                            CALL(set_current_deadline(curr_deadline + param.period));
-                        }
+                        // if (t_info.realtime && t_info.sched == FINE_GRAINED) {
+                        //     CALL(set_current_deadline(curr_deadline + param.period));
+                        // }
 
                         hog::classify_hists(win_size_.height, win_size_.width,
                                 block_stride_.height, block_stride_.width,
@@ -1291,9 +1298,9 @@ go_ahead:
                     {
                         *labels = pool.getBuffer(1, wins_per_img.area(), CV_32FC1);
 
-                        if (t_info.realtime && t_info.sched == FINE_GRAINED) {
-                            CALL(set_current_deadline(curr_deadline + param.period));
-                        }
+                        // if (t_info.realtime && t_info.sched == FINE_GRAINED) {
+                        //     CALL(set_current_deadline(curr_deadline + param.period));
+                        // }
 
                         hog::compute_confidence_hists(win_size_.height, win_size_.width,
                                 block_stride_.height, block_stride_.width,
@@ -1326,9 +1333,9 @@ go_ahead:
 
                     CheckError(pgm_complete(node));
 
-                    if (t_info.realtime && t_info.sched == FINE_GRAINED) {
-                        CALL(set_current_deadline(curr_deadline));
-                    }
+                    // if (t_info.realtime && t_info.sched == FINE_GRAINED) {
+                    //     CALL(set_current_deadline(curr_deadline));
+                    // }
 
                     if (t_info.realtime)
                         sleep_next_period(); /* this calls the system call sys_complete_job. With early releasing, this shouldn't block.*/
@@ -1727,7 +1734,10 @@ go_ahead:
         scale0_(1.05),
         group_threshold_(2),
         descr_format_(DESCR_FORMAT_COL_BY_COL),
-        cells_per_block_(block_size.width / cell_size.width, block_size.height / cell_size.height)
+        cells_per_block_(block_size.width / cell_size.width, block_size.height / cell_size.height),
+
+        omlp_sem_od(-1),
+        use_locks(1)
     {
         CV_Assert((win_size.width  - block_size.width ) % block_stride.width  == 0 &&
                   (win_size.height - block_size.height) % block_stride.height == 0);
@@ -1742,6 +1752,69 @@ go_ahead:
         CV_Assert(block_stride == (block_size / 2));
 
         CV_Assert(cell_size.width == cell_size.height);
+    }
+
+    void HOG_Impl::open_lock()
+    {
+        if (!use_locks) return;
+
+        fprintf(stdout, "Attempting to open OMLP semaphore now.\n");
+
+        int lock_od = -1;
+        // int protocol = lock_protocol_for_name("FMLP");
+        obj_type_t protocol = OMLP_SEM;
+        int resource_id = 2; // non-negative integer
+        const char *lock_namespace = "./rtspin-locks";
+        int cluster = 0;
+        if (protocol >= 0) {
+            /* open reference to semaphore */
+            lock_od = litmus_open_lock(protocol, resource_id, lock_namespace, &cluster);
+            if (lock_od < 0) {
+                perror("litmus_open_lock");
+                fprintf(stderr, "Could not open lock.\n");
+            }
+            else {
+                fprintf(stdout, "Successfully opened OMLP semaphore lock: %d.\n", lock_od);
+            }
+        }
+
+        omlp_sem_od = lock_od;
+    }
+
+    void HOG_Impl::lock_fzlp()
+    {
+        if (!use_locks) return;
+
+        if (omlp_sem_od >= 0)
+        {
+            fprintf(stdout, "[%d] Calling lock at time \t%llu\n", gettid(), litmus_clock());
+            litmus_lock(omlp_sem_od);
+            fprintf(stdout, "[%d] Acquired lock at time \t%llu\n", gettid(), litmus_clock());
+        }
+    }
+
+    void HOG_Impl::wait_forbidden_zone()
+    {
+        if (!use_locks) return;
+
+        if (omlp_sem_od >= 0)
+        {
+            fprintf(stdout, "[%d] Checking FZ at time \t%llu\n", gettid(), litmus_clock());
+            litmus_access_forbidden_zone_check(omlp_sem_od, ms2ns(100));
+            fprintf(stdout, "[%d] Not in FZ at time \t%llu\n", gettid(), litmus_clock());
+
+        }
+    }
+
+    void HOG_Impl::unlock_fzlp()
+    {
+        if (!use_locks) return;
+
+        if (omlp_sem_od >= 0)
+        {
+            fprintf(stdout, "[%d] Unlocking at time \t\t%llu\n", gettid(), litmus_clock());
+            litmus_unlock(omlp_sem_od);
+        }
     }
 
     static int numPartsWithin(int size, int part_size, int stride)
@@ -5659,6 +5732,8 @@ go_ahead:
                 /* ===========================
                  * resize image
                  */
+                this->lock_fzlp();
+                this->wait_forbidden_zone();
                 if (smaller_img->size() != gpu_img->size())
                 {
                     switch (gpu_img->type())
@@ -5667,6 +5742,7 @@ go_ahead:
                         case CV_8UC4: hog::resize_8UC4_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), frame_idx); break;
                     }
                 }
+                this->unlock_fzlp();
 
                 CV_Assert( smaller_img->type() == CV_8UC1 || smaller_img->type() == CV_8UC4 );
                 CV_Assert( win_stride_.width % block_stride_.width == 0 && win_stride_.height % block_stride_.height == 0 );
@@ -5710,6 +5786,8 @@ go_ahead:
                 *grad       = pool.getBuffer(smaller_img->size(), CV_32FC2);
                 *qangle     = pool.getBuffer(smaller_img->size(), CV_8UC2);
 
+                this->lock_fzlp();
+                this->wait_forbidden_zone();
                 switch (smaller_img->type())
                 {
                     case CV_8UC1:
@@ -5729,6 +5807,7 @@ go_ahead:
                                 StreamAccessor::getStream(stream));
                         break;
                 }
+                this->unlock_fzlp();
                 /*
                  * end of compute gradients
                  * =========================== */
@@ -5767,6 +5846,8 @@ go_ahead:
                  */
                 *block_hists = pool.getBuffer(1, getTotalHistSize(smaller_img->size()), CV_32FC1);
 
+                this->lock_fzlp();
+                this->wait_forbidden_zone();
                 hog::compute_hists(nbins_,
                         block_stride_.width, block_stride_.height,
                         smaller_img->rows, smaller_img->cols,
@@ -5776,6 +5857,7 @@ go_ahead:
                         cell_size_.width, cell_size_.height,
                         cells_per_block_.width, cells_per_block_.height,
                         StreamAccessor::getStream(stream));
+                this->unlock_fzlp();
 
                 grad->release();
                 qangle->release();
@@ -5810,6 +5892,8 @@ go_ahead:
                 /* ===========================
                  * normalize histograms
                  */
+                this->lock_fzlp();
+                this->wait_forbidden_zone();
                 hog::normalize_hists(nbins_,
                         block_stride_.width, block_stride_.height,
                         smaller_img->rows, smaller_img->cols,
@@ -5818,6 +5902,7 @@ go_ahead:
                         cell_size_.width, cell_size_.height,
                         cells_per_block_.width, cells_per_block_.height,
                         StreamAccessor::getStream(stream));
+                this->unlock_fzlp();
                 /*
                  * end of nomalize histograms
                  * =========================== */
@@ -5855,6 +5940,8 @@ go_ahead:
                 {
                     *labels = pool.getBuffer(1, wins_per_img.area(), CV_8UC1);
 
+                    this->lock_fzlp();
+                    this->wait_forbidden_zone();
                     hog::classify_hists(win_size_.height, win_size_.width,
                             block_stride_.height, block_stride_.width,
                             win_stride_.height, win_stride_.width,
@@ -5865,6 +5952,7 @@ go_ahead:
                             (float)hit_threshold_,
                             cell_size_.width, cells_per_block_.width,
                             labels->ptr());
+                    this->unlock_fzlp();
                 }
                 else
                 {
@@ -6013,6 +6101,8 @@ go_ahead:
                         {
                             *labels = pool.getBuffer(1, wins_per_img.area(), CV_8UC1);
 
+                            this->lock_fzlp();
+                            this->wait_forbidden_zone();
                             hog::classify_hists(win_size_.height, win_size_.width,
                                     block_stride_.height, block_stride_.width,
                                     win_stride_.height, win_stride_.width,
@@ -6023,6 +6113,7 @@ go_ahead:
                                     (float)hit_threshold_,
                                     cell_size_.width, cells_per_block_.width,
                                     labels->ptr());
+                            this->unlock_fzlp();
                         }
                         else
                         {
@@ -6072,9 +6163,14 @@ go_ahead:
                         if (level_confidences_ptr == NULL)
                         {
                             Mat labels_host;
+                            this->lock_fzlp();
+                            this->wait_forbidden_zone();
+
                             labels->download(labels_host, stream);
                             cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
                             unsigned char* vec = labels_host.ptr();
+
+                            this->unlock_fzlp();
 
                             for (int i = 0; i < wins_per_img.area(); i++)
                             {
@@ -7712,12 +7808,12 @@ go_ahead:
 
     void set_up_litmus_task(const struct task_info &t_info, struct rt_task &param)
     {
-        if (t_info.cluster != -1)
-            CALL(be_migrate_to_domain(t_info.cluster));
+        // if (t_info.cluster != -1)
+        //     CALL(be_migrate_to_domain(t_info.cluster));
         init_rt_task_param(&param);
-        param.exec_cost = ms2ns(EXEC_COST);
-        param.period = ms2ns(t_info.period);
-        param.relative_deadline = ms2ns(t_info.relative_deadline);
+        param.exec_cost = ms2ns(99);//ms2ns(EXEC_COST);
+        param.period = ms2ns(100);//ms2ns(t_info.period);
+        param.relative_deadline = ms2ns(100);//ms2ns(t_info.relative_deadline);
         param.phase = ms2ns(t_info.phase);
         param.budget_policy = NO_ENFORCEMENT;
         if (t_info.early)
@@ -7726,8 +7822,9 @@ go_ahead:
             param.release_policy = TASK_PERIODIC;
         param.cls = RT_CLASS_SOFT;
         param.priority = LITMUS_LOWEST_PRIORITY;
-        if (t_info.cluster != -1)
-            param.cpu = domain_to_first_cpu(t_info.cluster);
+        param.cpu = 2;
+        // if (t_info.cluster != -1)
+        //     param.cpu = domain_to_first_cpu(t_info.cluster);
         CALL( init_litmus() );
         CALL( set_rt_task_param(gettid(), &param) );
         CALL( task_mode(LITMUS_RT_TASK) );

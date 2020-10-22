@@ -1213,19 +1213,20 @@ void App::thread_color_convert(node_t *_node, pthread_barrier_t* init_barrier,
     pthread_barrier_wait(init_barrier);
 
     if (t_info.realtime) {
-        if (t_info.cluster != -1)
-            CALL(be_migrate_to_domain(t_info.cluster));
+        // if (t_info.cluster != -1)
+        //     CALL(be_migrate_to_domain(t_info.cluster));
         struct rt_task param;
         init_rt_task_param(&param);
-        param.exec_cost = ms2ns(EXEC_COST);
+        param.exec_cost = ms2ns(30);//ms2ns(EXEC_COST);
         param.period = ms2ns(t_info.period);
         param.relative_deadline = ms2ns(t_info.relative_deadline);
         param.phase = ms2ns(t_info.phase);
         param.budget_policy = NO_ENFORCEMENT;
         param.cls = RT_CLASS_SOFT;
         param.priority = LITMUS_LOWEST_PRIORITY;
-        if (t_info.cluster != -1)
-            param.cpu = domain_to_first_cpu(t_info.cluster);
+        // if (t_info.cluster != -1)
+        //     param.cpu = domain_to_first_cpu(t_info.cluster);
+        param.cpu = 1;
         CALL( init_litmus() );
         CALL( set_rt_task_param(gettid(), &param) );
         CALL( task_mode(LITMUS_RT_TASK) );
@@ -2770,24 +2771,28 @@ void App::thread_fine_CC_S_ABCDE(node_t* _node, pthread_barrier_t* init_barrier,
     pthread_barrier_wait(init_barrier);
 
     if (t_info.realtime) {
-        if (t_info.cluster != -1)
-            CALL(be_migrate_to_domain(t_info.cluster));
+        // if (t_info.cluster != -1)
+        //     CALL(be_migrate_to_domain(t_info.cluster));
         struct rt_task param;
         init_rt_task_param(&param);
-        param.exec_cost = ms2ns(EXEC_COST);
-        param.period = ms2ns(t_info.period);
-        param.relative_deadline = ms2ns(t_info.relative_deadline);
+        param.exec_cost = ms2ns(99);//ms2ns(EXEC_COST);
+        param.period = ms2ns(100);//ms2ns(t_info.period);
+        param.relative_deadline = ms2ns(100);//ms2ns(t_info.relative_deadline);
         param.phase = ms2ns(t_info.phase);
         param.budget_policy = NO_ENFORCEMENT;
         param.cls = RT_CLASS_SOFT;
         param.priority = LITMUS_LOWEST_PRIORITY;
-        if (t_info.cluster != -1)
-            param.cpu = domain_to_first_cpu(t_info.cluster);
+        // if (t_info.cluster != -1)
+        //     param.cpu = domain_to_first_cpu(t_info.cluster);
+        param.cpu = 2;
         CALL( init_litmus() );
         CALL( set_rt_task_param(gettid(), &param) );
         CALL( task_mode(LITMUS_RT_TASK) );
         CALL( wait_for_ts_release() );
     }
+
+    fprintf(stdout, "Calling litmus_open_lock for OMLP_SEM.\n");
+    gpu_hog->open_lock();
 
     int count_frame = 0;
     while (count_frame < args.count / args.num_fine_graphs && running)
@@ -2818,12 +2823,17 @@ void App::thread_fine_CC_S_ABCDE(node_t* _node, pthread_barrier_t* init_barrier,
 
             // Prep HOG classification
             hogWorkBegin();
+            gpu_hog->lock_fzlp();
+            gpu_hog->wait_forbidden_zone();
+
             gpu_img->upload(*img, stream);
             cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
             gpu_hog->setNumLevels(nlevels);
             gpu_hog->setHitThreshold(hit_threshold);
             gpu_hog->setScaleFactor(scale);
             gpu_hog->setGroupThreshold(gr_threshold);
+
+            gpu_hog->unlock_fzlp();
             /*
              * end of color convert
              * =========================== */

@@ -48,7 +48,6 @@
 #include "opencv2/core/cuda/warp_shuffle.hpp"
 #include "opencv2/cudaobjdetect.hpp"
 
-
 namespace cv { namespace cuda { namespace device
 {
 
@@ -233,13 +232,6 @@ namespace cv { namespace cuda { namespace device
                 }
             }
         }
-
-#ifdef USE_FZLP_LOCK
-        void wait_forbidden_zone()
-        {
-            // TODO: add waiting if in a forbidden zone
-        }
-#endif
 
         //declaration of variables and invoke the kernel with the calculated number of blocks
         void compute_hists(int nbins,

@@ -52,7 +52,14 @@
 #include <litmus.h>
 #include <vector>
 
-//#define USE_FZLP_LOCK
+/* Include the LITMUS^RT user space library header.
+ * This header, part of liblitmus, provides the user space API of
+ * LITMUS^RT.
+ */
+#include <litmus.h>
+/* LITMUS^RT */
+
+// #define USE_FZLP_LOCK
 
 enum scheduling_option
 {
@@ -309,6 +316,11 @@ public:
     virtual void* thread_fine_E_T(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0;     // classify hists   + collect-locations
 
     virtual void set_up_constants(Stream stream) = 0;
+
+    virtual void open_lock() = 0;
+    virtual void lock_fzlp() = 0;
+    virtual void wait_forbidden_zone() = 0;
+    virtual void unlock_fzlp() = 0;
 };
 
 //
