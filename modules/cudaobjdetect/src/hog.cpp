@@ -124,7 +124,8 @@ namespace cv { namespace cuda { namespace device
                            int cell_size_x, int cell_size_y,
                            int ncells_block_x, int ncells_block_y,
                            const cudaStream_t& stream,
-                           bool should_sync = true);
+                           bool should_sync = true,
+                           int omlp_sem_od = -1);
 
         void normalize_hists(int nbins,
                              int block_stride_x, int block_stride_y,
@@ -134,16 +135,19 @@ namespace cv { namespace cuda { namespace device
                              int cell_size_x, int cell_size_y,
                              int ncells_block_x, int ncells_block_y,
                              const cudaStream_t& stream,
-                             bool should_sync = true);
+                             bool should_sync = true,
+                             int omlp_sem_od = -1);
 
         void classify_hists(int win_height, int win_width, int block_stride_y,
                             int block_stride_x, int win_stride_y, int win_stride_x, int height,
                             int width, float* block_hists, float* coefs, float free_coef,
-                            float threshold, int cell_size_x, int ncells_block_x, unsigned char* labels);
+                            float threshold, int cell_size_x, int ncells_block_x, unsigned char* labels,
+                            int omlp_sem_od = -1);
 
         void compute_confidence_hists(int win_height, int win_width, int block_stride_y, int block_stride_x,
                                       int win_stride_y, int win_stride_x, int height, int width, float* block_hists,
-                                      float* coefs, float free_coef, float threshold, int cell_size_x, int ncells_block_x, float *confidences);
+                                      float* coefs, float free_coef, float threshold, int cell_size_x, int ncells_block_x, float *confidences,
+                                      int omlp_sem_od = -1);
 
         void extract_descrs_by_rows(int win_height, int win_width,
                                     int block_stride_y, int block_stride_x,
@@ -168,19 +172,26 @@ namespace cv { namespace cuda { namespace device
                                     cv::cuda::PtrStepSzf grad, cv::cuda::PtrStepSzb qangle,
                                     bool correct_gamma,
                                     const cudaStream_t& stream,
-                                    bool should_sync = true);
+                                    bool should_sync = true,
+                                    int omlp_sem_od = -1);
         void compute_gradients_8UC4(int nbins,
                                     int height, int width, const cv::cuda::PtrStepSzb& img,
                                     float angle_scale,
                                     cv::cuda::PtrStepSzf grad, cv::cuda::PtrStepSzb qangle,
                                     bool correct_gamma,
                                     const cudaStream_t& stream,
-                                    bool should_sync = true);
+                                    bool should_sync = true,
+                                    int omlp_sem_od = -1);
 
-        void resize_8UC1(const cv::cuda::PtrStepSzb& src, cv::cuda::PtrStepSzb dst, const cudaStream_t& stream, bool should_sync = true);
-        void resize_8UC4(const cv::cuda::PtrStepSzb& src, cv::cuda::PtrStepSzb dst, const cudaStream_t& stream, bool should_sync = true);
-        void resize_8UC1_thread_safe(const cv::cuda::PtrStepSzb& src, cv::cuda::PtrStepSzb dst, const cudaStream_t& stream, int index, bool should_sync = true);
-        void resize_8UC4_thread_safe(const cv::cuda::PtrStepSzb& src, cv::cuda::PtrStepSzb dst, const cudaStream_t& stream, int index, bool should_sync = true);
+        void resize_8UC1(const cv::cuda::PtrStepSzb& src, cv::cuda::PtrStepSzb dst, const cudaStream_t& stream, bool should_sync = true, int omlp_sem_od = -1);
+        void resize_8UC4(const cv::cuda::PtrStepSzb& src, cv::cuda::PtrStepSzb dst, const cudaStream_t& stream, bool should_sync = true, int omlp_sem_od = -1);
+        void resize_8UC1_thread_safe(const cv::cuda::PtrStepSzb& src, cv::cuda::PtrStepSzb dst, const cudaStream_t& stream, int index, bool should_sync = true, int omlp_sem_od = -1);
+        void resize_8UC4_thread_safe(const cv::cuda::PtrStepSzb& src, cv::cuda::PtrStepSzb dst, const cudaStream_t& stream, int index, bool should_sync = true, int omlp_sem_od = -1);
+
+        int open_fzlp_lock();
+        int lock_fzlp(int sem_od);
+        int wait_forbidden_zone(int sem_od);
+        int unlock_fzlp(int sem_od);
     }
 }}}
 
@@ -277,7 +288,8 @@ namespace
         /* color-convert and source-node combination */
         void fine_CC_S_ABCDE(struct task_info &t_info, void** out_buf_ptrs,
                              cuda::GpuMat* gpu_img, std::vector<Rect>* found,
-                             Mat *img, int frame_idx, Stream stream, int64 hog_work_begin); // color-convert -> classify hists (maybe not all the way)
+                             Mat *img, int frame_idx, Stream stream, int64 hog_work_begin,
+                             int omlp_sem_od); // color-convert -> classify hists (maybe not all the way)
 
         /* source-node combinations */
         void* thread_fine_S_A(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info);     // compute-levels +  resize
@@ -295,12 +307,10 @@ namespace
 
         void set_up_constants(Stream stream);
 
-        int use_locks;
-        int omlp_sem_od;
-        void open_lock();
-        void lock_fzlp();
-        void wait_forbidden_zone();
-        void unlock_fzlp();
+        int open_lock();
+        int lock_fzlp(int sem_od);
+        int wait_forbidden_zone(int sem_od);
+        int unlock_fzlp(int sem_od);
 
     private:
         Size win_size_;
@@ -333,7 +343,7 @@ namespace
     static int numPartsWithin(int size, int part_size, int stride);
     static Size numPartsWithin(Size size, Size part_size, Size stride);
 
-    void set_up_litmus_task(const struct task_info &t_info, struct rt_task &param);
+    void set_up_litmus_task(const struct task_info &t_info, struct rt_task &param, int *sem_od);
 
     struct params_compute  // a.k.a. compute scales node
     {
@@ -537,8 +547,9 @@ namespace
         pthread_barrier_wait(init_barrier);
 
         struct rt_task param;
+        int omlp_sem_od = -1;
         if (t_info.realtime) {
-            set_up_litmus_task(t_info, param);
+            set_up_litmus_task(t_info, param, &omlp_sem_od);
         }
 
         if(!hog_errors)
@@ -727,8 +738,9 @@ namespace
         pthread_barrier_wait(init_barrier);
 
         struct rt_task param;
+        int omlp_sem_od = -1;
         if (t_info.realtime) {
-            set_up_litmus_task(t_info, param);
+            set_up_litmus_task(t_info, param, &omlp_sem_od);
         }
 
         if(!hog_errors)
@@ -756,8 +768,8 @@ namespace
                     {
                         switch (gpu_img->type())
                         {
-                            case CV_8UC1: hog::resize_8UC1_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index, !change_deadline); break;
-                            case CV_8UC4: hog::resize_8UC4_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index, !change_deadline); break;
+                            case CV_8UC1: hog::resize_8UC1_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index, !change_deadline, omlp_sem_od); break;
+                            case CV_8UC4: hog::resize_8UC4_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index, !change_deadline, omlp_sem_od); break;
                         }
                     }
                     // if (change_deadline) {
@@ -847,8 +859,9 @@ namespace
         pthread_barrier_wait(init_barrier);
 
         struct rt_task param;
+        int omlp_sem_od = -1;
         if (t_info.realtime) {
-            set_up_litmus_task(t_info, param);
+            set_up_litmus_task(t_info, param, &omlp_sem_od);
         }
 
         if(!hog_errors)
@@ -887,7 +900,7 @@ namespace
                                     *grad, *qangle,
                                     gamma_correction_,
                                     StreamAccessor::getStream(stream),
-                                    !change_deadline);
+                                    !change_deadline, omlp_sem_od);
                             break;
                         case CV_8UC4:
                             hog::compute_gradients_8UC4(nbins_,
@@ -896,7 +909,7 @@ namespace
                                     *grad, *qangle,
                                     gamma_correction_,
                                     StreamAccessor::getStream(stream),
-                                    !change_deadline);
+                                    !change_deadline, omlp_sem_od);
                             break;
                     }
                     unsigned long long curr_deadline;
@@ -989,8 +1002,9 @@ namespace
         pthread_barrier_wait(init_barrier);
 
         struct rt_task param;
+        int omlp_sem_od = -1;
         if (t_info.realtime) {
-            set_up_litmus_task(t_info, param);
+            set_up_litmus_task(t_info, param, &omlp_sem_od);
         }
 
         if(!hog_errors)
@@ -1029,7 +1043,7 @@ namespace
                             cell_size_.width, cell_size_.height,
                             cells_per_block_.width, cells_per_block_.height,
                             StreamAccessor::getStream(stream),
-                            !change_deadline);
+                            !change_deadline, omlp_sem_od);
 
                     unsigned long long curr_deadline;
                     // if (change_deadline) {
@@ -1119,8 +1133,9 @@ namespace
         pthread_barrier_wait(init_barrier);
 
         struct rt_task param;
+        int omlp_sem_od = -1;
         if (t_info.realtime) {
-            set_up_litmus_task(t_info, param);
+            set_up_litmus_task(t_info, param, &omlp_sem_od);
         }
 
         if(!hog_errors)
@@ -1153,7 +1168,7 @@ namespace
                             cell_size_.width, cell_size_.height,
                             cells_per_block_.width, cells_per_block_.height,
                             StreamAccessor::getStream(stream),
-                            !change_deadline);
+                            !change_deadline, omlp_sem_od);
 
                     // unsigned long long curr_deadline;
                     // if (change_deadline) {
@@ -1242,8 +1257,9 @@ namespace
         pthread_barrier_wait(init_barrier);
 
         struct rt_task param;
+        int omlp_sem_od = -1;
         if (t_info.realtime) {
-            set_up_litmus_task(t_info, param);
+            set_up_litmus_task(t_info, param, &omlp_sem_od);
         }
 
         if(!hog_errors)
@@ -1292,7 +1308,8 @@ namespace
                                 (float)free_coef_,
                                 (float)hit_threshold_,
                                 cell_size_.width, cells_per_block_.width,
-                                labels->ptr());
+                                labels->ptr(),
+                                omlp_sem_od);
                     }
                     else
                     {
@@ -1311,7 +1328,8 @@ namespace
                                 (float)free_coef_,
                                 (float)hit_threshold_,
                                 cell_size_.width, cells_per_block_.width,
-                                labels->ptr<float>());
+                                labels->ptr<float>(),
+                                omlp_sem_od);
                     }
                     /*
                      * end of classify
@@ -1411,8 +1429,9 @@ namespace
         pthread_barrier_wait(init_barrier);
 
         struct rt_task param;
+        int omlp_sem_od = -1;
         if (t_info.realtime) {
-            set_up_litmus_task(t_info, param);
+            set_up_litmus_task(t_info, param, &omlp_sem_od);
         }
 
         if(!hog_errors)
@@ -1453,10 +1472,22 @@ namespace
                         if (level_confidences_ptr == NULL)
                         {
                             Mat labels_host;
+
+                            /* =============
+                            * LOCK: download labels from GPU
+                            */
+                            hog::lock_fzlp(omlp_sem_od);
+                            hog::wait_forbidden_zone(omlp_sem_od);
+
                             labels->download(labels_host, stream);
                             cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
-                            unsigned char* vec = labels_host.ptr();
 
+                            hog::unlock_fzlp(omlp_sem_od);
+                            /*
+                            * UNLOCK: download labels from GPU
+                            * ============= */
+
+                            unsigned char* vec = labels_host.ptr();
                             for (int i = 0; i < wins_per_img.area(); i++)
                             {
                                 int y = i / wins_per_img.width;
@@ -1468,10 +1499,22 @@ namespace
                         else
                         {
                             Mat labels_host;
+
+                            /* =============
+                            * LOCK: download labels from GPU
+                            */
+                            hog::lock_fzlp(omlp_sem_od);
+                            hog::wait_forbidden_zone(omlp_sem_od);
+
                             labels->download(labels_host, stream);
                             cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
-                            float* vec = labels_host.ptr<float>();
 
+                            hog::unlock_fzlp(omlp_sem_od);
+                            /*
+                            * UNLOCK: download labels from GPU
+                            * ============= */
+
+                            float* vec = labels_host.ptr<float>();
                             level_confidences_ptr->clear();
                             for (int i = 0; i < wins_per_img.area(); i++)
                             {
@@ -1583,8 +1626,9 @@ namespace
         pthread_barrier_wait(init_barrier);
 
         struct rt_task param;
+        int omlp_sem_od = -1;
         if (t_info.realtime) {
-            set_up_litmus_task(t_info, param);
+            set_up_litmus_task(t_info, param, &omlp_sem_od);
         }
 
         if(!hog_errors)
@@ -1734,10 +1778,7 @@ namespace
         scale0_(1.05),
         group_threshold_(2),
         descr_format_(DESCR_FORMAT_COL_BY_COL),
-        cells_per_block_(block_size.width / cell_size.width, block_size.height / cell_size.height),
-
-        omlp_sem_od(-1),
-        use_locks(1)
+        cells_per_block_(block_size.width / cell_size.width, block_size.height / cell_size.height)
     {
         CV_Assert((win_size.width  - block_size.width ) % block_stride.width  == 0 &&
                   (win_size.height - block_size.height) % block_stride.height == 0);
@@ -1754,67 +1795,24 @@ namespace
         CV_Assert(cell_size.width == cell_size.height);
     }
 
-    void HOG_Impl::open_lock()
+    int HOG_Impl::open_lock()
     {
-        if (!use_locks) return;
-
-        fprintf(stdout, "Attempting to open OMLP semaphore now.\n");
-
-        int lock_od = -1;
-        // int protocol = lock_protocol_for_name("FMLP");
-        obj_type_t protocol = OMLP_SEM;
-        int resource_id = 2; // non-negative integer
-        const char *lock_namespace = "./rtspin-locks";
-        int cluster = 0;
-        if (protocol >= 0) {
-            /* open reference to semaphore */
-            lock_od = litmus_open_lock(protocol, resource_id, lock_namespace, &cluster);
-            if (lock_od < 0) {
-                perror("litmus_open_lock");
-                fprintf(stderr, "Could not open lock.\n");
-            }
-            else {
-                fprintf(stdout, "Successfully opened OMLP semaphore lock: %d.\n", lock_od);
-            }
-        }
-
-        omlp_sem_od = lock_od;
+        return hog::open_fzlp_lock();
     }
 
-    void HOG_Impl::lock_fzlp()
+    int HOG_Impl::lock_fzlp(int sem_od)
     {
-        if (!use_locks) return;
-
-        if (omlp_sem_od >= 0)
-        {
-            fprintf(stdout, "[%d] Calling lock at time \t%llu\n", gettid(), litmus_clock());
-            litmus_lock(omlp_sem_od);
-            fprintf(stdout, "[%d] Acquired lock at time \t%llu\n", gettid(), litmus_clock());
-        }
+        return hog::lock_fzlp(sem_od);
     }
 
-    void HOG_Impl::wait_forbidden_zone()
+    int HOG_Impl::wait_forbidden_zone(int sem_od)
     {
-        if (!use_locks) return;
-
-        if (omlp_sem_od >= 0)
-        {
-            fprintf(stdout, "[%d] Checking FZ at time \t%llu\n", gettid(), litmus_clock());
-            litmus_access_forbidden_zone_check(omlp_sem_od, ms2ns(100));
-            fprintf(stdout, "[%d] Not in FZ at time \t%llu\n", gettid(), litmus_clock());
-
-        }
+        return hog::wait_forbidden_zone(sem_od);
     }
 
-    void HOG_Impl::unlock_fzlp()
+    int HOG_Impl::unlock_fzlp(int sem_od)
     {
-        if (!use_locks) return;
-
-        if (omlp_sem_od >= 0)
-        {
-            fprintf(stdout, "[%d] Unlocking at time \t\t%llu\n", gettid(), litmus_clock());
-            litmus_unlock(omlp_sem_od);
-        }
+        return hog::unlock_fzlp(sem_od);
     }
 
     static int numPartsWithin(int size, int part_size, int stride)
@@ -2186,8 +2184,9 @@ namespace
         pthread_barrier_wait(init_barrier);
 
         struct rt_task param;
+        int omlp_sem_od = -1;
         if (t_info.realtime) {
-            set_up_litmus_task(t_info, param);
+            set_up_litmus_task(t_info, param, &omlp_sem_od);
         }
 
         if(!hog_errors)
@@ -2215,8 +2214,8 @@ namespace
                     {
                         switch (gpu_img->type())
                         {
-                            case CV_8UC1: hog::resize_8UC1_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index); break;
-                            case CV_8UC4: hog::resize_8UC4_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index); break;
+                            case CV_8UC1: hog::resize_8UC1_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index, true, omlp_sem_od); break;
+                            case CV_8UC4: hog::resize_8UC4_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index, true, omlp_sem_od); break;
                         }
                     }
 
@@ -2244,7 +2243,8 @@ namespace
                                     angleScale,
                                     *grad, *qangle,
                                     gamma_correction_,
-                                    StreamAccessor::getStream(stream));
+                                    StreamAccessor::getStream(stream),
+                                    true, omlp_sem_od);
                             break;
                         case CV_8UC4:
                             hog::compute_gradients_8UC4(nbins_,
@@ -2252,7 +2252,8 @@ namespace
                                     angleScale,
                                     *grad, *qangle,
                                     gamma_correction_,
-                                    StreamAccessor::getStream(stream));
+                                    StreamAccessor::getStream(stream),
+                                    true, omlp_sem_od);
                             break;
                     }
                     /*
@@ -2333,8 +2334,9 @@ namespace
         pthread_barrier_wait(init_barrier);
 
         struct rt_task param;
+        int omlp_sem_od = -1;
         if (t_info.realtime) {
-            set_up_litmus_task(t_info, param);
+            set_up_litmus_task(t_info, param, &omlp_sem_od);
         }
 
         if(!hog_errors)
@@ -2373,7 +2375,8 @@ namespace
                                     angleScale,
                                     *grad, *qangle,
                                     gamma_correction_,
-                                    StreamAccessor::getStream(stream));
+                                    StreamAccessor::getStream(stream),
+                                    true, omlp_sem_od);
                             break;
                         case CV_8UC4:
                             hog::compute_gradients_8UC4(nbins_,
@@ -2381,7 +2384,8 @@ namespace
                                     angleScale,
                                     *grad, *qangle,
                                     gamma_correction_,
-                                    StreamAccessor::getStream(stream));
+                                    StreamAccessor::getStream(stream),
+                                    true, omlp_sem_od);
                             break;
                     }
                     /*
@@ -2403,7 +2407,8 @@ namespace
                             block_hists->ptr<float>(),
                             cell_size_.width, cell_size_.height,
                             cells_per_block_.width, cells_per_block_.height,
-                            StreamAccessor::getStream(stream));
+                            StreamAccessor::getStream(stream),
+                            true, omlp_sem_od);
 
                     grad->release();
                     qangle->release();
@@ -2487,8 +2492,9 @@ namespace
         pthread_barrier_wait(init_barrier);
 
         struct rt_task param;
+        int omlp_sem_od = -1;
         if (t_info.realtime) {
-            set_up_litmus_task(t_info, param);
+            set_up_litmus_task(t_info, param, &omlp_sem_od);
         }
 
         if(!hog_errors)
@@ -2525,7 +2531,8 @@ namespace
                             block_hists->ptr<float>(),
                             cell_size_.width, cell_size_.height,
                             cells_per_block_.width, cells_per_block_.height,
-                            StreamAccessor::getStream(stream));
+                            StreamAccessor::getStream(stream),
+                            true, omlp_sem_od);
 
                     grad->release();
                     qangle->release();
@@ -2543,7 +2550,8 @@ namespace
                             (float)threshold_L2hys_,
                             cell_size_.width, cell_size_.height,
                             cells_per_block_.width, cells_per_block_.height,
-                            StreamAccessor::getStream(stream));
+                            StreamAccessor::getStream(stream),
+                            true, omlp_sem_od);
                     /*
                      * end of nomalize histograms
                      * =========================== */
@@ -2624,8 +2632,9 @@ namespace
         pthread_barrier_wait(init_barrier);
 
         struct rt_task param;
+        int omlp_sem_od = -1;
         if (t_info.realtime) {
-            set_up_litmus_task(t_info, param);
+            set_up_litmus_task(t_info, param, &omlp_sem_od);
         }
 
         if(!hog_errors)
@@ -2656,7 +2665,8 @@ namespace
                             (float)threshold_L2hys_,
                             cell_size_.width, cell_size_.height,
                             cells_per_block_.width, cells_per_block_.height,
-                            StreamAccessor::getStream(stream));
+                            StreamAccessor::getStream(stream),
+                            true, omlp_sem_od);
                     /*
                      * end of nomalize histograms
                      * =========================== */
@@ -2682,7 +2692,8 @@ namespace
                                 (float)free_coef_,
                                 (float)hit_threshold_,
                                 cell_size_.width, cells_per_block_.width,
-                                labels->ptr());
+                                labels->ptr(),
+                                omlp_sem_od);
                     }
                     else
                     {
@@ -2697,7 +2708,8 @@ namespace
                                 (float)free_coef_,
                                 (float)hit_threshold_,
                                 cell_size_.width, cells_per_block_.width,
-                                labels->ptr<float>());
+                                labels->ptr<float>(),
+                                omlp_sem_od);
                     }
                     /*
                      * end of classify
@@ -2781,8 +2793,9 @@ namespace
         pthread_barrier_wait(init_barrier);
 
         struct rt_task param;
+        int omlp_sem_od = -1;
         if (t_info.realtime) {
-            set_up_litmus_task(t_info, param);
+            set_up_litmus_task(t_info, param, &omlp_sem_od);
         }
 
         if(!hog_errors)
@@ -2810,8 +2823,8 @@ namespace
                     {
                         switch (gpu_img->type())
                         {
-                            case CV_8UC1: hog::resize_8UC1_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index); break;
-                            case CV_8UC4: hog::resize_8UC4_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index); break;
+                            case CV_8UC1: hog::resize_8UC1_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index, true, omlp_sem_od); break;
+                            case CV_8UC4: hog::resize_8UC4_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index, true, omlp_sem_od); break;
                         }
                     }
 
@@ -2839,7 +2852,8 @@ namespace
                                     angleScale,
                                     *grad, *qangle,
                                     gamma_correction_,
-                                    StreamAccessor::getStream(stream));
+                                    StreamAccessor::getStream(stream),
+                                    true, omlp_sem_od);
                             break;
                         case CV_8UC4:
                             hog::compute_gradients_8UC4(nbins_,
@@ -2847,7 +2861,8 @@ namespace
                                     angleScale,
                                     *grad, *qangle,
                                     gamma_correction_,
-                                    StreamAccessor::getStream(stream));
+                                    StreamAccessor::getStream(stream),
+                                    true, omlp_sem_od);
                             break;
                     }
                     /*
@@ -2869,7 +2884,8 @@ namespace
                             block_hists->ptr<float>(),
                             cell_size_.width, cell_size_.height,
                             cells_per_block_.width, cells_per_block_.height,
-                            StreamAccessor::getStream(stream));
+                            StreamAccessor::getStream(stream),
+                            true, omlp_sem_od);
 
                     grad->release();
                     qangle->release();
@@ -2953,8 +2969,9 @@ namespace
         pthread_barrier_wait(init_barrier);
 
         struct rt_task param;
+        int omlp_sem_od = -1;
         if (t_info.realtime) {
-            set_up_litmus_task(t_info, param);
+            set_up_litmus_task(t_info, param, &omlp_sem_od);
         }
 
         if(!hog_errors)
@@ -2992,7 +3009,8 @@ namespace
                                     angleScale,
                                     *grad, *qangle,
                                     gamma_correction_,
-                                    StreamAccessor::getStream(stream));
+                                    StreamAccessor::getStream(stream),
+                                    true, omlp_sem_od);
                             break;
                         case CV_8UC4:
                             hog::compute_gradients_8UC4(nbins_,
@@ -3000,7 +3018,8 @@ namespace
                                     angleScale,
                                     *grad, *qangle,
                                     gamma_correction_,
-                                    StreamAccessor::getStream(stream));
+                                    StreamAccessor::getStream(stream),
+                                    true, omlp_sem_od);
                             break;
                     }
                     /*
@@ -3022,7 +3041,8 @@ namespace
                             block_hists->ptr<float>(),
                             cell_size_.width, cell_size_.height,
                             cells_per_block_.width, cells_per_block_.height,
-                            StreamAccessor::getStream(stream));
+                            StreamAccessor::getStream(stream),
+                            true, omlp_sem_od);
 
                     grad->release();
                     qangle->release();
@@ -3040,7 +3060,8 @@ namespace
                             (float)threshold_L2hys_,
                             cell_size_.width, cell_size_.height,
                             cells_per_block_.width, cells_per_block_.height,
-                            StreamAccessor::getStream(stream));
+                            StreamAccessor::getStream(stream),
+                            true, omlp_sem_od);
                     /*
                      * end of nomalize histograms
                      * =========================== */
@@ -3125,8 +3146,9 @@ namespace
         pthread_barrier_wait(init_barrier);
 
         struct rt_task param;
+        int omlp_sem_od = -1;
         if (t_info.realtime) {
-            set_up_litmus_task(t_info, param);
+            set_up_litmus_task(t_info, param, &omlp_sem_od);
         }
 
         if(!hog_errors)
@@ -3163,7 +3185,8 @@ namespace
                             block_hists->ptr<float>(),
                             cell_size_.width, cell_size_.height,
                             cells_per_block_.width, cells_per_block_.height,
-                            StreamAccessor::getStream(stream));
+                            StreamAccessor::getStream(stream),
+                            true, omlp_sem_od);
 
                     grad->release();
                     qangle->release();
@@ -3181,7 +3204,8 @@ namespace
                             (float)threshold_L2hys_,
                             cell_size_.width, cell_size_.height,
                             cells_per_block_.width, cells_per_block_.height,
-                            StreamAccessor::getStream(stream));
+                            StreamAccessor::getStream(stream),
+                            true, omlp_sem_od);
                     /*
                      * end of nomalize histograms
                      * =========================== */
@@ -3207,7 +3231,8 @@ namespace
                                 (float)free_coef_,
                                 (float)hit_threshold_,
                                 cell_size_.width, cells_per_block_.width,
-                                labels->ptr());
+                                labels->ptr(),
+                                omlp_sem_od);
                     }
                     else
                     {
@@ -3222,7 +3247,8 @@ namespace
                                 (float)free_coef_,
                                 (float)hit_threshold_,
                                 cell_size_.width, cells_per_block_.width,
-                                labels->ptr<float>());
+                                labels->ptr<float>(),
+                                omlp_sem_od);
                     }
                     /*
                      * end of classify
@@ -3307,8 +3333,9 @@ namespace
         pthread_barrier_wait(init_barrier);
 
         struct rt_task param;
+        int omlp_sem_od = -1;
         if (t_info.realtime) {
-            set_up_litmus_task(t_info, param);
+            set_up_litmus_task(t_info, param, &omlp_sem_od);
         }
 
         if(!hog_errors)
@@ -3336,8 +3363,8 @@ namespace
                     {
                         switch (gpu_img->type())
                         {
-                            case CV_8UC1: hog::resize_8UC1_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index); break;
-                            case CV_8UC4: hog::resize_8UC4_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index); break;
+                            case CV_8UC1: hog::resize_8UC1_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index, true, omlp_sem_od); break;
+                            case CV_8UC4: hog::resize_8UC4_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index, true, omlp_sem_od); break;
                         }
                     }
 
@@ -3365,7 +3392,8 @@ namespace
                                     angleScale,
                                     *grad, *qangle,
                                     gamma_correction_,
-                                    StreamAccessor::getStream(stream));
+                                    StreamAccessor::getStream(stream),
+                                    true, omlp_sem_od);
                             break;
                         case CV_8UC4:
                             hog::compute_gradients_8UC4(nbins_,
@@ -3373,7 +3401,8 @@ namespace
                                     angleScale,
                                     *grad, *qangle,
                                     gamma_correction_,
-                                    StreamAccessor::getStream(stream));
+                                    StreamAccessor::getStream(stream),
+                                    true, omlp_sem_od);
                             break;
                     }
                     /*
@@ -3395,7 +3424,8 @@ namespace
                             block_hists->ptr<float>(),
                             cell_size_.width, cell_size_.height,
                             cells_per_block_.width, cells_per_block_.height,
-                            StreamAccessor::getStream(stream));
+                            StreamAccessor::getStream(stream),
+                            true, omlp_sem_od);
 
                     grad->release();
                     qangle->release();
@@ -3413,7 +3443,8 @@ namespace
                             (float)threshold_L2hys_,
                             cell_size_.width, cell_size_.height,
                             cells_per_block_.width, cells_per_block_.height,
-                            StreamAccessor::getStream(stream));
+                            StreamAccessor::getStream(stream),
+                            true, omlp_sem_od);
                     /*
                      * end of nomalize histograms
                      * =========================== */
@@ -3498,8 +3529,9 @@ namespace
         pthread_barrier_wait(init_barrier);
 
         struct rt_task param;
+        int omlp_sem_od = -1;
         if (t_info.realtime) {
-            set_up_litmus_task(t_info, param);
+            set_up_litmus_task(t_info, param, &omlp_sem_od);
         }
 
         if(!hog_errors)
@@ -3537,7 +3569,8 @@ namespace
                                     angleScale,
                                     *grad, *qangle,
                                     gamma_correction_,
-                                    StreamAccessor::getStream(stream));
+                                    StreamAccessor::getStream(stream),
+                                    true, omlp_sem_od);
                             break;
                         case CV_8UC4:
                             hog::compute_gradients_8UC4(nbins_,
@@ -3545,7 +3578,8 @@ namespace
                                     angleScale,
                                     *grad, *qangle,
                                     gamma_correction_,
-                                    StreamAccessor::getStream(stream));
+                                    StreamAccessor::getStream(stream),
+                                    true, omlp_sem_od);
                             break;
                     }
                     /*
@@ -3567,7 +3601,8 @@ namespace
                             block_hists->ptr<float>(),
                             cell_size_.width, cell_size_.height,
                             cells_per_block_.width, cells_per_block_.height,
-                            StreamAccessor::getStream(stream));
+                            StreamAccessor::getStream(stream),
+                            true, omlp_sem_od);
 
                     grad->release();
                     qangle->release();
@@ -3585,7 +3620,8 @@ namespace
                             (float)threshold_L2hys_,
                             cell_size_.width, cell_size_.height,
                             cells_per_block_.width, cells_per_block_.height,
-                            StreamAccessor::getStream(stream));
+                            StreamAccessor::getStream(stream),
+                            true, omlp_sem_od);
                     /*
                      * end of nomalize histograms
                      * =========================== */
@@ -3611,7 +3647,8 @@ namespace
                                 (float)free_coef_,
                                 (float)hit_threshold_,
                                 cell_size_.width, cells_per_block_.width,
-                                labels->ptr());
+                                labels->ptr(),
+                                omlp_sem_od);
                     }
                     else
                     {
@@ -3626,7 +3663,8 @@ namespace
                                 (float)free_coef_,
                                 (float)hit_threshold_,
                                 cell_size_.width, cells_per_block_.width,
-                                labels->ptr<float>());
+                                labels->ptr<float>(),
+                                omlp_sem_od);
                     }
                     /*
                      * end of classify
@@ -3715,8 +3753,9 @@ namespace
         pthread_barrier_wait(init_barrier);
 
         struct rt_task param;
+        int omlp_sem_od = -1;
         if (t_info.realtime) {
-            set_up_litmus_task(t_info, param);
+            set_up_litmus_task(t_info, param, &omlp_sem_od);
         }
 
         if(!hog_errors)
@@ -3744,8 +3783,8 @@ namespace
                     {
                         switch (gpu_img->type())
                         {
-                            case CV_8UC1: hog::resize_8UC1_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index); break;
-                            case CV_8UC4: hog::resize_8UC4_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index); break;
+                            case CV_8UC1: hog::resize_8UC1_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index, true, omlp_sem_od); break;
+                            case CV_8UC4: hog::resize_8UC4_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index, true, omlp_sem_od); break;
                         }
                     }
 
@@ -3773,7 +3812,8 @@ namespace
                                     angleScale,
                                     *grad, *qangle,
                                     gamma_correction_,
-                                    StreamAccessor::getStream(stream));
+                                    StreamAccessor::getStream(stream),
+                                    true, omlp_sem_od);
                             break;
                         case CV_8UC4:
                             hog::compute_gradients_8UC4(nbins_,
@@ -3781,7 +3821,8 @@ namespace
                                     angleScale,
                                     *grad, *qangle,
                                     gamma_correction_,
-                                    StreamAccessor::getStream(stream));
+                                    StreamAccessor::getStream(stream),
+                                    true, omlp_sem_od);
                             break;
                     }
                     /*
@@ -3803,7 +3844,8 @@ namespace
                             block_hists->ptr<float>(),
                             cell_size_.width, cell_size_.height,
                             cells_per_block_.width, cells_per_block_.height,
-                            StreamAccessor::getStream(stream));
+                            StreamAccessor::getStream(stream),
+                            true, omlp_sem_od);
 
                     grad->release();
                     qangle->release();
@@ -3821,7 +3863,8 @@ namespace
                             (float)threshold_L2hys_,
                             cell_size_.width, cell_size_.height,
                             cells_per_block_.width, cells_per_block_.height,
-                            StreamAccessor::getStream(stream));
+                            StreamAccessor::getStream(stream),
+                            true, omlp_sem_od);
                     /*
                      * end of nomalize histograms
                      * =========================== */
@@ -3847,7 +3890,8 @@ namespace
                                 (float)free_coef_,
                                 (float)hit_threshold_,
                                 cell_size_.width, cells_per_block_.width,
-                                labels->ptr());
+                                labels->ptr(),
+                                omlp_sem_od);
                     }
                     else
                     {
@@ -3862,7 +3906,8 @@ namespace
                                 (float)free_coef_,
                                 (float)hit_threshold_,
                                 cell_size_.width, cells_per_block_.width,
-                                labels->ptr<float>());
+                                labels->ptr<float>(),
+                                omlp_sem_od);
                     }
                     /*
                      * end of classify
@@ -3959,8 +4004,9 @@ namespace
         pthread_barrier_wait(init_barrier);
 
         struct rt_task param;
+        int omlp_sem_od = -1;
         if (t_info.realtime) {
-            set_up_litmus_task(t_info, param);
+            set_up_litmus_task(t_info, param, &omlp_sem_od);
         }
 
         if(!hog_errors)
@@ -4070,8 +4116,8 @@ namespace
                             {
                                 switch (gpu_img->type())
                                 {
-                                    case CV_8UC1: hog::resize_8UC1_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index); break;
-                                    case CV_8UC4: hog::resize_8UC4_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index); break;
+                                    case CV_8UC1: hog::resize_8UC1_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index, true, omlp_sem_od); break;
+                                    case CV_8UC4: hog::resize_8UC4_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index, true, omlp_sem_od); break;
                                 }
                             }
 
@@ -4177,8 +4223,9 @@ namespace
         pthread_barrier_wait(init_barrier);
 
         struct rt_task param;
+        int omlp_sem_od = -1;
         if (t_info.realtime) {
-            set_up_litmus_task(t_info, param);
+            set_up_litmus_task(t_info, param, &omlp_sem_od);
         }
 
         if(!hog_errors)
@@ -4292,8 +4339,8 @@ namespace
                             {
                                 switch (gpu_img->type())
                                 {
-                                    case CV_8UC1: hog::resize_8UC1_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index); break;
-                                    case CV_8UC4: hog::resize_8UC4_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index); break;
+                                    case CV_8UC1: hog::resize_8UC1_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index, true, omlp_sem_od); break;
+                                    case CV_8UC4: hog::resize_8UC4_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index, true, omlp_sem_od); break;
                                 }
                             }
 
@@ -4347,7 +4394,8 @@ namespace
                                             angleScale,
                                             *grad, *qangle,
                                             gamma_correction_,
-                                            StreamAccessor::getStream(stream));
+                                            StreamAccessor::getStream(stream),
+                                            true, omlp_sem_od);
                                     break;
                                 case CV_8UC4:
                                     hog::compute_gradients_8UC4(nbins_,
@@ -4355,7 +4403,8 @@ namespace
                                             angleScale,
                                             *grad, *qangle,
                                             gamma_correction_,
-                                            StreamAccessor::getStream(stream));
+                                            StreamAccessor::getStream(stream),
+                                            true, omlp_sem_od);
                                     break;
                             }
                             /*
@@ -4460,8 +4509,9 @@ namespace
         pthread_barrier_wait(init_barrier);
 
         struct rt_task param;
+        int omlp_sem_od = -1;
         if (t_info.realtime) {
-            set_up_litmus_task(t_info, param);
+            set_up_litmus_task(t_info, param, &omlp_sem_od);
         }
 
         if(!hog_errors)
@@ -4582,8 +4632,8 @@ namespace
                             {
                                 switch (gpu_img->type())
                                 {
-                                    case CV_8UC1: hog::resize_8UC1_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index); break;
-                                    case CV_8UC4: hog::resize_8UC4_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index); break;
+                                    case CV_8UC1: hog::resize_8UC1_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index, true, omlp_sem_od); break;
+                                    case CV_8UC4: hog::resize_8UC4_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index, true, omlp_sem_od); break;
                                 }
                             }
 
@@ -4637,7 +4687,8 @@ namespace
                                             angleScale,
                                             *grad, *qangle,
                                             gamma_correction_,
-                                            StreamAccessor::getStream(stream));
+                                            StreamAccessor::getStream(stream),
+                                            true, omlp_sem_od);
                                     break;
                                 case CV_8UC4:
                                     hog::compute_gradients_8UC4(nbins_,
@@ -4645,7 +4696,8 @@ namespace
                                             angleScale,
                                             *grad, *qangle,
                                             gamma_correction_,
-                                            StreamAccessor::getStream(stream));
+                                            StreamAccessor::getStream(stream),
+                                            true, omlp_sem_od);
                                     break;
                             }
                             /*
@@ -4694,7 +4746,8 @@ namespace
                                     block_hists->ptr<float>(),
                                     cell_size_.width, cell_size_.height,
                                     cells_per_block_.width, cells_per_block_.height,
-                                    StreamAccessor::getStream(stream));
+                                    StreamAccessor::getStream(stream),
+                                    true, omlp_sem_od);
 
                             grad->release();
                             qangle->release();
@@ -4799,8 +4852,9 @@ namespace
         pthread_barrier_wait(init_barrier);
 
         struct rt_task param;
+        int omlp_sem_od = -1;
         if (t_info.realtime) {
-            set_up_litmus_task(t_info, param);
+            set_up_litmus_task(t_info, param, &omlp_sem_od);
         }
 
         if(!hog_errors)
@@ -4928,8 +4982,8 @@ namespace
                             {
                                 switch (gpu_img->type())
                                 {
-                                    case CV_8UC1: hog::resize_8UC1_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index); break;
-                                    case CV_8UC4: hog::resize_8UC4_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index); break;
+                                    case CV_8UC1: hog::resize_8UC1_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index, true, omlp_sem_od); break;
+                                    case CV_8UC4: hog::resize_8UC4_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index, true, omlp_sem_od); break;
                                 }
                             }
 
@@ -4983,7 +5037,8 @@ namespace
                                             angleScale,
                                             *grad, *qangle,
                                             gamma_correction_,
-                                            StreamAccessor::getStream(stream));
+                                            StreamAccessor::getStream(stream),
+                                            true, omlp_sem_od);
                                     break;
                                 case CV_8UC4:
                                     hog::compute_gradients_8UC4(nbins_,
@@ -4991,7 +5046,8 @@ namespace
                                             angleScale,
                                             *grad, *qangle,
                                             gamma_correction_,
-                                            StreamAccessor::getStream(stream));
+                                            StreamAccessor::getStream(stream),
+                                            true, omlp_sem_od);
                                     break;
                             }
                             /*
@@ -5040,7 +5096,8 @@ namespace
                                     block_hists->ptr<float>(),
                                     cell_size_.width, cell_size_.height,
                                     cells_per_block_.width, cells_per_block_.height,
-                                    StreamAccessor::getStream(stream));
+                                    StreamAccessor::getStream(stream),
+                                    true, omlp_sem_od);
 
                             grad->release();
                             qangle->release();
@@ -5082,7 +5139,8 @@ namespace
                                     (float)threshold_L2hys_,
                                     cell_size_.width, cell_size_.height,
                                     cells_per_block_.width, cells_per_block_.height,
-                                    StreamAccessor::getStream(stream));
+                                    StreamAccessor::getStream(stream),
+                                    true, omlp_sem_od);
                             /*
                             * end of nomalize histograms
                             * =========================== */
@@ -5184,8 +5242,9 @@ namespace
         pthread_barrier_wait(init_barrier);
 
         struct rt_task param;
+        int omlp_sem_od = -1;
         if (t_info.realtime) {
-            set_up_litmus_task(t_info, param);
+            set_up_litmus_task(t_info, param, &omlp_sem_od);
         }
 
         if(!hog_errors)
@@ -5321,8 +5380,8 @@ namespace
                             {
                                 switch (gpu_img->type())
                                 {
-                                    case CV_8UC1: hog::resize_8UC1_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index); break;
-                                    case CV_8UC4: hog::resize_8UC4_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index); break;
+                                    case CV_8UC1: hog::resize_8UC1_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index, true, omlp_sem_od); break;
+                                    case CV_8UC4: hog::resize_8UC4_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index, true, omlp_sem_od); break;
                                 }
                             }
 
@@ -5376,7 +5435,8 @@ namespace
                                             angleScale,
                                             *grad, *qangle,
                                             gamma_correction_,
-                                            StreamAccessor::getStream(stream));
+                                            StreamAccessor::getStream(stream),
+                                            true, omlp_sem_od);
                                     break;
                                 case CV_8UC4:
                                     hog::compute_gradients_8UC4(nbins_,
@@ -5384,7 +5444,8 @@ namespace
                                             angleScale,
                                             *grad, *qangle,
                                             gamma_correction_,
-                                            StreamAccessor::getStream(stream));
+                                            StreamAccessor::getStream(stream),
+                                            true, omlp_sem_od);
                                     break;
                             }
                             /*
@@ -5433,7 +5494,8 @@ namespace
                                     block_hists->ptr<float>(),
                                     cell_size_.width, cell_size_.height,
                                     cells_per_block_.width, cells_per_block_.height,
-                                    StreamAccessor::getStream(stream));
+                                    StreamAccessor::getStream(stream),
+                                    true, omlp_sem_od);
 
                             grad->release();
                             qangle->release();
@@ -5475,7 +5537,8 @@ namespace
                                     (float)threshold_L2hys_,
                                     cell_size_.width, cell_size_.height,
                                     cells_per_block_.width, cells_per_block_.height,
-                                    StreamAccessor::getStream(stream));
+                                    StreamAccessor::getStream(stream),
+                                    true, omlp_sem_od);
                             /*
                             * end of nomalize histograms
                             * =========================== */
@@ -5522,7 +5585,8 @@ namespace
                                         (float)free_coef_,
                                         (float)hit_threshold_,
                                         cell_size_.width, cells_per_block_.width,
-                                        labels->ptr());
+                                        labels->ptr(),
+                                        omlp_sem_od);
                             }
                             else
                             {
@@ -5537,7 +5601,8 @@ namespace
                                         (float)free_coef_,
                                         (float)hit_threshold_,
                                         cell_size_.width, cells_per_block_.width,
-                                        labels->ptr<float>());
+                                        labels->ptr<float>(),
+                                        omlp_sem_od);
                             }
                             /*
                             * end of classify
@@ -5604,7 +5669,8 @@ namespace
 
     void HOG_Impl::fine_CC_S_ABCDE(struct task_info &t_info, void** out_buf_ptrs,
                                    cuda::GpuMat* gpu_img, std::vector<Rect>* found,
-                                   Mat *img, int frame_idx, Stream stream, int64 hog_work_begin)
+                                   Mat *img, int frame_idx, Stream stream, int64 hog_work_begin,
+                                   int omlp_sem_od)
     {
         const std::vector<node_config> &source_config = *t_info.source_config;
 
@@ -5729,20 +5795,14 @@ namespace
                 if (t_info.sched == CONFIGURABLE && t_info.early)
                     gpu_period_guard(t_info.s_info_in, t_info.s_info_out);
 
-                /* ===========================
-                 * resize image
-                 */
-                this->lock_fzlp();
-                this->wait_forbidden_zone();
                 if (smaller_img->size() != gpu_img->size())
                 {
                     switch (gpu_img->type())
                     {
-                        case CV_8UC1: hog::resize_8UC1_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), frame_idx); break;
-                        case CV_8UC4: hog::resize_8UC4_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), frame_idx); break;
+                        case CV_8UC1: hog::resize_8UC1_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), frame_idx, true, omlp_sem_od); break;
+                        case CV_8UC4: hog::resize_8UC4_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), frame_idx, true, omlp_sem_od); break;
                     }
                 }
-                this->unlock_fzlp();
 
                 CV_Assert( smaller_img->type() == CV_8UC1 || smaller_img->type() == CV_8UC4 );
                 CV_Assert( win_stride_.width % block_stride_.width == 0 && win_stride_.height % block_stride_.height == 0 );
@@ -5786,8 +5846,6 @@ namespace
                 *grad       = pool.getBuffer(smaller_img->size(), CV_32FC2);
                 *qangle     = pool.getBuffer(smaller_img->size(), CV_8UC2);
 
-                this->lock_fzlp();
-                this->wait_forbidden_zone();
                 switch (smaller_img->type())
                 {
                     case CV_8UC1:
@@ -5796,7 +5854,8 @@ namespace
                                 angleScale,
                                 *grad, *qangle,
                                 gamma_correction_,
-                                StreamAccessor::getStream(stream));
+                                StreamAccessor::getStream(stream),
+                                true, omlp_sem_od);
                         break;
                     case CV_8UC4:
                         hog::compute_gradients_8UC4(nbins_,
@@ -5804,10 +5863,10 @@ namespace
                                 angleScale,
                                 *grad, *qangle,
                                 gamma_correction_,
-                                StreamAccessor::getStream(stream));
+                                StreamAccessor::getStream(stream),
+                                true, omlp_sem_od);
                         break;
                 }
-                this->unlock_fzlp();
                 /*
                  * end of compute gradients
                  * =========================== */
@@ -5846,8 +5905,6 @@ namespace
                  */
                 *block_hists = pool.getBuffer(1, getTotalHistSize(smaller_img->size()), CV_32FC1);
 
-                this->lock_fzlp();
-                this->wait_forbidden_zone();
                 hog::compute_hists(nbins_,
                         block_stride_.width, block_stride_.height,
                         smaller_img->rows, smaller_img->cols,
@@ -5856,8 +5913,8 @@ namespace
                         block_hists->ptr<float>(),
                         cell_size_.width, cell_size_.height,
                         cells_per_block_.width, cells_per_block_.height,
-                        StreamAccessor::getStream(stream));
-                this->unlock_fzlp();
+                        StreamAccessor::getStream(stream),
+                        true, omlp_sem_od);
 
                 grad->release();
                 qangle->release();
@@ -5892,8 +5949,6 @@ namespace
                 /* ===========================
                  * normalize histograms
                  */
-                this->lock_fzlp();
-                this->wait_forbidden_zone();
                 hog::normalize_hists(nbins_,
                         block_stride_.width, block_stride_.height,
                         smaller_img->rows, smaller_img->cols,
@@ -5901,8 +5956,8 @@ namespace
                         (float)threshold_L2hys_,
                         cell_size_.width, cell_size_.height,
                         cells_per_block_.width, cells_per_block_.height,
-                        StreamAccessor::getStream(stream));
-                this->unlock_fzlp();
+                        StreamAccessor::getStream(stream),
+                        true, omlp_sem_od);
                 /*
                  * end of nomalize histograms
                  * =========================== */
@@ -5940,8 +5995,6 @@ namespace
                 {
                     *labels = pool.getBuffer(1, wins_per_img.area(), CV_8UC1);
 
-                    this->lock_fzlp();
-                    this->wait_forbidden_zone();
                     hog::classify_hists(win_size_.height, win_size_.width,
                             block_stride_.height, block_stride_.width,
                             win_stride_.height, win_stride_.width,
@@ -5951,8 +6004,8 @@ namespace
                             (float)free_coef_,
                             (float)hit_threshold_,
                             cell_size_.width, cells_per_block_.width,
-                            labels->ptr());
-                    this->unlock_fzlp();
+                            labels->ptr(),
+                            omlp_sem_od);
                 }
                 else
                 {
@@ -5967,7 +6020,8 @@ namespace
                             (float)free_coef_,
                             (float)hit_threshold_,
                             cell_size_.width, cells_per_block_.width,
-                            labels->ptr<float>());
+                            labels->ptr<float>(),
+                            omlp_sem_od);
                 }
                 /*
                  * end of classify
@@ -6041,8 +6095,9 @@ namespace
         pthread_barrier_wait(init_barrier);
 
         struct rt_task param;
+        int omlp_sem_od = -1;
         if (t_info.realtime) {
-            set_up_litmus_task(t_info, param);
+            set_up_litmus_task(t_info, param, &omlp_sem_od);
         }
 
         if(!hog_errors)
@@ -6101,8 +6156,6 @@ namespace
                         {
                             *labels = pool.getBuffer(1, wins_per_img.area(), CV_8UC1);
 
-                            this->lock_fzlp();
-                            this->wait_forbidden_zone();
                             hog::classify_hists(win_size_.height, win_size_.width,
                                     block_stride_.height, block_stride_.width,
                                     win_stride_.height, win_stride_.width,
@@ -6112,8 +6165,8 @@ namespace
                                     (float)free_coef_,
                                     (float)hit_threshold_,
                                     cell_size_.width, cells_per_block_.width,
-                                    labels->ptr());
-                            this->unlock_fzlp();
+                                    labels->ptr(),
+                                    omlp_sem_od);
                         }
                         else
                         {
@@ -6128,7 +6181,8 @@ namespace
                                     (float)free_coef_,
                                     (float)hit_threshold_,
                                     cell_size_.width, cells_per_block_.width,
-                                    labels->ptr<float>());
+                                    labels->ptr<float>(),
+                                    omlp_sem_od);
                         }
                         /*
                         * end of classify
@@ -6163,15 +6217,22 @@ namespace
                         if (level_confidences_ptr == NULL)
                         {
                             Mat labels_host;
-                            this->lock_fzlp();
-                            this->wait_forbidden_zone();
+
+                            /* =============
+                            * LOCK: download labels from GPU
+                            */
+                            hog::lock_fzlp(omlp_sem_od);
+                            hog::wait_forbidden_zone(omlp_sem_od);
 
                             labels->download(labels_host, stream);
                             cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
+
+                            hog::unlock_fzlp(omlp_sem_od);
+                            /*
+                            * UNLOCK: download labels from GPU
+                            * ============= */
+
                             unsigned char* vec = labels_host.ptr();
-
-                            this->unlock_fzlp();
-
                             for (int i = 0; i < wins_per_img.area(); i++)
                             {
                                 int y = i / wins_per_img.width;
@@ -6307,8 +6368,9 @@ namespace
         pthread_barrier_wait(init_barrier);
 
         struct rt_task param;
+        int omlp_sem_od = -1;
         if (t_info.realtime) {
-            set_up_litmus_task(t_info, param);
+            set_up_litmus_task(t_info, param, &omlp_sem_od);
         }
 
         if(!hog_errors)
@@ -6371,7 +6433,8 @@ namespace
                                     (float)threshold_L2hys_,
                                     cell_size_.width, cell_size_.height,
                                     cells_per_block_.width, cells_per_block_.height,
-                                    StreamAccessor::getStream(stream));
+                                    StreamAccessor::getStream(stream),
+                                    true, omlp_sem_od);
                             /*
                             * end of nomalize histograms
                             * =========================== */
@@ -6418,7 +6481,8 @@ namespace
                                     (float)free_coef_,
                                     (float)hit_threshold_,
                                     cell_size_.width, cells_per_block_.width,
-                                    labels->ptr());
+                                    labels->ptr(),
+                                    omlp_sem_od);
                         }
                         else
                         {
@@ -6433,7 +6497,8 @@ namespace
                                     (float)free_coef_,
                                     (float)hit_threshold_,
                                     cell_size_.width, cells_per_block_.width,
-                                    labels->ptr<float>());
+                                    labels->ptr<float>(),
+                                    omlp_sem_od);
                         }
                         /*
                         * end of classify
@@ -6468,10 +6533,22 @@ namespace
                         if (level_confidences_ptr == NULL)
                         {
                             Mat labels_host;
+
+                            /* =============
+                            * LOCK: download labels from GPU
+                            */
+                            hog::lock_fzlp(omlp_sem_od);
+                            hog::wait_forbidden_zone(omlp_sem_od);
+
                             labels->download(labels_host, stream);
                             cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
-                            unsigned char* vec = labels_host.ptr();
 
+                            hog::unlock_fzlp(omlp_sem_od);
+                            /*
+                            * UNLOCK: download labels from GPU
+                            * ============= */
+
+                            unsigned char* vec = labels_host.ptr();
                             for (int i = 0; i < wins_per_img.area(); i++)
                             {
                                 int y = i / wins_per_img.width;
@@ -6611,8 +6688,9 @@ namespace
         pthread_barrier_wait(init_barrier);
 
         struct rt_task param;
+        int omlp_sem_od = -1;
         if (t_info.realtime) {
-            set_up_litmus_task(t_info, param);
+            set_up_litmus_task(t_info, param, &omlp_sem_od);
         }
 
         if(!hog_errors)
@@ -6687,7 +6765,8 @@ namespace
                                     block_hists->ptr<float>(),
                                     cell_size_.width, cell_size_.height,
                                     cells_per_block_.width, cells_per_block_.height,
-                                    StreamAccessor::getStream(stream));
+                                    StreamAccessor::getStream(stream),
+                                    true, omlp_sem_od);
 
                             grad->release();
                             qangle->release();
@@ -6725,7 +6804,8 @@ namespace
                                     (float)threshold_L2hys_,
                                     cell_size_.width, cell_size_.height,
                                     cells_per_block_.width, cells_per_block_.height,
-                                    StreamAccessor::getStream(stream));
+                                    StreamAccessor::getStream(stream),
+                                    true, omlp_sem_od);
                             /*
                             * end of nomalize histograms
                             * =========================== */
@@ -6775,7 +6855,8 @@ namespace
                                     (float)free_coef_,
                                     (float)hit_threshold_,
                                     cell_size_.width, cells_per_block_.width,
-                                    labels->ptr());
+                                    labels->ptr(),
+                                    omlp_sem_od);
                         }
                         else
                         {
@@ -6790,7 +6871,8 @@ namespace
                                     (float)free_coef_,
                                     (float)hit_threshold_,
                                     cell_size_.width, cells_per_block_.width,
-                                    labels->ptr<float>());
+                                    labels->ptr<float>(),
+                                    omlp_sem_od);
                         }
                         /*
                         * end of classify
@@ -6825,10 +6907,22 @@ namespace
                         if (level_confidences_ptr == NULL)
                         {
                             Mat labels_host;
+
+                            /* =============
+                            * LOCK: download labels from GPU
+                            */
+                            hog::lock_fzlp(omlp_sem_od);
+                            hog::wait_forbidden_zone(omlp_sem_od);
+
                             labels->download(labels_host, stream);
                             cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
-                            unsigned char* vec = labels_host.ptr();
 
+                            hog::unlock_fzlp(omlp_sem_od);
+                            /*
+                            * UNLOCK: download labels from GPU
+                            * ============= */
+
+                            unsigned char* vec = labels_host.ptr();
                             for (int i = 0; i < wins_per_img.area(); i++)
                             {
                                 int y = i / wins_per_img.width;
@@ -6968,8 +7062,9 @@ namespace
         pthread_barrier_wait(init_barrier);
 
         struct rt_task param;
+        int omlp_sem_od = -1;
         if (t_info.realtime) {
-            set_up_litmus_task(t_info, param);
+            set_up_litmus_task(t_info, param, &omlp_sem_od);
         }
 
         if(!hog_errors)
@@ -7051,7 +7146,8 @@ namespace
                                             angleScale,
                                             *grad, *qangle,
                                             gamma_correction_,
-                                            StreamAccessor::getStream(stream));
+                                            StreamAccessor::getStream(stream),
+                                            true, omlp_sem_od);
                                     break;
                                 case CV_8UC4:
                                     hog::compute_gradients_8UC4(nbins_,
@@ -7059,7 +7155,8 @@ namespace
                                             angleScale,
                                             *grad, *qangle,
                                             gamma_correction_,
-                                            StreamAccessor::getStream(stream));
+                                            StreamAccessor::getStream(stream),
+                                            true, omlp_sem_od);
                                     break;
                             }
                             /*
@@ -7102,7 +7199,8 @@ namespace
                                     block_hists->ptr<float>(),
                                     cell_size_.width, cell_size_.height,
                                     cells_per_block_.width, cells_per_block_.height,
-                                    StreamAccessor::getStream(stream));
+                                    StreamAccessor::getStream(stream),
+                                    true, omlp_sem_od);
 
                             grad->release();
                             qangle->release();
@@ -7143,7 +7241,8 @@ namespace
                                     (float)threshold_L2hys_,
                                     cell_size_.width, cell_size_.height,
                                     cells_per_block_.width, cells_per_block_.height,
-                                    StreamAccessor::getStream(stream));
+                                    StreamAccessor::getStream(stream),
+                                    true, omlp_sem_od);
                             /*
                             * end of nomalize histograms
                             * =========================== */
@@ -7193,7 +7292,8 @@ namespace
                                     (float)free_coef_,
                                     (float)hit_threshold_,
                                     cell_size_.width, cells_per_block_.width,
-                                    labels->ptr());
+                                    labels->ptr(),
+                                    omlp_sem_od);
                         }
                         else
                         {
@@ -7208,7 +7308,8 @@ namespace
                                     (float)free_coef_,
                                     (float)hit_threshold_,
                                     cell_size_.width, cells_per_block_.width,
-                                    labels->ptr<float>());
+                                    labels->ptr<float>(),
+                                    omlp_sem_od);
                         }
                         /*
                         * end of classify
@@ -7243,10 +7344,22 @@ namespace
                         if (level_confidences_ptr == NULL)
                         {
                             Mat labels_host;
+
+                            /* =============
+                            * LOCK: download labels from GPU
+                            */
+                            hog::lock_fzlp(omlp_sem_od);
+                            hog::wait_forbidden_zone(omlp_sem_od);
+
                             labels->download(labels_host, stream);
                             cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
-                            unsigned char* vec = labels_host.ptr();
 
+                            hog::unlock_fzlp(omlp_sem_od);
+                            /*
+                            * UNLOCK: download labels from GPU
+                            * ============= */
+
+                            unsigned char* vec = labels_host.ptr();
                             for (int i = 0; i < wins_per_img.area(); i++)
                             {
                                 int y = i / wins_per_img.width;
@@ -7389,8 +7502,9 @@ namespace
         pthread_barrier_wait(init_barrier);
 
         struct rt_task param;
+        int omlp_sem_od = -1;
         if (t_info.realtime) {
-            set_up_litmus_task(t_info, param);
+            set_up_litmus_task(t_info, param, &omlp_sem_od);
         }
 
         if(!hog_errors)
@@ -7471,8 +7585,8 @@ namespace
                             {
                                 switch (gpu_img->type())
                                 {
-                                    case CV_8UC1: hog::resize_8UC1_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index); break;
-                                    case CV_8UC4: hog::resize_8UC4_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index); break;
+                                    case CV_8UC1: hog::resize_8UC1_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index, true, omlp_sem_od); break;
+                                    case CV_8UC4: hog::resize_8UC4_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index, true, omlp_sem_od); break;
                                 }
                             }
 
@@ -7519,7 +7633,8 @@ namespace
                                             angleScale,
                                             *grad, *qangle,
                                             gamma_correction_,
-                                            StreamAccessor::getStream(stream));
+                                            StreamAccessor::getStream(stream),
+                                            true, omlp_sem_od);
                                     break;
                                 case CV_8UC4:
                                     hog::compute_gradients_8UC4(nbins_,
@@ -7527,7 +7642,8 @@ namespace
                                             angleScale,
                                             *grad, *qangle,
                                             gamma_correction_,
-                                            StreamAccessor::getStream(stream));
+                                            StreamAccessor::getStream(stream),
+                                            true, omlp_sem_od);
                                     break;
                             }
                             /*
@@ -7573,7 +7689,8 @@ namespace
                                     block_hists->ptr<float>(),
                                     cell_size_.width, cell_size_.height,
                                     cells_per_block_.width, cells_per_block_.height,
-                                    StreamAccessor::getStream(stream));
+                                    StreamAccessor::getStream(stream),
+                                    true, omlp_sem_od);
 
                             grad->release();
                             qangle->release();
@@ -7614,7 +7731,8 @@ namespace
                                     (float)threshold_L2hys_,
                                     cell_size_.width, cell_size_.height,
                                     cells_per_block_.width, cells_per_block_.height,
-                                    StreamAccessor::getStream(stream));
+                                    StreamAccessor::getStream(stream),
+                                    true, omlp_sem_od);
                             /*
                             * end of nomalize histograms
                             * =========================== */
@@ -7664,7 +7782,8 @@ namespace
                                     (float)free_coef_,
                                     (float)hit_threshold_,
                                     cell_size_.width, cells_per_block_.width,
-                                    labels->ptr());
+                                    labels->ptr(),
+                                    omlp_sem_od);
                         }
                         else
                         {
@@ -7679,7 +7798,8 @@ namespace
                                     (float)free_coef_,
                                     (float)hit_threshold_,
                                     cell_size_.width, cells_per_block_.width,
-                                    labels->ptr<float>());
+                                    labels->ptr<float>(),
+                                    omlp_sem_od);
                         }
                         /*
                         * end of classify
@@ -7714,10 +7834,22 @@ namespace
                         if (level_confidences_ptr == NULL)
                         {
                             Mat labels_host;
+
+                            /* =============
+                            * LOCK: download labels from GPU
+                            */
+                            hog::lock_fzlp(omlp_sem_od);
+                            hog::wait_forbidden_zone(omlp_sem_od);
+
                             labels->download(labels_host, stream);
                             cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
-                            unsigned char* vec = labels_host.ptr();
 
+                            hog::unlock_fzlp(omlp_sem_od);
+                            /*
+                            * UNLOCK: download labels from GPU
+                            * ============= */
+
+                            unsigned char* vec = labels_host.ptr();
                             for (int i = 0; i < wins_per_img.area(); i++)
                             {
                                 int y = i / wins_per_img.width;
@@ -7806,7 +7938,7 @@ namespace
         pthread_exit(0);
     }
 
-    void set_up_litmus_task(const struct task_info &t_info, struct rt_task &param)
+    void set_up_litmus_task(const struct task_info &t_info, struct rt_task &param, int *sem_od)
     {
         // if (t_info.cluster != -1)
         //     CALL(be_migrate_to_domain(t_info.cluster));
@@ -7829,6 +7961,10 @@ namespace
         CALL( set_rt_task_param(gettid(), &param) );
         CALL( task_mode(LITMUS_RT_TASK) );
         CALL( wait_for_ts_release() );
+
+        fprintf(stdout, "Calling litmus_open_lock for OMLP_SEM.\n");
+        *sem_od = hog::open_fzlp_lock();
+        fprintf(stdout, "Got OMLP_SEM=%d.\n", *sem_od);
     }
 }
 

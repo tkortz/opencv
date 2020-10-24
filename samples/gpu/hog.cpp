@@ -1217,21 +1217,24 @@ void App::thread_color_convert(node_t *_node, pthread_barrier_t* init_barrier,
         //     CALL(be_migrate_to_domain(t_info.cluster));
         struct rt_task param;
         init_rt_task_param(&param);
-        param.exec_cost = ms2ns(30);//ms2ns(EXEC_COST);
-        param.period = ms2ns(t_info.period);
-        param.relative_deadline = ms2ns(t_info.relative_deadline);
+        param.exec_cost = ms2ns(99);//ms2ns(EXEC_COST);
+        param.period = ms2ns(100);//ms2ns(t_info.period);
+        param.relative_deadline = ms2ns(100);//ms2ns(t_info.relative_deadline);
         param.phase = ms2ns(t_info.phase);
         param.budget_policy = NO_ENFORCEMENT;
         param.cls = RT_CLASS_SOFT;
         param.priority = LITMUS_LOWEST_PRIORITY;
         // if (t_info.cluster != -1)
         //     param.cpu = domain_to_first_cpu(t_info.cluster);
-        param.cpu = 1;
+        param.cpu = 2;
         CALL( init_litmus() );
         CALL( set_rt_task_param(gettid(), &param) );
         CALL( task_mode(LITMUS_RT_TASK) );
         CALL( wait_for_ts_release() );
     }
+
+    fprintf(stdout, "Calling litmus_open_lock for OMLP_SEM.\n");
+    int omlp_sem_od = gpu_hog->open_lock();
 
     int count_frame = 0;
     while (count_frame < args.count / args.num_fine_graphs && running) {
@@ -1256,10 +1259,23 @@ void App::thread_color_convert(node_t *_node, pthread_barrier_t* init_barrier,
 
             // Perform HOG classification
             hogWorkBegin();
+
             cv::cuda::Stream stream;
             if (use_gpu) {
+                /* =============
+                * LOCK: upload image to GPU
+                */
+                gpu_hog->lock_fzlp(omlp_sem_od);
+                gpu_hog->wait_forbidden_zone(omlp_sem_od);
+
                 gpu_img->upload(*img, stream);
                 cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
+
+                gpu_hog->unlock_fzlp(omlp_sem_od);
+                /*
+                * UNLOCK: upload image to GPU
+                * ============= */
+
                 gpu_hog->setNumLevels(nlevels);
                 gpu_hog->setHitThreshold(hit_threshold);
                 gpu_hog->setScaleFactor(scale);
@@ -2792,7 +2808,7 @@ void App::thread_fine_CC_S_ABCDE(node_t* _node, pthread_barrier_t* init_barrier,
     }
 
     fprintf(stdout, "Calling litmus_open_lock for OMLP_SEM.\n");
-    gpu_hog->open_lock();
+    int omlp_sem_od = gpu_hog->open_lock();
 
     int count_frame = 0;
     while (count_frame < args.count / args.num_fine_graphs && running)
@@ -2823,23 +2839,33 @@ void App::thread_fine_CC_S_ABCDE(node_t* _node, pthread_barrier_t* init_barrier,
 
             // Prep HOG classification
             hogWorkBegin();
-            gpu_hog->lock_fzlp();
-            gpu_hog->wait_forbidden_zone();
+
+            /* =============
+             * LOCK: upload image to GPU
+             */
+            gpu_hog->lock_fzlp(omlp_sem_od);
+            gpu_hog->wait_forbidden_zone(omlp_sem_od);
 
             gpu_img->upload(*img, stream);
             cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
+
+            gpu_hog->unlock_fzlp(omlp_sem_od);
+            /*
+             * UNLOCK: upload image to GPU
+             * ============= */
+
             gpu_hog->setNumLevels(nlevels);
             gpu_hog->setHitThreshold(hit_threshold);
             gpu_hog->setScaleFactor(scale);
             gpu_hog->setGroupThreshold(gr_threshold);
 
-            gpu_hog->unlock_fzlp();
             /*
              * end of color convert
              * =========================== */
 
             gpu_hog->fine_CC_S_ABCDE(t_info, out_buf_ptrs, gpu_img, found,
-                                     img_to_show, j, stream, hog_work_begin);
+                                     img_to_show, j, stream, hog_work_begin,
+                                     omlp_sem_od);
 
             CheckError(pgm_complete(node));
 

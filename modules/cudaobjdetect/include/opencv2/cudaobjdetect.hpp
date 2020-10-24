@@ -59,8 +59,6 @@
 #include <litmus.h>
 /* LITMUS^RT */
 
-// #define USE_FZLP_LOCK
-
 enum scheduling_option
 {
     END_TO_END = 0,
@@ -299,7 +297,8 @@ public:
     /* color-convert and source-node combination */
     virtual void fine_CC_S_ABCDE(struct task_info &t_info, void** out_buf_ptrs,
                                  cuda::GpuMat* gpu_img, std::vector<Rect>* found,
-                                 Mat *img, int frame_idx, Stream stream, int64 hog_work_begin) = 0; // color-convert -> classify hists (maybe not all the way)
+                                 Mat *img, int frame_idx, Stream stream, int64 hog_work_begin,
+                                 int omlp_sem_od) = 0; // color-convert -> classify hists (maybe not all the way)
 
     /* source-node combinations */
     virtual void* thread_fine_S_A(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0;     // compute-levels +  resize
@@ -317,10 +316,10 @@ public:
 
     virtual void set_up_constants(Stream stream) = 0;
 
-    virtual void open_lock() = 0;
-    virtual void lock_fzlp() = 0;
-    virtual void wait_forbidden_zone() = 0;
-    virtual void unlock_fzlp() = 0;
+    virtual int open_lock() = 0;
+    virtual int lock_fzlp(int sem_od) = 0;
+    virtual int wait_forbidden_zone(int sem_od) = 0;
+    virtual int unlock_fzlp(int sem_od) = 0;
 };
 
 //
