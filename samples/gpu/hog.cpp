@@ -2486,7 +2486,7 @@ void App::sched_configurable_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
 
             // WCETs and response-time bounds for each node
             float bound_color_convert           = args.non_level_bounds[0];
-            float bound_compute_scales          = args.non_level_costs[1];
+            float bound_compute_scales          = args.non_level_bounds[1];
             vector<vector<float>> bound_levels  = args.level_bounds;
 
             float cost_color_convert           = args.non_level_costs[0];
@@ -2517,7 +2517,7 @@ void App::sched_configurable_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
             t_info.id = task_id++;
             if (!args.merge_color_convert)
             {
-                // If the color-convert node is not merged, spawn is thread and the
+                // If the color-convert node is not merged, spawn its thread and the
                 // compute-scale-levels thread separately
                 thread *t0 = new thread(&App::thread_color_convert, this,
                                         &color_convert_node, fine_init_barrier, gpu_hog, cpu_hog, frames, t_info, g_idx);
@@ -2570,11 +2570,13 @@ void App::sched_configurable_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
             float level_start_phase = 0.0f;
             if (!args.merge_color_convert)
             {
-                float level_start_phase = PERIOD * g_idx + bound_color_convert + bound_compute_scales;
+                level_start_phase = PERIOD * g_idx + bound_color_convert + bound_compute_scales;
+                printf("level start phase: %f\n", level_start_phase);
             }
             else
             {
-                float level_start_phase = PERIOD * g_idx + bound_compute_scales;
+                level_start_phase = PERIOD * g_idx + bound_compute_scales;
+                printf("Level start phase: %f\n", level_start_phase);
             }
             float max_level_end_phase = level_start_phase;
 
