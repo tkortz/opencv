@@ -7954,17 +7954,20 @@ namespace
             param.release_policy = TASK_PERIODIC;
         param.cls = RT_CLASS_SOFT;
         param.priority = LITMUS_LOWEST_PRIORITY;
-        param.cpu = 2;
+        param.cpu = 1;
         // if (t_info.cluster != -1)
         //     param.cpu = domain_to_first_cpu(t_info.cluster);
-        CALL( init_litmus() );
         CALL( set_rt_task_param(gettid(), &param) );
+        fprintf(stdout, "[%d | %d] Finished setting rt params.\n", gettid(), getpid());
+        CALL( init_litmus() );
+        fprintf(stdout, "[%d | %d] Called init_litmus.\n", gettid(), getpid());
         CALL( task_mode(LITMUS_RT_TASK) );
+        fprintf(stdout, "[%d | %d] Now a real-time task.\n", gettid(), getpid());
         CALL( wait_for_ts_release() );
 
-        fprintf(stdout, "Calling litmus_open_lock for OMLP_SEM.\n");
+        fprintf(stdout, "[%d | %d] Calling litmus_open_lock for OMLP_SEM.\n", gettid(), getpid());
         *sem_od = hog::open_fzlp_lock();
-        fprintf(stdout, "Got OMLP_SEM=%d.\n", *sem_od);
+        fprintf(stdout, "[%d | %d] Got OMLP_SEM=%d.\n", gettid(), getpid(), *sem_od);
     }
 }
 
