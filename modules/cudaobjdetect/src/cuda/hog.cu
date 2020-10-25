@@ -112,17 +112,50 @@ namespace cv { namespace cuda { namespace device
             return res;
         }
 
-        int wait_forbidden_zone(int sem_od)
+        int wait_forbidden_zone(int sem_od, node_config computation)
         {
-            // if (!use_locks) return;
+            if (!use_locks) return -3;
 
-            // if (omlp_sem_od >= 0)
-            // {
-            //     fprintf(stdout, "[%d] Checking FZ at time \t%llu\n", gettid(), litmus_clock());
-            //     litmus_access_forbidden_zone_check(omlp_sem_od, ms2ns(100));
-            //     fprintf(stdout, "[%d] Not in FZ at time \t%llu\n", gettid(), litmus_clock());
-            // }
-            return 0;
+            int res = -2;
+
+            int zone_length = 0;
+            switch (computation) {
+                case NODE_A: // resize
+                    zone_length = us2ns(360); // 5.4 us, measured at 179.8 us
+                    break;
+                case NODE_B: // compute gradients
+                    zone_length = us2ns(4896); // 16.2 us, measured at 2448.1 us
+                    break;
+                case NODE_C: // compute hists
+                    zone_length = us2ns(843); // 56.8 us, measured at 421.4 us
+                    break;
+                case NODE_D: // normalize hists
+                    zone_length = us2ns(811); // 15.1 us, measured at 405.5 us
+                    break;
+                case NODE_E: // classify hists
+                    zone_length = us2ns(666); // 50.5 us, measured at 333.2 us
+                    break;
+                case NODE_AB: // stand-in for copy-in of image
+                    zone_length = us2ns(10000);//4884); // 38.5 us, measured at 2442.0 us
+                    break;
+                case NODE_DE: // stand-in for copy-out of results
+                    zone_length = us2ns(10000);//4582); // 1.6 us, measured at 2290.9 us
+                    break;
+                default:
+                    zone_length = ms2ns(10); // default to 10 milliseconds
+                    break;
+            }
+
+            zone_length = ms2ns(100);
+
+            if (sem_od >= 0)
+            {
+                fprintf(stdout, "[%d | %d] Checking FZ at time \t%llu (computation %d)\n", gettid(), getpid(), litmus_clock(), computation);
+                res = litmus_access_forbidden_zone_check(sem_od, zone_length);
+                fprintf(stdout, "[%d | %d] Not in FZ at time \t%llu (status=%d)\n", gettid(), getpid(), litmus_clock(), res);
+            }
+
+            return res;
         }
 
         int unlock_fzlp(int sem_od)
@@ -349,7 +382,9 @@ namespace cv { namespace cuda { namespace device
              * LOCK: compute hists
              */
             lock_fzlp(omlp_sem_od);
-            wait_forbidden_zone(omlp_sem_od);
+            wait_forbidden_zone(omlp_sem_od, NODE_C);
+
+            lt_t fz_start = litmus_clock();
 
             if (nblocks == 4)
                 compute_hists_kernel_many_blocks<4><<<grid, threads, smem>>>(img_block_width, grad, qangle, scale, block_hists, cell_size_x, patch_size, block_patch_size, threads_cell, threads_block, half_cell_size);
@@ -362,12 +397,17 @@ namespace cv { namespace cuda { namespace device
 
             cudaSafeCall( cudaGetLastError() );
 
-            if (should_sync)
+            if (true || should_sync)
             {
                 cudaSafeCall(cudaStreamSynchronize(0));
             }
 
             unlock_fzlp(omlp_sem_od);
+
+            lt_t fz_len = litmus_clock() - fz_start;
+
+            fprintf(stdout, "[%d | %d] Computation %d took %llu microseconds.\n",
+                    gettid(), getpid(), NODE_C, fz_len / 1000);
             /*
             * UNLOCK: compute hists
             * ============= */
@@ -470,7 +510,9 @@ namespace cv { namespace cuda { namespace device
              * LOCK: normalize hists
              */
             lock_fzlp(omlp_sem_od);
-            wait_forbidden_zone(omlp_sem_od);
+            wait_forbidden_zone(omlp_sem_od, NODE_D);
+
+            lt_t fz_start = litmus_clock();
 
             if (nthreads == 32)
                 normalize_hists_kernel_many_blocks<32, nblocks><<<grid, threads>>>(block_hist_size, img_block_width, block_hists, threshold);
@@ -487,12 +529,17 @@ namespace cv { namespace cuda { namespace device
 
             cudaSafeCall( cudaGetLastError() );
 
-            if (should_sync)
+            if (true || should_sync)
             {
                 cudaSafeCall(cudaStreamSynchronize(0));
             }
 
             unlock_fzlp(omlp_sem_od);
+
+            lt_t fz_len = litmus_clock() - fz_start;
+
+            fprintf(stdout, "[%d | %d] Computation %d took %llu microseconds.\n",
+                    gettid(), getpid(), NODE_D, fz_len / 1000);
             /*
             * UNLOCK: normalize hists
             * ============= */
@@ -552,7 +599,9 @@ namespace cv { namespace cuda { namespace device
              * LOCK: classify hists
              */
             lock_fzlp(omlp_sem_od);
-            wait_forbidden_zone(omlp_sem_od);
+            wait_forbidden_zone(omlp_sem_od, NODE_E);
+
+            lt_t fz_start = litmus_clock();
 
             cudaSafeCall(cudaFuncSetCacheConfig(classify_hists_kernel_many_blocks<nthreads, nblocks>, cudaFuncCachePreferL1));
 
@@ -570,6 +619,11 @@ namespace cv { namespace cuda { namespace device
             cudaSafeCall(cudaStreamDestroy(stream));
 
             unlock_fzlp(omlp_sem_od);
+
+            lt_t fz_len = litmus_clock() - fz_start;
+
+            fprintf(stdout, "[%d | %d] Computation %d took %llu microseconds.\n",
+                    gettid(), getpid(), NODE_E, fz_len / 1000);
             /*
             * UNLOCK: classify hists
             * ============= */
@@ -634,7 +688,9 @@ namespace cv { namespace cuda { namespace device
             * LOCK: classify hists
             */
            lock_fzlp(omlp_sem_od);
-           wait_forbidden_zone(omlp_sem_od);
+           wait_forbidden_zone(omlp_sem_od, NODE_E);
+
+           lt_t fz_start = litmus_clock();
 
            cudaSafeCall(cudaFuncSetCacheConfig(compute_confidence_hists_kernel_many_blocks<nthreads, nblocks>,
                                                                                    cudaFuncCachePreferL1));
@@ -652,6 +708,11 @@ namespace cv { namespace cuda { namespace device
            //cudaSafeCall(cudaStreamDestroy(stream));
 
            unlock_fzlp(omlp_sem_od);
+
+           lt_t fz_len = litmus_clock() - fz_start;
+
+           fprintf(stdout, "[%d | %d] Computation %d took %llu microseconds.\n",
+                   gettid(), getpid(), NODE_E, fz_len / 1000);
            /*
            * UNLOCK: classify hists
            * ============= */
@@ -890,7 +951,9 @@ namespace cv { namespace cuda { namespace device
              * LOCK: compute gradients
              */
             lock_fzlp(omlp_sem_od);
-            wait_forbidden_zone(omlp_sem_od);
+            wait_forbidden_zone(omlp_sem_od, NODE_B);
+
+            lt_t fz_start = litmus_clock();
 
             if (correct_gamma)
                 compute_gradients_8UC4_kernel<nthreads, 1><<<gdim, bdim>>>(height, width, img, angle_scale, grad, qangle);
@@ -899,12 +962,17 @@ namespace cv { namespace cuda { namespace device
 
             cudaSafeCall( cudaGetLastError() );
 
-            if (should_sync)
+            if (true || should_sync)
             {
                 cudaSafeCall(cudaStreamSynchronize(0));
             }
 
             unlock_fzlp(omlp_sem_od);
+
+            lt_t fz_len = litmus_clock() - fz_start;
+
+            fprintf(stdout, "[%d | %d] Computation %d took %llu microseconds.\n",
+                    gettid(), getpid(), NODE_B, fz_len / 1000);
             /*
                 * UNLOCK: compute gradients
                 * ============= */
@@ -983,7 +1051,9 @@ namespace cv { namespace cuda { namespace device
              * LOCK: compute gradients
              */
             lock_fzlp(omlp_sem_od);
-            wait_forbidden_zone(omlp_sem_od);
+            wait_forbidden_zone(omlp_sem_od, NODE_B);
+
+            lt_t fz_start = litmus_clock();
 
             if (correct_gamma)
                 compute_gradients_8UC1_kernel<nthreads, 1><<<gdim, bdim>>>(height, width, img, angle_scale, grad, qangle);
@@ -992,12 +1062,17 @@ namespace cv { namespace cuda { namespace device
 
             cudaSafeCall( cudaGetLastError() );
 
-            if (should_sync)
+            if (true || should_sync)
             {
                 cudaSafeCall(cudaStreamSynchronize(0));
             }
 
             unlock_fzlp(omlp_sem_od);
+
+            lt_t fz_len = litmus_clock() - fz_start;
+
+            fprintf(stdout, "[%d | %d] Computation %d took %llu microseconds.\n",
+                    gettid(), getpid(), NODE_B, fz_len / 1000);
             /*
              * UNLOCK: compute gradients
              * ============= */
@@ -1121,7 +1196,9 @@ namespace cv { namespace cuda { namespace device
              * LOCK: resize
              */
             lock_fzlp(omlp_sem_od);
-            wait_forbidden_zone(omlp_sem_od);
+            wait_forbidden_zone(omlp_sem_od, NODE_A);
+
+            lt_t fz_start = litmus_clock();
 
             cudaChannelFormatDesc desc = cudaCreateChannelDesc<T>();
             cudaSafeCall( cudaBindTexture2D(&texOfs, tex, src.data, desc, src.cols, src.rows, src.step) );
@@ -1142,12 +1219,17 @@ namespace cv { namespace cuda { namespace device
             resize_for_hog_kernel<<<grid, threads>>>(sx, sy, (PtrStepSz<T>)dst, colOfs, tex_index);
             cudaSafeCall( cudaGetLastError() );
 
-            if (should_sync)
+            if (true || should_sync)
             {
                 cudaSafeCall(cudaStreamSynchronize(0));
             }
 
             unlock_fzlp(omlp_sem_od);
+
+            lt_t fz_len = litmus_clock() - fz_start;
+
+            fprintf(stdout, "[%d | %d] Computation %d took %llu microseconds.\n",
+                    gettid(), getpid(), NODE_A, fz_len / 1000);
             /*
              * UNLOCK: resize
              * ============= */
