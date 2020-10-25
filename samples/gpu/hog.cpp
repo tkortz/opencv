@@ -1217,9 +1217,9 @@ void App::thread_color_convert(node_t *_node, pthread_barrier_t* init_barrier,
         //     CALL(be_migrate_to_domain(t_info.cluster));
         struct rt_task param;
         init_rt_task_param(&param);
-        param.exec_cost = ms2ns(99);//ms2ns(EXEC_COST);
-        param.period = ms2ns(100);//ms2ns(t_info.period);
-        param.relative_deadline = ms2ns(100);//ms2ns(t_info.relative_deadline);
+        param.exec_cost = ms2ns(t_info.period) - 1;
+        param.period = ms2ns(t_info.period);
+        param.relative_deadline = ms2ns(t_info.relative_deadline);
         param.phase = ms2ns(t_info.phase);
         param.budget_policy = NO_ENFORCEMENT;
         param.cls = RT_CLASS_SOFT;
@@ -2804,9 +2804,9 @@ void App::thread_fine_CC_S_ABCDE(node_t* _node, pthread_barrier_t* init_barrier,
         //     CALL(be_migrate_to_domain(t_info.cluster));
         struct rt_task param;
         init_rt_task_param(&param);
-        param.exec_cost = ms2ns(99);//ms2ns(EXEC_COST);
-        param.period = ms2ns(100);//ms2ns(t_info.period);
-        param.relative_deadline = ms2ns(100);//ms2ns(t_info.relative_deadline);
+        param.exec_cost = ms2ns(t_info.period) - 1;
+        param.period = ms2ns(t_info.period);
+        param.relative_deadline = ms2ns(t_info.relative_deadline);
         param.phase = ms2ns(t_info.phase);
         param.budget_policy = NO_ENFORCEMENT;
         param.cls = RT_CLASS_SOFT;

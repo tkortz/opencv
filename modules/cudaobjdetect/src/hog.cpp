@@ -7992,9 +7992,9 @@ namespace
         // if (t_info.cluster != -1)
         //     CALL(be_migrate_to_domain(t_info.cluster));
         init_rt_task_param(&param);
-        param.exec_cost = ms2ns(99);//ms2ns(EXEC_COST);
-        param.period = ms2ns(100);//ms2ns(t_info.period);
-        param.relative_deadline = ms2ns(100);//ms2ns(t_info.relative_deadline);
+        param.exec_cost = ms2ns(t_info.period) - 1;
+        param.period = ms2ns(t_info.period);
+        param.relative_deadline = ms2ns(t_info.relative_deadline);
         param.phase = ms2ns(t_info.phase);
         param.budget_policy = NO_ENFORCEMENT;
         if (t_info.early)
