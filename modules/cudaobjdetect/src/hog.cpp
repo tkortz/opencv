@@ -499,6 +499,21 @@ namespace
         lt_t end_time;
     };
 
+    lt_t module_start_lock(int omlp_sem_od, node_config t)
+    {
+        hog::lock_fzlp(omlp_sem_od);
+        hog::wait_forbidden_zone(omlp_sem_od, t);
+        return litmus_clock();
+    }
+
+    void module_stop_lock(int omlp_sem_od, node_config t, lt_t fz_start)
+    {
+        lt_t fz_len = litmus_clock() - fz_start;
+        fprintf(stdout, "[%d | %d] Computation %d took %llu microseconds.\n", \
+                gettid(), getpid(), t, fz_len / 1000);
+        hog::unlock_fzlp(omlp_sem_od);
+    }
+
     void* HOG_Impl::thread_fine_compute_scales(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info)
     {
         fprintf(stdout, "node name: compute_scales, task id: %d, node tid: %d\n", t_info.id, gettid());
@@ -615,7 +630,9 @@ namespace
                         }
                         else
                         {
+                            lt_t smaller_img_alloc_start = module_start_lock(omlp_sem_od, NODE_ABC);
                             *smaller_img = pool.getBuffer(sz, gpu_img->type());
+                            module_stop_lock(omlp_sem_od, NODE_ABC, smaller_img_alloc_start);
                         }
                         out_buf->gpu_img = in_buf->gpu_img;
                         out_buf->found = in_buf->found;
@@ -882,12 +899,14 @@ namespace
                     /* ===========================
                      * compute gradients
                      */
+                    lt_t grad_qangle_alloc_start = module_start_lock(omlp_sem_od, NODE_CDE);
                     grad = new GpuMat();
                     qangle = new GpuMat();
 
                     float  angleScale = static_cast<float>(nbins_ / CV_PI);
                     *grad       = pool.getBuffer(smaller_img->size(), CV_32FC2);
                     *qangle     = pool.getBuffer(smaller_img->size(), CV_8UC2);
+                    module_stop_lock(omlp_sem_od, NODE_CDE, grad_qangle_alloc_start);
 
                     bool change_deadline = t_info.realtime && t_info.sched == FINE_GRAINED;
 
@@ -1025,12 +1044,14 @@ namespace
                     grad = in_buf->grad;
                     qangle = in_buf->qangle;
 
+                    lt_t block_hists_alloc_start = module_start_lock(omlp_sem_od, NODE_BCDE);
                     block_hists = new GpuMat();
 
                     /* ===========================
                      * compute histograms
                      */
                     *block_hists      = pool.getBuffer(1, getTotalHistSize(smaller_img->size()), CV_32FC1);
+                    module_stop_lock(omlp_sem_od, NODE_BCDE, block_hists_alloc_start);
 
                     bool change_deadline = t_info.realtime && t_info.sched == FINE_GRAINED;
 
@@ -1052,8 +1073,10 @@ namespace
                     //     cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
                     // }
 
+                    lt_t grad_qangle_release_start = module_start_lock(omlp_sem_od, NODE_ABCD);
                     grad->release();
                     qangle->release();
+                    module_stop_lock(omlp_sem_od, NODE_ABCD, grad_qangle_release_start);
                     /*
                      * end of compute histograms
                      * =========================== */
@@ -1293,7 +1316,9 @@ namespace
 
                     if (confidences == NULL)
                     {
+                        lt_t labels_alloc_start = module_start_lock(omlp_sem_od, NODE_BCD);
                         *labels = pool.getBuffer(1, wins_per_img.area(), CV_8UC1);
+                        module_stop_lock(omlp_sem_od, NODE_BCD, labels_alloc_start);
 
                         // if (t_info.realtime && t_info.sched == FINE_GRAINED) {
                         //     CALL(set_current_deadline(curr_deadline + param.period));
@@ -1313,7 +1338,9 @@ namespace
                     }
                     else
                     {
+                        lt_t labels_alloc_start = module_start_lock(omlp_sem_od, NODE_BCD);
                         *labels = pool.getBuffer(1, wins_per_img.area(), CV_32FC1);
+                        module_stop_lock(omlp_sem_od, NODE_BCD, labels_alloc_start);
 
                         // if (t_info.realtime && t_info.sched == FINE_GRAINED) {
                         //     CALL(set_current_deadline(curr_deadline + param.period));
@@ -1335,7 +1362,9 @@ namespace
                      * end of classify
                      * =========================== */
 
+                    lt_t block_hists_release_start = module_start_lock(omlp_sem_od, NODE_ABCDE);
                     block_hists->release();
+                    module_stop_lock(omlp_sem_od, NODE_ABCDE, block_hists_release_start);
 
                     out_buf->gpu_img = in_buf->gpu_img;
                     out_buf->found = in_buf->found;
@@ -1552,8 +1581,10 @@ namespace
                             if (confidences)
                                 confidences->push_back(level_confidences[j]);
                         }
+                        lt_t smaller_img_release_start = module_start_lock(omlp_sem_od, NODE_NONE);
                         smaller_img->release();
                         labels->release();
+                        module_stop_lock(omlp_sem_od, NODE_NONE, smaller_img_release_start);
                     }
 
                     if (group_threshold_ > 0)
@@ -1564,7 +1595,9 @@ namespace
                     if (in_buf->level_scale != NULL) delete in_buf->level_scale;
                     if (in_buf->confidences != NULL) delete in_buf->confidences;
 
+                    lt_t gpu_img_release_start = module_start_lock(omlp_sem_od, NODE_CD);
                     in_buf->gpu_img->release();
+                    module_stop_lock(omlp_sem_od, NODE_CD, gpu_img_release_start);
                     /*
                      * end of collect locations
                      * =========================== */
@@ -1683,12 +1716,14 @@ namespace
                     /* ===========================
                      * compute gradients
                      */
+                    lt_t grad_qangle_alloc_start = module_start_lock(omlp_sem_od, NODE_CDE);
                     grad = new GpuMat();
                     qangle = new GpuMat();
 
                     angleScale = static_cast<float>(nbins_ / CV_PI);
                     *grad       = pool.getBuffer(smaller_img->size(), CV_32FC2);
                     *qangle     = pool.getBuffer(smaller_img->size(), CV_8UC2);
+                    module_stop_lock(omlp_sem_od, NODE_CDE, grad_qangle_alloc_start);
 
                     switch (smaller_img->type())
                     {
@@ -1713,11 +1748,14 @@ namespace
                      * end of compute gradients
                      * =========================== */
 
+                    lt_t block_hists_alloc_start = module_start_lock(omlp_sem_od, NODE_BCDE);
                     block_hists = new GpuMat();
+
                     /* ===========================
                      * compute histograms
                      */
                     *block_hists      = pool.getBuffer(1, getTotalHistSize(smaller_img->size()), CV_32FC1);
+                    module_stop_lock(omlp_sem_od, NODE_BCDE, block_hists_alloc_start);
 
                     hog::compute_hists(nbins_,
                             block_stride_.width, block_stride_.height,
@@ -1729,8 +1767,10 @@ namespace
                             cells_per_block_.width, cells_per_block_.height,
                             StreamAccessor::getStream(stream));
 
+                    lt_t grad_qangle_release_start = module_start_lock(omlp_sem_od, NODE_ABCD);
                     grad->release();
                     qangle->release();
+                    module_stop_lock(omlp_sem_od, NODE_ABCD, grad_qangle_release_start);
                     /*
                      * end of compute histograms
                      * =========================== */
@@ -2245,12 +2285,14 @@ namespace
                     /* ===========================
                      * compute gradients
                      */
+                    lt_t grad_qangle_alloc_start = module_start_lock(omlp_sem_od, NODE_CDE);
                     grad = new GpuMat();
                     qangle = new GpuMat();
 
                     float  angleScale = static_cast<float>(nbins_ / CV_PI);
                     *grad       = pool.getBuffer(smaller_img->size(), CV_32FC2);
                     *qangle     = pool.getBuffer(smaller_img->size(), CV_8UC2);
+                    module_stop_lock(omlp_sem_od, NODE_CDE, grad_qangle_alloc_start);
 
                     switch (smaller_img->type())
                     {
@@ -2376,13 +2418,14 @@ namespace
                     /* ===========================
                      * compute gradients
                      */
-
+                    lt_t grad_qangle_alloc_start = module_start_lock(omlp_sem_od, NODE_CDE);
                     grad = new GpuMat();
                     qangle = new GpuMat();
 
                     float  angleScale = static_cast<float>(nbins_ / CV_PI);
                     *grad       = pool.getBuffer(smaller_img->size(), CV_32FC2);
                     *qangle     = pool.getBuffer(smaller_img->size(), CV_8UC2);
+                    module_stop_lock(omlp_sem_od, NODE_CDE, grad_qangle_alloc_start);
 
                     switch (smaller_img->type())
                     {
@@ -2409,12 +2452,14 @@ namespace
                      * end of compute gradients
                      * =========================== */
 
+                    lt_t block_hists_alloc_start = module_start_lock(omlp_sem_od, NODE_BCDE);
                     block_hists = new GpuMat();
 
                     /* ===========================
                      * compute histograms
                      */
                     *block_hists      = pool.getBuffer(1, getTotalHistSize(smaller_img->size()), CV_32FC1);
+                    module_stop_lock(omlp_sem_od, NODE_BCDE, block_hists_alloc_start);
 
                     hog::compute_hists(nbins_,
                             block_stride_.width, block_stride_.height,
@@ -2427,8 +2472,10 @@ namespace
                             StreamAccessor::getStream(stream),
                             true, omlp_sem_od);
 
+                    lt_t grad_qangle_release_start = module_start_lock(omlp_sem_od, NODE_ABCD);
                     grad->release();
                     qangle->release();
+                    module_stop_lock(omlp_sem_od, NODE_ABCD, grad_qangle_release_start);
                     /*
                      * end of compute histograms
                      * =========================== */
@@ -2533,12 +2580,14 @@ namespace
                     grad = in_buf->grad;
                     qangle = in_buf->qangle;
 
+                    lt_t block_hists_alloc_start = module_start_lock(omlp_sem_od, NODE_BCDE);
                     block_hists = new GpuMat();
 
                     /* ===========================
                      * compute histograms
                      */
                     *block_hists      = pool.getBuffer(1, getTotalHistSize(smaller_img->size()), CV_32FC1);
+                    module_stop_lock(omlp_sem_od, NODE_BCDE, block_hists_alloc_start);
 
                     hog::compute_hists(nbins_,
                             block_stride_.width, block_stride_.height,
@@ -2551,8 +2600,10 @@ namespace
                             StreamAccessor::getStream(stream),
                             true, omlp_sem_od);
 
+                    lt_t grad_qangle_release_start = module_start_lock(omlp_sem_od, NODE_ABCD);
                     grad->release();
                     qangle->release();
+                    module_stop_lock(omlp_sem_od, NODE_ABCD, grad_qangle_release_start);
                     /*
                      * end of compute histograms
                      * =========================== */
@@ -2698,7 +2749,9 @@ namespace
 
                     if (confidences == NULL)
                     {
+                        lt_t labels_alloc_start = module_start_lock(omlp_sem_od, NODE_BCD);
                         *labels = pool.getBuffer(1, wins_per_img.area(), CV_8UC1);
+                        module_stop_lock(omlp_sem_od, NODE_BCD, labels_alloc_start);
 
                         hog::classify_hists(win_size_.height, win_size_.width,
                                 block_stride_.height, block_stride_.width,
@@ -2714,7 +2767,9 @@ namespace
                     }
                     else
                     {
+                        lt_t labels_alloc_start = module_start_lock(omlp_sem_od, NODE_BCD);
                         *labels = pool.getBuffer(1, wins_per_img.area(), CV_32FC1);
+                        module_stop_lock(omlp_sem_od, NODE_BCD, labels_alloc_start);
 
                         hog::compute_confidence_hists(win_size_.height, win_size_.width,
                                 block_stride_.height, block_stride_.width,
@@ -2732,7 +2787,9 @@ namespace
                      * end of classify
                      * =========================== */
 
+                    lt_t block_hists_release_start = module_start_lock(omlp_sem_od, NODE_ABCDE);
                     block_hists->release();
+                    module_stop_lock(omlp_sem_od, NODE_ABCDE, block_hists_release_start);
 
                     out_buf->gpu_img = in_buf->gpu_img;
                     out_buf->found = in_buf->found;
@@ -2854,12 +2911,14 @@ namespace
                     /* ===========================
                      * compute gradients
                      */
+                    lt_t grad_qangle_alloc_start = module_start_lock(omlp_sem_od, NODE_CDE);
                     grad = new GpuMat();
                     qangle = new GpuMat();
 
                     float  angleScale = static_cast<float>(nbins_ / CV_PI);
                     *grad       = pool.getBuffer(smaller_img->size(), CV_32FC2);
                     *qangle     = pool.getBuffer(smaller_img->size(), CV_8UC2);
+                    module_stop_lock(omlp_sem_od, NODE_CDE, grad_qangle_alloc_start);
 
                     switch (smaller_img->type())
                     {
@@ -2886,12 +2945,14 @@ namespace
                      * end of compute gradients
                      * =========================== */
 
+                    lt_t block_hists_alloc_start = module_start_lock(omlp_sem_od, NODE_BCDE);
                     block_hists = new GpuMat();
 
                     /* ===========================
                      * compute histograms
                      */
                     *block_hists      = pool.getBuffer(1, getTotalHistSize(smaller_img->size()), CV_32FC1);
+                    module_stop_lock(omlp_sem_od, NODE_BCDE, block_hists_alloc_start);
 
                     hog::compute_hists(nbins_,
                             block_stride_.width, block_stride_.height,
@@ -2904,8 +2965,10 @@ namespace
                             StreamAccessor::getStream(stream),
                             true, omlp_sem_od);
 
+                    lt_t grad_qangle_release_start = module_start_lock(omlp_sem_od, NODE_ABCD);
                     grad->release();
                     qangle->release();
+                    module_stop_lock(omlp_sem_od, NODE_ABCD, grad_qangle_release_start);
                     /*
                      * end of compute histograms
                      * =========================== */
@@ -3011,12 +3074,14 @@ namespace
                     /* ===========================
                      * compute gradients
                      */
+                    lt_t grad_qangle_alloc_start = module_start_lock(omlp_sem_od, NODE_CDE);
                     grad = new GpuMat();
                     qangle = new GpuMat();
 
                     float  angleScale = static_cast<float>(nbins_ / CV_PI);
                     *grad       = pool.getBuffer(smaller_img->size(), CV_32FC2);
                     *qangle     = pool.getBuffer(smaller_img->size(), CV_8UC2);
+                    module_stop_lock(omlp_sem_od, NODE_CDE, grad_qangle_alloc_start);
 
                     switch (smaller_img->type())
                     {
@@ -3043,12 +3108,14 @@ namespace
                      * end of compute gradients
                      * =========================== */
 
+                    lt_t block_hists_alloc_start = module_start_lock(omlp_sem_od, NODE_BCDE);
                     block_hists = new GpuMat();
 
                     /* ===========================
                      * compute histograms
                      */
                     *block_hists      = pool.getBuffer(1, getTotalHistSize(smaller_img->size()), CV_32FC1);
+                    module_stop_lock(omlp_sem_od, NODE_BCDE, block_hists_alloc_start);
 
                     hog::compute_hists(nbins_,
                             block_stride_.width, block_stride_.height,
@@ -3061,8 +3128,10 @@ namespace
                             StreamAccessor::getStream(stream),
                             true, omlp_sem_od);
 
+                    lt_t grad_qangle_release_start = module_start_lock(omlp_sem_od, NODE_ABCD);
                     grad->release();
                     qangle->release();
+                    module_stop_lock(omlp_sem_od, NODE_ABCD, grad_qangle_release_start);
                     /*
                      * end of compute histograms
                      * =========================== */
@@ -3187,12 +3256,14 @@ namespace
                     grad = in_buf->grad;
                     qangle = in_buf->qangle;
 
+                    lt_t block_hists_alloc_start = module_start_lock(omlp_sem_od, NODE_BCDE);
                     block_hists = new GpuMat();
 
                     /* ===========================
                      * compute histograms
                      */
                     *block_hists      = pool.getBuffer(1, getTotalHistSize(smaller_img->size()), CV_32FC1);
+                    module_stop_lock(omlp_sem_od, NODE_BCDE, block_hists_alloc_start);
 
                     hog::compute_hists(nbins_,
                             block_stride_.width, block_stride_.height,
@@ -3205,8 +3276,10 @@ namespace
                             StreamAccessor::getStream(stream),
                             true, omlp_sem_od);
 
+                    lt_t grad_qangle_release_start = module_start_lock(omlp_sem_od, NODE_ABCD);
                     grad->release();
                     qangle->release();
+                    module_stop_lock(omlp_sem_od, NODE_ABCD, grad_qangle_release_start);
                     /*
                      * end of compute histograms
                      * =========================== */
@@ -3237,7 +3310,9 @@ namespace
 
                     if (confidences == NULL)
                     {
+                        lt_t labels_alloc_start = module_start_lock(omlp_sem_od, NODE_BCD);
                         *labels = pool.getBuffer(1, wins_per_img.area(), CV_8UC1);
+                        module_stop_lock(omlp_sem_od, NODE_BCD, labels_alloc_start);
 
                         hog::classify_hists(win_size_.height, win_size_.width,
                                 block_stride_.height, block_stride_.width,
@@ -3253,7 +3328,9 @@ namespace
                     }
                     else
                     {
+                        lt_t labels_alloc_start = module_start_lock(omlp_sem_od, NODE_BCD);
                         *labels = pool.getBuffer(1, wins_per_img.area(), CV_32FC1);
+                        module_stop_lock(omlp_sem_od, NODE_BCD, labels_alloc_start);
 
                         hog::compute_confidence_hists(win_size_.height, win_size_.width,
                                 block_stride_.height, block_stride_.width,
@@ -3271,7 +3348,9 @@ namespace
                      * end of classify
                      * =========================== */
 
+                    lt_t block_hists_release_start = module_start_lock(omlp_sem_od, NODE_ABCDE);
                     block_hists->release();
+                    module_stop_lock(omlp_sem_od, NODE_ABCDE, block_hists_release_start);
 
                     out_buf->gpu_img = in_buf->gpu_img;
                     out_buf->found = in_buf->found;
@@ -3394,12 +3473,14 @@ namespace
                     /* ===========================
                      * compute gradients
                      */
+                    lt_t grad_qangle_alloc_start = module_start_lock(omlp_sem_od, NODE_CDE);
                     grad = new GpuMat();
                     qangle = new GpuMat();
 
                     float  angleScale = static_cast<float>(nbins_ / CV_PI);
                     *grad       = pool.getBuffer(smaller_img->size(), CV_32FC2);
                     *qangle     = pool.getBuffer(smaller_img->size(), CV_8UC2);
+                    module_stop_lock(omlp_sem_od, NODE_CDE, grad_qangle_alloc_start);
 
                     switch (smaller_img->type())
                     {
@@ -3426,12 +3507,14 @@ namespace
                      * end of compute gradients
                      * =========================== */
 
+                    lt_t block_hists_alloc_start = module_start_lock(omlp_sem_od, NODE_BCDE);
                     block_hists = new GpuMat();
 
                     /* ===========================
                      * compute histograms
                      */
                     *block_hists      = pool.getBuffer(1, getTotalHistSize(smaller_img->size()), CV_32FC1);
+                    module_stop_lock(omlp_sem_od, NODE_BCDE, block_hists_alloc_start);
 
                     hog::compute_hists(nbins_,
                             block_stride_.width, block_stride_.height,
@@ -3444,8 +3527,10 @@ namespace
                             StreamAccessor::getStream(stream),
                             true, omlp_sem_od);
 
+                    lt_t grad_qangle_release_start = module_start_lock(omlp_sem_od, NODE_ABCD);
                     grad->release();
                     qangle->release();
+                    module_stop_lock(omlp_sem_od, NODE_ABCD, grad_qangle_release_start);
                     /*
                      * end of compute histograms
                      * =========================== */
@@ -3571,12 +3656,14 @@ namespace
                     /* ===========================
                      * compute gradients
                      */
+                    lt_t grad_qangle_alloc_start = module_start_lock(omlp_sem_od, NODE_CDE);
                     grad = new GpuMat();
                     qangle = new GpuMat();
 
                     float  angleScale = static_cast<float>(nbins_ / CV_PI);
                     *grad       = pool.getBuffer(smaller_img->size(), CV_32FC2);
                     *qangle     = pool.getBuffer(smaller_img->size(), CV_8UC2);
+                    module_stop_lock(omlp_sem_od, NODE_CDE, grad_qangle_alloc_start);
 
                     switch (smaller_img->type())
                     {
@@ -3603,12 +3690,14 @@ namespace
                      * end of compute gradients
                      * =========================== */
 
+                    lt_t block_hists_alloc_start = module_start_lock(omlp_sem_od, NODE_BCDE);
                     block_hists = new GpuMat();
 
                     /* ===========================
                      * compute histograms
                      */
                     *block_hists      = pool.getBuffer(1, getTotalHistSize(smaller_img->size()), CV_32FC1);
+                    module_stop_lock(omlp_sem_od, NODE_BCDE, block_hists_alloc_start);
 
                     hog::compute_hists(nbins_,
                             block_stride_.width, block_stride_.height,
@@ -3621,8 +3710,10 @@ namespace
                             StreamAccessor::getStream(stream),
                             true, omlp_sem_od);
 
+                    lt_t grad_qangle_release_start = module_start_lock(omlp_sem_od, NODE_ABCD);
                     grad->release();
                     qangle->release();
+                    module_stop_lock(omlp_sem_od, NODE_ABCD, grad_qangle_release_start);
                     /*
                      * end of compute histograms
                      * =========================== */
@@ -3653,7 +3744,9 @@ namespace
 
                     if (confidences == NULL)
                     {
+                        lt_t labels_alloc_start = module_start_lock(omlp_sem_od, NODE_BCD);
                         *labels = pool.getBuffer(1, wins_per_img.area(), CV_8UC1);
+                        module_stop_lock(omlp_sem_od, NODE_BCD, labels_alloc_start);
 
                         hog::classify_hists(win_size_.height, win_size_.width,
                                 block_stride_.height, block_stride_.width,
@@ -3669,7 +3762,9 @@ namespace
                     }
                     else
                     {
+                        lt_t labels_alloc_start = module_start_lock(omlp_sem_od, NODE_BCD);
                         *labels = pool.getBuffer(1, wins_per_img.area(), CV_32FC1);
+                        module_stop_lock(omlp_sem_od, NODE_BCD, labels_alloc_start);
 
                         hog::compute_confidence_hists(win_size_.height, win_size_.width,
                                 block_stride_.height, block_stride_.width,
@@ -3687,7 +3782,9 @@ namespace
                      * end of classify
                      * =========================== */
 
+                    lt_t block_hists_release_start = module_start_lock(omlp_sem_od, NODE_ABCDE);
                     block_hists->release();
+                    module_stop_lock(omlp_sem_od, NODE_ABCDE, block_hists_release_start);
 
                     out_buf->gpu_img = in_buf->gpu_img;
                     out_buf->found = in_buf->found;
@@ -3814,12 +3911,14 @@ namespace
                     /* ===========================
                      * compute gradients
                      */
+                    lt_t grad_qangle_alloc_start = module_start_lock(omlp_sem_od, NODE_CDE);
                     grad = new GpuMat();
                     qangle = new GpuMat();
 
                     float  angleScale = static_cast<float>(nbins_ / CV_PI);
                     *grad       = pool.getBuffer(smaller_img->size(), CV_32FC2);
                     *qangle     = pool.getBuffer(smaller_img->size(), CV_8UC2);
+                    module_stop_lock(omlp_sem_od, NODE_CDE, grad_qangle_alloc_start);
 
                     switch (smaller_img->type())
                     {
@@ -3846,12 +3945,14 @@ namespace
                      * end of compute gradients
                      * =========================== */
 
+                    lt_t block_hists_alloc_start = module_start_lock(omlp_sem_od, NODE_BCDE);
                     block_hists = new GpuMat();
 
                     /* ===========================
                      * compute histograms
                      */
                     *block_hists      = pool.getBuffer(1, getTotalHistSize(smaller_img->size()), CV_32FC1);
+                    module_stop_lock(omlp_sem_od, NODE_BCDE, block_hists_alloc_start);
 
                     hog::compute_hists(nbins_,
                             block_stride_.width, block_stride_.height,
@@ -3864,8 +3965,10 @@ namespace
                             StreamAccessor::getStream(stream),
                             true, omlp_sem_od);
 
+                    lt_t grad_qangle_release_start = module_start_lock(omlp_sem_od, NODE_ABCD);
                     grad->release();
                     qangle->release();
+                    module_stop_lock(omlp_sem_od, NODE_ABCD, grad_qangle_release_start);
                     /*
                      * end of compute histograms
                      * =========================== */
@@ -3896,7 +3999,9 @@ namespace
 
                     if (confidences == NULL)
                     {
+                        lt_t labels_alloc_start = module_start_lock(omlp_sem_od, NODE_BCD);
                         *labels = pool.getBuffer(1, wins_per_img.area(), CV_8UC1);
+                        module_stop_lock(omlp_sem_od, NODE_BCD, labels_alloc_start);
 
                         hog::classify_hists(win_size_.height, win_size_.width,
                                 block_stride_.height, block_stride_.width,
@@ -3912,7 +4017,9 @@ namespace
                     }
                     else
                     {
+                        lt_t labels_alloc_start = module_start_lock(omlp_sem_od, NODE_BCD);
                         *labels = pool.getBuffer(1, wins_per_img.area(), CV_32FC1);
+                        module_stop_lock(omlp_sem_od, NODE_BCD, labels_alloc_start);
 
                         hog::compute_confidence_hists(win_size_.height, win_size_.width,
                                 block_stride_.height, block_stride_.width,
@@ -3930,7 +4037,9 @@ namespace
                      * end of classify
                      * =========================== */
 
+                    lt_t block_hists_release_start = module_start_lock(omlp_sem_od, NODE_ABCDE);
                     block_hists->release();
+                    module_stop_lock(omlp_sem_od, NODE_ABCDE, block_hists_release_start);
 
                     out_buf->gpu_img = in_buf->gpu_img;
                     out_buf->found = in_buf->found;
@@ -4088,7 +4197,9 @@ namespace
                         }
                         else
                         {
+                            lt_t smaller_img_alloc_start = module_start_lock(omlp_sem_od, NODE_ABC);
                             *smaller_img = pool.getBuffer(sz, gpu_img->type());
+                            module_stop_lock(omlp_sem_od, NODE_ABC, smaller_img_alloc_start);
                         }
 
                         bool do_resize = false;
@@ -4307,7 +4418,9 @@ namespace
                         }
                         else
                         {
+                            lt_t smaller_img_alloc_start = module_start_lock(omlp_sem_od, NODE_ABC);
                             *smaller_img = pool.getBuffer(sz, gpu_img->type());
+                            module_stop_lock(omlp_sem_od, NODE_ABC, smaller_img_alloc_start);
                         }
 
                         bool do_resize = false;
@@ -4396,12 +4509,14 @@ namespace
                             /* ===========================
                             * compute gradients
                             */
+                            lt_t grad_qangle_alloc_start = module_start_lock(omlp_sem_od, NODE_CDE);
                             grad = new GpuMat();
                             qangle = new GpuMat();
 
                             float  angleScale = static_cast<float>(nbins_ / CV_PI);
                             *grad       = pool.getBuffer(smaller_img->size(), CV_32FC2);
                             *qangle     = pool.getBuffer(smaller_img->size(), CV_8UC2);
+                            module_stop_lock(omlp_sem_od, NODE_CDE, grad_qangle_alloc_start);
 
                             switch (smaller_img->type())
                             {
@@ -4593,7 +4708,9 @@ namespace
                         }
                         else
                         {
+                            lt_t smaller_img_alloc_start = module_start_lock(omlp_sem_od, NODE_ABC);
                             *smaller_img = pool.getBuffer(sz, gpu_img->type());
+                            module_stop_lock(omlp_sem_od, NODE_ABC, smaller_img_alloc_start);
                         }
 
                         bool do_resize = false;
@@ -4689,12 +4806,14 @@ namespace
                             /* ===========================
                             * compute gradients
                             */
+                            lt_t grad_qangle_alloc_start = module_start_lock(omlp_sem_od, NODE_CDE);
                             grad = new GpuMat();
                             qangle = new GpuMat();
 
                             float  angleScale = static_cast<float>(nbins_ / CV_PI);
                             *grad       = pool.getBuffer(smaller_img->size(), CV_32FC2);
                             *qangle     = pool.getBuffer(smaller_img->size(), CV_8UC2);
+                            module_stop_lock(omlp_sem_od, NODE_CDE, grad_qangle_alloc_start);
 
                             switch (smaller_img->type())
                             {
@@ -4748,12 +4867,14 @@ namespace
                             fprintf(stdout, "[S] Computing histograms for level %d.\n", level_idx);
 #endif
 
+                            lt_t block_hists_alloc_start = module_start_lock(omlp_sem_od, NODE_BCDE);
                             block_hists = new GpuMat();
 
                             /* ===========================
                             * compute histograms
                             */
                             *block_hists = pool.getBuffer(1, getTotalHistSize(smaller_img->size()), CV_32FC1);
+                            module_stop_lock(omlp_sem_od, NODE_BCDE, block_hists_alloc_start);
 
                             hog::compute_hists(nbins_,
                                     block_stride_.width, block_stride_.height,
@@ -4766,8 +4887,10 @@ namespace
                                     StreamAccessor::getStream(stream),
                                     true, omlp_sem_od);
 
+                            lt_t grad_qangle_release_start = module_start_lock(omlp_sem_od, NODE_ABCD);
                             grad->release();
                             qangle->release();
+                            module_stop_lock(omlp_sem_od, NODE_ABCD, grad_qangle_release_start);
                             /*
                             * end of compute histograms
                             * =========================== */
@@ -4936,7 +5059,9 @@ namespace
                         }
                         else
                         {
+                            lt_t smaller_img_alloc_start = module_start_lock(omlp_sem_od, NODE_ABC);
                             *smaller_img = pool.getBuffer(sz, gpu_img->type());
+                            module_stop_lock(omlp_sem_od, NODE_ABC, smaller_img_alloc_start);
                         }
 
                         bool do_resize = false;
@@ -5039,12 +5164,14 @@ namespace
                             /* ===========================
                             * compute gradients
                             */
+                            lt_t grad_qangle_alloc_start = module_start_lock(omlp_sem_od, NODE_CDE);
                             grad = new GpuMat();
                             qangle = new GpuMat();
 
                             float  angleScale = static_cast<float>(nbins_ / CV_PI);
                             *grad       = pool.getBuffer(smaller_img->size(), CV_32FC2);
                             *qangle     = pool.getBuffer(smaller_img->size(), CV_8UC2);
+                            module_stop_lock(omlp_sem_od, NODE_CDE, grad_qangle_alloc_start);
 
                             switch (smaller_img->type())
                             {
@@ -5098,12 +5225,14 @@ namespace
                             fprintf(stdout, "[S] Computing histograms for level %d.\n", level_idx);
 #endif
 
+                            lt_t block_hists_alloc_start = module_start_lock(omlp_sem_od, NODE_BCDE);
                             block_hists = new GpuMat();
 
                             /* ===========================
                             * compute histograms
                             */
                             *block_hists = pool.getBuffer(1, getTotalHistSize(smaller_img->size()), CV_32FC1);
+                            module_stop_lock(omlp_sem_od, NODE_BCDE, block_hists_alloc_start);
 
                             hog::compute_hists(nbins_,
                                     block_stride_.width, block_stride_.height,
@@ -5116,8 +5245,10 @@ namespace
                                     StreamAccessor::getStream(stream),
                                     true, omlp_sem_od);
 
+                            lt_t grad_qangle_release_start = module_start_lock(omlp_sem_od, NODE_ABCD);
                             grad->release();
                             qangle->release();
+                            module_stop_lock(omlp_sem_od, NODE_ABCD, grad_qangle_release_start);
                             /*
                             * end of compute histograms
                             * =========================== */
@@ -5326,7 +5457,9 @@ namespace
                         }
                         else
                         {
+                            lt_t smaller_img_alloc_start = module_start_lock(omlp_sem_od, NODE_ABC);
                             *smaller_img = pool.getBuffer(sz, gpu_img->type());
+                            module_stop_lock(omlp_sem_od, NODE_ABC, smaller_img_alloc_start);
                         }
 
                         bool do_resize = false;
@@ -5437,12 +5570,14 @@ namespace
                             /* ===========================
                             * compute gradients
                             */
+                            lt_t grad_qangle_alloc_start = module_start_lock(omlp_sem_od, NODE_CDE);
                             grad = new GpuMat();
                             qangle = new GpuMat();
 
                             float  angleScale = static_cast<float>(nbins_ / CV_PI);
                             *grad       = pool.getBuffer(smaller_img->size(), CV_32FC2);
                             *qangle     = pool.getBuffer(smaller_img->size(), CV_8UC2);
+                            module_stop_lock(omlp_sem_od, NODE_CDE, grad_qangle_alloc_start);
 
                             switch (smaller_img->type())
                             {
@@ -5496,12 +5631,14 @@ namespace
                             fprintf(stdout, "[S] Computing histograms for level %d.\n", level_idx);
 #endif
 
+                            lt_t block_hists_alloc_start = module_start_lock(omlp_sem_od, NODE_BCDE);
                             block_hists = new GpuMat();
 
                             /* ===========================
                             * compute histograms
                             */
                             *block_hists = pool.getBuffer(1, getTotalHistSize(smaller_img->size()), CV_32FC1);
+                            module_stop_lock(omlp_sem_od, NODE_BCDE, block_hists_alloc_start);
 
                             hog::compute_hists(nbins_,
                                     block_stride_.width, block_stride_.height,
@@ -5514,8 +5651,10 @@ namespace
                                     StreamAccessor::getStream(stream),
                                     true, omlp_sem_od);
 
+                            lt_t grad_qangle_release_start = module_start_lock(omlp_sem_od, NODE_ABCD);
                             grad->release();
                             qangle->release();
+                            module_stop_lock(omlp_sem_od, NODE_ABCD, grad_qangle_release_start);
                             /*
                             * end of compute histograms
                             * =========================== */
@@ -5591,7 +5730,9 @@ namespace
 
                             if (confidences == NULL)
                             {
+                                lt_t labels_alloc_start = module_start_lock(omlp_sem_od, NODE_BCD);
                                 *labels = pool.getBuffer(1, wins_per_img.area(), CV_8UC1);
+                                module_stop_lock(omlp_sem_od, NODE_BCD, labels_alloc_start);
 
                                 hog::classify_hists(win_size_.height, win_size_.width,
                                         block_stride_.height, block_stride_.width,
@@ -5607,7 +5748,9 @@ namespace
                             }
                             else
                             {
+                                lt_t labels_alloc_start = module_start_lock(omlp_sem_od, NODE_BCD);
                                 *labels = pool.getBuffer(1, wins_per_img.area(), CV_32FC1);
+                                module_stop_lock(omlp_sem_od, NODE_BCD, labels_alloc_start);
 
                                 hog::compute_confidence_hists(win_size_.height, win_size_.width,
                                         block_stride_.height, block_stride_.width,
@@ -5625,7 +5768,9 @@ namespace
                             * end of classify
                             * =========================== */
 
+                            lt_t block_hists_release_start = module_start_lock(omlp_sem_od, NODE_ABCDE);
                             block_hists->release();
+                            module_stop_lock(omlp_sem_od, NODE_ABCDE, block_hists_release_start);
 
                             struct params_fine_collect_locations *out_buf = (struct params_fine_collect_locations *)out_buf_ptrs[level_idx];
 
@@ -5748,7 +5893,9 @@ namespace
             }
             else
             {
+                lt_t smaller_img_alloc_start = module_start_lock(omlp_sem_od, NODE_ABC);
                 *smaller_img = pool.getBuffer(sz, gpu_img->type());
+                module_stop_lock(omlp_sem_od, NODE_ABC, smaller_img_alloc_start);
             }
 
             bool do_resize = false;
@@ -5856,12 +6003,14 @@ namespace
                 /* ===========================
                  * compute gradients
                  */
+                lt_t grad_qangle_alloc_start = module_start_lock(omlp_sem_od, NODE_CDE);
                 grad = new GpuMat();
                 qangle = new GpuMat();
 
                 float  angleScale = static_cast<float>(nbins_ / CV_PI);
                 *grad       = pool.getBuffer(smaller_img->size(), CV_32FC2);
                 *qangle     = pool.getBuffer(smaller_img->size(), CV_8UC2);
+                module_stop_lock(omlp_sem_od, NODE_CDE, grad_qangle_alloc_start);
 
                 switch (smaller_img->type())
                 {
@@ -5915,12 +6064,14 @@ namespace
                 fprintf(stdout, "[CC] Computing histograms for level %d.\n", level_idx);
 #endif
 
+                lt_t block_hists_alloc_start = module_start_lock(omlp_sem_od, NODE_BCDE);
                 block_hists = new GpuMat();
 
                 /* ===========================
                  * compute histograms
                  */
                 *block_hists = pool.getBuffer(1, getTotalHistSize(smaller_img->size()), CV_32FC1);
+                module_stop_lock(omlp_sem_od, NODE_BCDE, block_hists_alloc_start);
 
                 hog::compute_hists(nbins_,
                         block_stride_.width, block_stride_.height,
@@ -5933,8 +6084,10 @@ namespace
                         StreamAccessor::getStream(stream),
                         true, omlp_sem_od);
 
+                lt_t grad_qangle_release_start = module_start_lock(omlp_sem_od, NODE_ABCD);
                 grad->release();
                 qangle->release();
+                module_stop_lock(omlp_sem_od, NODE_ABCD, grad_qangle_release_start);
                 /*
                  * end of compute histograms
                  * =========================== */
@@ -6010,7 +6163,9 @@ namespace
 
                 if (confidences == NULL)
                 {
+                    lt_t labels_alloc_start = module_start_lock(omlp_sem_od, NODE_BCD);
                     *labels = pool.getBuffer(1, wins_per_img.area(), CV_8UC1);
+                    module_stop_lock(omlp_sem_od, NODE_BCD, labels_alloc_start);
 
                     hog::classify_hists(win_size_.height, win_size_.width,
                             block_stride_.height, block_stride_.width,
@@ -6026,7 +6181,9 @@ namespace
                 }
                 else
                 {
+                    lt_t labels_alloc_start = module_start_lock(omlp_sem_od, NODE_BCD);
                     *labels = pool.getBuffer(1, wins_per_img.area(), CV_32FC1);
+                    module_stop_lock(omlp_sem_od, NODE_BCD, labels_alloc_start);
 
                     hog::compute_confidence_hists(win_size_.height, win_size_.width,
                             block_stride_.height, block_stride_.width,
@@ -6044,7 +6201,9 @@ namespace
                  * end of classify
                  * =========================== */
 
+                lt_t block_hists_release_start = module_start_lock(omlp_sem_od, NODE_ABCDE);
                 block_hists->release();
+                module_stop_lock(omlp_sem_od, NODE_ABCDE, block_hists_release_start);
 
                 struct params_fine_collect_locations *out_buf = (struct params_fine_collect_locations *)out_buf_ptrs[level_idx];
 
@@ -6171,7 +6330,9 @@ namespace
 
                         if (confidences == NULL)
                         {
+                            lt_t labels_alloc_start = module_start_lock(omlp_sem_od, NODE_BCD);
                             *labels = pool.getBuffer(1, wins_per_img.area(), CV_8UC1);
+                            module_stop_lock(omlp_sem_od, NODE_BCD, labels_alloc_start);
 
                             hog::classify_hists(win_size_.height, win_size_.width,
                                     block_stride_.height, block_stride_.width,
@@ -6187,7 +6348,9 @@ namespace
                         }
                         else
                         {
+                            lt_t labels_alloc_start = module_start_lock(omlp_sem_od, NODE_BCD);
                             *labels = pool.getBuffer(1, wins_per_img.area(), CV_32FC1);
+                            module_stop_lock(omlp_sem_od, NODE_BCD, labels_alloc_start);
 
                             hog::compute_confidence_hists(win_size_.height, win_size_.width,
                                     block_stride_.height, block_stride_.width,
@@ -6205,7 +6368,9 @@ namespace
                         * end of classify
                         * =========================== */
 
+                        lt_t block_hists_release_start = module_start_lock(omlp_sem_od, NODE_ABCDE);
                         block_hists->release();
+                        module_stop_lock(omlp_sem_od, NODE_ABCDE, block_hists_release_start);
                     }
 
                     struct params_fine_classify * in_buf = (struct params_fine_classify *) in_buf_ptrs[a_level_to_process];
@@ -6295,8 +6460,10 @@ namespace
                             if (confidences)
                                 confidences->push_back(level_confidences[j]);
                         }
+                        lt_t smaller_img_release_start = module_start_lock(omlp_sem_od, NODE_NONE);
                         smaller_img->release();
                         labels->release();
+                        module_stop_lock(omlp_sem_od, NODE_NONE, smaller_img_release_start);
                     }
 
                     if (group_threshold_ > 0)
@@ -6307,7 +6474,9 @@ namespace
                     if (in_buf->level_scale != NULL) delete in_buf->level_scale;
                     if (in_buf->confidences != NULL) delete in_buf->confidences;
 
+                    lt_t gpu_img_release_start = module_start_lock(omlp_sem_od, NODE_CD);
                     in_buf->gpu_img->release();
+                    module_stop_lock(omlp_sem_od, NODE_CD, gpu_img_release_start);
                     /*
                      * end of collect locations
                      * =========================== */
@@ -6497,7 +6666,9 @@ namespace
 
                         if (confidences == NULL)
                         {
+                            lt_t labels_alloc_start = module_start_lock(omlp_sem_od, NODE_BCD);
                             *labels = pool.getBuffer(1, wins_per_img.area(), CV_8UC1);
+                            module_stop_lock(omlp_sem_od, NODE_BCD, labels_alloc_start);
 
                             hog::classify_hists(win_size_.height, win_size_.width,
                                     block_stride_.height, block_stride_.width,
@@ -6513,7 +6684,9 @@ namespace
                         }
                         else
                         {
+                            lt_t labels_alloc_start = module_start_lock(omlp_sem_od, NODE_BCD);
                             *labels = pool.getBuffer(1, wins_per_img.area(), CV_32FC1);
+                            module_stop_lock(omlp_sem_od, NODE_BCD, labels_alloc_start);
 
                             hog::compute_confidence_hists(win_size_.height, win_size_.width,
                                     block_stride_.height, block_stride_.width,
@@ -6531,7 +6704,9 @@ namespace
                         * end of classify
                         * =========================== */
 
+                        lt_t block_hists_release_start = module_start_lock(omlp_sem_od, NODE_ABCDE);
                         block_hists->release();
+                        module_stop_lock(omlp_sem_od, NODE_ABCDE, block_hists_release_start);
                     }
 
                     struct params_fine_normalize * in_buf = (struct params_fine_normalize *) in_buf_ptrs[a_level_to_process];
@@ -6621,8 +6796,10 @@ namespace
                             if (confidences)
                                 confidences->push_back(level_confidences[j]);
                         }
+                        lt_t smaller_img_release_start = module_start_lock(omlp_sem_od, NODE_NONE);
                         smaller_img->release();
                         labels->release();
+                        module_stop_lock(omlp_sem_od, NODE_NONE, smaller_img_release_start);
                     }
 
                     if (group_threshold_ > 0)
@@ -6633,7 +6810,9 @@ namespace
                     if (in_buf->level_scale != NULL) delete in_buf->level_scale;
                     if (in_buf->confidences != NULL) delete in_buf->confidences;
 
+                    lt_t gpu_img_release_start = module_start_lock(omlp_sem_od, NODE_CD);
                     in_buf->gpu_img->release();
+                    module_stop_lock(omlp_sem_od, NODE_CD, gpu_img_release_start);
                     /*
                      * end of collect locations
                      * =========================== */
@@ -6787,12 +6966,14 @@ namespace
                             grad = in_buf->grad;
                             qangle = in_buf->qangle;
 
+                            lt_t block_hists_alloc_start = module_start_lock(omlp_sem_od, NODE_BCDE);
                             block_hists = new GpuMat();
 
                             /* ===========================
                             * compute histograms
                             */
                             *block_hists      = pool.getBuffer(1, getTotalHistSize(smaller_img->size()), CV_32FC1);
+                            module_stop_lock(omlp_sem_od, NODE_BCDE, block_hists_alloc_start);
 
                             hog::compute_hists(nbins_,
                                     block_stride_.width, block_stride_.height,
@@ -6805,8 +6986,10 @@ namespace
                                     StreamAccessor::getStream(stream),
                                     true, omlp_sem_od);
 
+                            lt_t grad_qangle_release_start = module_start_lock(omlp_sem_od, NODE_ABCD);
                             grad->release();
                             qangle->release();
+                            module_stop_lock(omlp_sem_od, NODE_ABCD, grad_qangle_release_start);
                             /*
                             * end of compute histograms
                             * =========================== */
@@ -6881,7 +7064,9 @@ namespace
 
                         if (confidences == NULL)
                         {
+                            lt_t labels_alloc_start = module_start_lock(omlp_sem_od, NODE_BCD);
                             *labels = pool.getBuffer(1, wins_per_img.area(), CV_8UC1);
+                            module_stop_lock(omlp_sem_od, NODE_BCD, labels_alloc_start);
 
                             hog::classify_hists(win_size_.height, win_size_.width,
                                     block_stride_.height, block_stride_.width,
@@ -6897,7 +7082,9 @@ namespace
                         }
                         else
                         {
+                            lt_t labels_alloc_start = module_start_lock(omlp_sem_od, NODE_BCD);
                             *labels = pool.getBuffer(1, wins_per_img.area(), CV_32FC1);
+                            module_stop_lock(omlp_sem_od, NODE_BCD, labels_alloc_start);
 
                             hog::compute_confidence_hists(win_size_.height, win_size_.width,
                                     block_stride_.height, block_stride_.width,
@@ -6915,7 +7102,9 @@ namespace
                         * end of classify
                         * =========================== */
 
+                        lt_t block_hists_release_start = module_start_lock(omlp_sem_od, NODE_ABCDE);
                         block_hists->release();
+                        module_stop_lock(omlp_sem_od, NODE_ABCDE, block_hists_release_start);
                     }
 
                     struct params_compute_histograms * in_buf = (struct params_compute_histograms *) in_buf_ptrs[a_level_to_process];
@@ -7005,8 +7194,10 @@ namespace
                             if (confidences)
                                 confidences->push_back(level_confidences[j]);
                         }
+                        lt_t smaller_img_release_start = module_start_lock(omlp_sem_od, NODE_NONE);
                         smaller_img->release();
                         labels->release();
+                        module_stop_lock(omlp_sem_od, NODE_NONE, smaller_img_release_start);
                     }
 
                     if (group_threshold_ > 0)
@@ -7017,7 +7208,9 @@ namespace
                     if (in_buf->level_scale != NULL) delete in_buf->level_scale;
                     if (in_buf->confidences != NULL) delete in_buf->confidences;
 
+                    lt_t gpu_img_release_start = module_start_lock(omlp_sem_od, NODE_CD);
                     in_buf->gpu_img->release();
+                    module_stop_lock(omlp_sem_od, NODE_CD, gpu_img_release_start);
                     /*
                      * end of collect locations
                      * =========================== */
@@ -7178,12 +7371,14 @@ namespace
                             /* ===========================
                             * compute gradients
                             */
+                            lt_t grad_qangle_alloc_start = module_start_lock(omlp_sem_od, NODE_CDE);
                             grad = new GpuMat();
                             qangle = new GpuMat();
 
                             float  angleScale = static_cast<float>(nbins_ / CV_PI);
                             *grad       = pool.getBuffer(smaller_img->size(), CV_32FC2);
                             *qangle     = pool.getBuffer(smaller_img->size(), CV_8UC2);
+                            module_stop_lock(omlp_sem_od, NODE_CDE, grad_qangle_alloc_start);
 
                             switch (smaller_img->type())
                             {
@@ -7231,12 +7426,14 @@ namespace
                                 qangle = in_buf->qangle;
                             }
 
+                            lt_t block_hists_alloc_start = module_start_lock(omlp_sem_od, NODE_BCDE);
                             block_hists = new GpuMat();
 
                             /* ===========================
                             * compute histograms
                             */
                             *block_hists      = pool.getBuffer(1, getTotalHistSize(smaller_img->size()), CV_32FC1);
+                            module_stop_lock(omlp_sem_od, NODE_BCDE, block_hists_alloc_start);
 
                             hog::compute_hists(nbins_,
                                     block_stride_.width, block_stride_.height,
@@ -7249,8 +7446,10 @@ namespace
                                     StreamAccessor::getStream(stream),
                                     true, omlp_sem_od);
 
+                            lt_t grad_qangle_release_start = module_start_lock(omlp_sem_od, NODE_ABCD);
                             grad->release();
                             qangle->release();
+                            module_stop_lock(omlp_sem_od, NODE_ABCD, grad_qangle_release_start);
                             /*
                             * end of compute histograms
                             * =========================== */
@@ -7328,7 +7527,9 @@ namespace
 
                         if (confidences == NULL)
                         {
+                            lt_t labels_alloc_start = module_start_lock(omlp_sem_od, NODE_BCD);
                             *labels = pool.getBuffer(1, wins_per_img.area(), CV_8UC1);
+                            module_stop_lock(omlp_sem_od, NODE_BCD, labels_alloc_start);
 
                             hog::classify_hists(win_size_.height, win_size_.width,
                                     block_stride_.height, block_stride_.width,
@@ -7344,7 +7545,9 @@ namespace
                         }
                         else
                         {
+                            lt_t labels_alloc_start = module_start_lock(omlp_sem_od, NODE_BCD);
                             *labels = pool.getBuffer(1, wins_per_img.area(), CV_32FC1);
+                            module_stop_lock(omlp_sem_od, NODE_BCD, labels_alloc_start);
 
                             hog::compute_confidence_hists(win_size_.height, win_size_.width,
                                     block_stride_.height, block_stride_.width,
@@ -7362,7 +7565,9 @@ namespace
                         * end of classify
                         * =========================== */
 
+                        lt_t block_hists_release_start = module_start_lock(omlp_sem_od, NODE_ABCDE);
                         block_hists->release();
+                        module_stop_lock(omlp_sem_od, NODE_ABCDE, block_hists_release_start);
                     }
 
                     struct params_compute_gradients * in_buf = (struct params_compute_gradients *) in_buf_ptrs[a_level_to_process];
@@ -7452,8 +7657,10 @@ namespace
                             if (confidences)
                                 confidences->push_back(level_confidences[j]);
                         }
+                        lt_t smaller_img_release_start = module_start_lock(omlp_sem_od, NODE_NONE);
                         smaller_img->release();
                         labels->release();
+                        module_stop_lock(omlp_sem_od, NODE_NONE, smaller_img_release_start);
                     }
 
                     if (group_threshold_ > 0)
@@ -7464,7 +7671,9 @@ namespace
                     if (in_buf->level_scale != NULL) delete in_buf->level_scale;
                     if (in_buf->confidences != NULL) delete in_buf->confidences;
 
+                    lt_t gpu_img_release_start = module_start_lock(omlp_sem_od, NODE_CD);
                     in_buf->gpu_img->release();
+                    module_stop_lock(omlp_sem_od, NODE_CD, gpu_img_release_start);
                     /*
                      * end of collect locations
                      * =========================== */
@@ -7675,12 +7884,14 @@ namespace
                             /* ===========================
                             * compute gradients
                             */
+                            lt_t grad_qangle_alloc_start = module_start_lock(omlp_sem_od, NODE_CDE);
                             grad = new GpuMat();
                             qangle = new GpuMat();
 
                             float  angleScale = static_cast<float>(nbins_ / CV_PI);
                             *grad       = pool.getBuffer(smaller_img->size(), CV_32FC2);
                             *qangle     = pool.getBuffer(smaller_img->size(), CV_8UC2);
+                            module_stop_lock(omlp_sem_od, NODE_CDE, grad_qangle_alloc_start);
 
                             switch (smaller_img->type())
                             {
@@ -7731,12 +7942,14 @@ namespace
                                 qangle = in_buf->qangle;
                             }
 
+                            lt_t block_hists_alloc_start = module_start_lock(omlp_sem_od, NODE_BCDE);
                             block_hists = new GpuMat();
 
                             /* ===========================
                             * compute histograms
                             */
                             *block_hists      = pool.getBuffer(1, getTotalHistSize(smaller_img->size()), CV_32FC1);
+                            module_stop_lock(omlp_sem_od, NODE_BCDE, block_hists_alloc_start);
 
                             hog::compute_hists(nbins_,
                                     block_stride_.width, block_stride_.height,
@@ -7749,8 +7962,10 @@ namespace
                                     StreamAccessor::getStream(stream),
                                     true, omlp_sem_od);
 
+                            lt_t grad_qangle_release_start = module_start_lock(omlp_sem_od, NODE_ABCD);
                             grad->release();
                             qangle->release();
+                            module_stop_lock(omlp_sem_od, NODE_ABCD, grad_qangle_release_start);
                             /*
                             * end of compute histograms
                             * =========================== */
@@ -7828,7 +8043,9 @@ namespace
 
                         if (confidences == NULL)
                         {
+                            lt_t labels_alloc_start = module_start_lock(omlp_sem_od, NODE_BCD);
                             *labels = pool.getBuffer(1, wins_per_img.area(), CV_8UC1);
+                            module_stop_lock(omlp_sem_od, NODE_BCD, labels_alloc_start);
 
                             hog::classify_hists(win_size_.height, win_size_.width,
                                     block_stride_.height, block_stride_.width,
@@ -7844,7 +8061,9 @@ namespace
                         }
                         else
                         {
+                            lt_t labels_alloc_start = module_start_lock(omlp_sem_od, NODE_BCD);
                             *labels = pool.getBuffer(1, wins_per_img.area(), CV_32FC1);
+                            module_stop_lock(omlp_sem_od, NODE_BCD, labels_alloc_start);
 
                             hog::compute_confidence_hists(win_size_.height, win_size_.width,
                                     block_stride_.height, block_stride_.width,
@@ -7862,7 +8081,9 @@ namespace
                         * end of classify
                         * =========================== */
 
+                        lt_t block_hists_release_start = module_start_lock(omlp_sem_od, NODE_ABCDE);
                         block_hists->release();
+                        module_stop_lock(omlp_sem_od, NODE_ABCDE, block_hists_release_start);
                     }
 
                     struct params_resize * in_buf = (struct params_resize *) in_buf_ptrs[a_level_to_process];
@@ -7952,8 +8173,10 @@ namespace
                             if (confidences)
                                 confidences->push_back(level_confidences[j]);
                         }
+                        lt_t smaller_img_release_start = module_start_lock(omlp_sem_od, NODE_NONE);
                         smaller_img->release();
                         labels->release();
+                        module_stop_lock(omlp_sem_od, NODE_NONE, smaller_img_release_start);
                     }
 
                     if (group_threshold_ > 0)
@@ -7964,7 +8187,9 @@ namespace
                     if (in_buf->level_scale != NULL) delete in_buf->level_scale;
                     if (in_buf->confidences != NULL) delete in_buf->confidences;
 
+                    lt_t gpu_img_release_start = module_start_lock(omlp_sem_od, NODE_CD);
                     in_buf->gpu_img->release();
+                    module_stop_lock(omlp_sem_od, NODE_CD, gpu_img_release_start);
                     /*
                      * end of collect locations
                      * =========================== */

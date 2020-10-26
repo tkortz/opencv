@@ -40,6 +40,17 @@
 using namespace std;
 using namespace cv;
 
+#define SAMPLE_START_LOCK(s, t) \
+            gpu_hog->lock_fzlp(omlp_sem_od); \
+            gpu_hog->wait_forbidden_zone(omlp_sem_od, t); \
+            s = litmus_clock();
+
+#define SAMPLE_STOP_LOCK(l, t) \
+                l = litmus_clock() - fz_start; \
+                fprintf(stdout, "[%d | %d] Computation %d took %llu microseconds.\n", \
+                        gettid(), getpid(), t, fz_len / 1000); \
+                gpu_hog->unlock_fzlp(omlp_sem_od);
+
 int hog_sample_errors;
 
 __thread char hog_sample_errstr[80];
@@ -1269,20 +1280,12 @@ void App::thread_color_convert(node_t *_node, pthread_barrier_t* init_barrier,
                 /* =============
                 * LOCK: upload image to GPU
                 */
-                gpu_hog->lock_fzlp(omlp_sem_od);
-                gpu_hog->wait_forbidden_zone(omlp_sem_od, NODE_AB);
-
-                lt_t fz_start = litmus_clock();
+                SAMPLE_START_LOCK(lt_t fz_start, NODE_AB);
 
                 gpu_img->upload(*img, stream);
                 cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
 
-                lt_t fz_len = litmus_clock() - fz_start;
-
-                fprintf(stdout, "[%d | %d] Computation %d took %llu microseconds.\n",
-                        gettid(), getpid(), NODE_AB, fz_len / 1000);
-
-                gpu_hog->unlock_fzlp(omlp_sem_od);
+                SAMPLE_STOP_LOCK(lt_t fz_len, NODE_AB);
                 /*
                 * UNLOCK: upload image to GPU
                 * ============= */
@@ -1340,7 +1343,10 @@ void App::thread_color_convert(node_t *_node, pthread_barrier_t* init_barrier,
                 delete img;
             }
 
+            SAMPLE_START_LOCK(lt_t fz_start, NODE_BC);
             gpu_img = new cuda::GpuMat();
+            SAMPLE_STOP_LOCK(lt_t fz_len, NODE_BC);
+
             found = new vector<Rect>();
             img = new Mat();
             count_frame++;
@@ -2861,20 +2867,12 @@ void App::thread_fine_CC_S_ABCDE(node_t* _node, pthread_barrier_t* init_barrier,
             /* =============
              * LOCK: upload image to GPU
              */
-            gpu_hog->lock_fzlp(omlp_sem_od);
-            gpu_hog->wait_forbidden_zone(omlp_sem_od, NODE_AB);
-
-            lt_t fz_start = litmus_clock();
+            SAMPLE_START_LOCK(lt_t fz_start, NODE_AB);
 
             gpu_img->upload(*img, stream);
             cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
 
-            lt_t fz_len = litmus_clock() - fz_start;
-
-            fprintf(stdout, "[%d | %d] Computation %d took %llu microseconds.\n",
-                    gettid(), getpid(), NODE_AB, fz_len / 1000);
-
-            gpu_hog->unlock_fzlp(omlp_sem_od);
+            SAMPLE_STOP_LOCK(lt_t fz_len, NODE_AB);
             /*
              * UNLOCK: upload image to GPU
              * ============= */
@@ -2894,7 +2892,10 @@ void App::thread_fine_CC_S_ABCDE(node_t* _node, pthread_barrier_t* init_barrier,
 
             CheckError(pgm_complete(node));
 
+            SAMPLE_START_LOCK(fz_start, NODE_BC);
             gpu_img = new cuda::GpuMat();
+            SAMPLE_STOP_LOCK(fz_len, NODE_BC);
+
             found = new vector<Rect>();
             img = new Mat();
             count_frame++;
