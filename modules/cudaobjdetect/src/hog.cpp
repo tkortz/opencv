@@ -288,7 +288,7 @@ namespace
         /* color-convert and source-node combination */
         void fine_CC_S_ABCDE(struct task_info &t_info, void** out_buf_ptrs,
                              cuda::GpuMat* gpu_img, std::vector<Rect>* found,
-                             Mat *img, int frame_idx, Stream stream, int64 hog_work_begin,
+                             Mat *img, int frame_idx, Stream stream, lt_t frame_start_time,
                              int omlp_sem_od); // color-convert -> classify hists (maybe not all the way)
 
         /* source-node combinations */
@@ -351,8 +351,8 @@ namespace
         std::vector<Rect> * found;
         Mat * img_to_show;
         size_t frame_index;
-        int64 start_time;
-        int64 end_time;
+        lt_t start_time;
+        lt_t end_time;
     };
 
     struct params_normalize
@@ -364,8 +364,8 @@ namespace
         std::vector<double> * level_scale;
         std::vector<double> * confidences;
         size_t frame_index;
-        int64 start_time;
-        int64 end_time;
+        lt_t start_time;
+        lt_t end_time;
     };
 
     struct params_classify
@@ -377,8 +377,8 @@ namespace
         std::vector<double> * level_scale;
         std::vector<double> * confidences;
         size_t frame_index;
-        int64 start_time;
-        int64 end_time;
+        lt_t start_time;
+        lt_t end_time;
     };
 
     struct params_collect_locations
@@ -391,8 +391,8 @@ namespace
         std::vector<double> * confidences;
         cv::cuda::GpuMat * labels_array;
         size_t frame_index;
-        int64 start_time;
-        int64 end_time;
+        lt_t start_time;
+        lt_t end_time;
     };
 
     /* fine-grained */
@@ -407,8 +407,8 @@ namespace
         std::vector<double> * confidences;
         int index;
         size_t frame_index;
-        int64 start_time;
-        int64 end_time;
+        lt_t start_time;
+        lt_t end_time;
     };
 
     struct params_compute_gradients
@@ -422,8 +422,8 @@ namespace
         std::vector<double> * confidences;
         int index;
         size_t frame_index;
-        int64 start_time;
-        int64 end_time;
+        lt_t start_time;
+        lt_t end_time;
     };
 
     struct params_compute_histograms
@@ -439,8 +439,8 @@ namespace
         std::vector<double> * confidences;
         int index;
         size_t frame_index;
-        int64 start_time;
-        int64 end_time;
+        lt_t start_time;
+        lt_t end_time;
     };
 
     struct params_fine_normalize
@@ -455,8 +455,8 @@ namespace
         std::vector<double> * confidences;
         int index;
         size_t frame_index;
-        int64 start_time;
-        int64 end_time;
+        lt_t start_time;
+        lt_t end_time;
     };
 
     struct params_fine_classify
@@ -471,8 +471,8 @@ namespace
         std::vector<double> * confidences;
         int index;
         size_t frame_index;
-        int64 start_time;
-        int64 end_time;
+        lt_t start_time;
+        lt_t end_time;
     };
 
     struct params_fine_collect_locations
@@ -486,8 +486,8 @@ namespace
         std::vector<double> * confidences;
         int index;
         size_t frame_index;
-        int64 start_time;
-        int64 end_time;
+        lt_t start_time;
+        lt_t end_time;
     };
 
     struct params_display
@@ -495,8 +495,8 @@ namespace
         std::vector<Rect> * found;
         Mat * img_to_show;
         size_t frame_index;
-        int64 start_time;
-        int64 end_time;
+        lt_t start_time;
+        lt_t end_time;
     };
 
     void* HOG_Impl::thread_fine_compute_scales(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info)
@@ -1568,6 +1568,9 @@ namespace
                     /*
                      * end of collect locations
                      * =========================== */
+
+                    lt_t frame_end_time = litmus_clock();
+                    printf("%lu response time: %llu\n", in_buf->frame_index, frame_end_time - in_buf->start_time);
 
                     out_buf->found = in_buf->found;
                     out_buf->img_to_show = in_buf->img_to_show;
@@ -5683,7 +5686,7 @@ namespace
 
     void HOG_Impl::fine_CC_S_ABCDE(struct task_info &t_info, void** out_buf_ptrs,
                                    cuda::GpuMat* gpu_img, std::vector<Rect>* found,
-                                   Mat *img, int frame_idx, Stream stream, int64 hog_work_begin,
+                                   Mat *img, int frame_idx, Stream stream, lt_t frame_start_time,
                                    int omlp_sem_od)
     {
         const std::vector<node_config> &source_config = *t_info.source_config;
@@ -5797,7 +5800,7 @@ namespace
                 out_buf->confidences = confidences;
                 out_buf->index = level_idx;
                 out_buf->frame_index = frame_idx;
-                out_buf->start_time = hog_work_begin;
+                out_buf->start_time = frame_start_time;
             }
 
             if (do_resize)
@@ -5837,7 +5840,7 @@ namespace
                     out_buf->confidences = confidences;
                     out_buf->index = level_idx;
                     out_buf->frame_index = frame_idx;
-                    out_buf->start_time = hog_work_begin;
+                    out_buf->start_time = frame_start_time;
                 }
             }
 
@@ -5900,7 +5903,7 @@ namespace
                     out_buf->qangle= qangle;
                     out_buf->index = level_idx;
                     out_buf->frame_index = frame_idx;
-                    out_buf->start_time = hog_work_begin;
+                    out_buf->start_time = frame_start_time;
                 }
             }
 
@@ -5949,7 +5952,7 @@ namespace
                     out_buf->index = level_idx;
                     out_buf->labels = labels;
                     out_buf->frame_index = frame_idx;
-                    out_buf->start_time = hog_work_begin;
+                    out_buf->start_time = frame_start_time;
                     out_buf->block_hists = block_hists;
                 }
             }
@@ -5989,7 +5992,7 @@ namespace
                     out_buf->index = level_idx;
                     out_buf->labels = labels;
                     out_buf->frame_index = frame_idx;
-                    out_buf->start_time = hog_work_begin;
+                    out_buf->start_time = frame_start_time;
                     out_buf->block_hists = block_hists;
                 }
             }
@@ -6054,7 +6057,7 @@ namespace
                 out_buf->labels = labels;
                 out_buf->index = level_idx;
                 out_buf->frame_index = frame_idx;
-                out_buf->start_time = hog_work_begin;
+                out_buf->start_time = frame_start_time;
             }
         }
         /*
@@ -6308,6 +6311,9 @@ namespace
                     /*
                      * end of collect locations
                      * =========================== */
+
+                    lt_t frame_end_time = litmus_clock();
+                    printf("%lu response time: %llu\n", in_buf->frame_index, frame_end_time - in_buf->start_time);
 
                     out_buf->found = in_buf->found;
                     out_buf->img_to_show = in_buf->img_to_show;
@@ -6631,6 +6637,9 @@ namespace
                     /*
                      * end of collect locations
                      * =========================== */
+
+                    lt_t frame_end_time = litmus_clock();
+                    printf("%lu response time: %llu\n", in_buf->frame_index, frame_end_time - in_buf->start_time);
 
                     out_buf->found = in_buf->found;
                     out_buf->img_to_show = in_buf->img_to_show;
@@ -7012,6 +7021,9 @@ namespace
                     /*
                      * end of collect locations
                      * =========================== */
+
+                    lt_t frame_end_time = litmus_clock();
+                    printf("%lu response time: %llu\n", in_buf->frame_index, frame_end_time - in_buf->start_time);
 
                     out_buf->found = in_buf->found;
                     out_buf->img_to_show = in_buf->img_to_show;
@@ -7456,6 +7468,9 @@ namespace
                     /*
                      * end of collect locations
                      * =========================== */
+
+                    lt_t frame_end_time = litmus_clock();
+                    printf("%lu response time: %llu\n", in_buf->frame_index, frame_end_time - in_buf->start_time);
 
                     out_buf->found = in_buf->found;
                     out_buf->img_to_show = in_buf->img_to_show;
@@ -7953,6 +7968,9 @@ namespace
                     /*
                      * end of collect locations
                      * =========================== */
+
+                    lt_t frame_end_time = litmus_clock();
+                    printf("%lu response time: %llu\n", in_buf->frame_index, frame_end_time - in_buf->start_time);
 
                     out_buf->found = in_buf->found;
                     out_buf->img_to_show = in_buf->img_to_show;

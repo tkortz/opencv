@@ -147,8 +147,8 @@ struct params_compute  // a.k.a. compute scales node
     std::vector<Rect> * found;
     Mat * img_to_show;
     size_t frame_index;
-    int64 start_time;
-    int64 end_time;
+    lt_t start_time;
+    lt_t end_time;
 };
 
 struct params_normalize
@@ -160,8 +160,8 @@ struct params_normalize
     std::vector<double> * level_scale;
     std::vector<double> * confidences;
     size_t frame_index;
-    int64 start_time;
-    int64 end_time;
+    lt_t start_time;
+    lt_t end_time;
 };
 
 struct params_classify
@@ -173,8 +173,8 @@ struct params_classify
     std::vector<double> * level_scale;
     std::vector<double> * confidences;
     size_t frame_index;
-    int64 start_time;
-    int64 end_time;
+    lt_t start_time;
+    lt_t end_time;
 };
 
 struct params_collect_locations
@@ -187,8 +187,8 @@ struct params_collect_locations
     std::vector<double> * confidences;
     cv::cuda::GpuMat * labels_array;
     size_t frame_index;
-    int64 start_time;
-    int64 end_time;
+    lt_t start_time;
+    lt_t end_time;
 };
 
 /* fine-grained */
@@ -203,8 +203,8 @@ struct params_resize
     std::vector<double> * confidences;
     int index;
     size_t frame_index;
-    int64 start_time;
-    int64 end_time;
+    lt_t start_time;
+    lt_t end_time;
 };
 
 struct params_compute_gradients
@@ -218,8 +218,8 @@ struct params_compute_gradients
     std::vector<double> * confidences;
     int index;
     size_t frame_index;
-    int64 start_time;
-    int64 end_time;
+    lt_t start_time;
+    lt_t end_time;
 };
 
 struct params_compute_histograms
@@ -235,8 +235,8 @@ struct params_compute_histograms
     std::vector<double> * confidences;
     int index;
     size_t frame_index;
-    int64 start_time;
-    int64 end_time;
+    lt_t start_time;
+    lt_t end_time;
 };
 
 struct params_fine_normalize
@@ -251,8 +251,8 @@ struct params_fine_normalize
     std::vector<double> * confidences;
     int index;
     size_t frame_index;
-    int64 start_time;
-    int64 end_time;
+    lt_t start_time;
+    lt_t end_time;
 };
 
 struct params_fine_classify
@@ -267,8 +267,8 @@ struct params_fine_classify
     std::vector<double> * confidences;
     int index;
     size_t frame_index;
-    int64 start_time;
-    int64 end_time;
+    lt_t start_time;
+    lt_t end_time;
 };
 
 struct params_fine_collect_locations
@@ -282,8 +282,8 @@ struct params_fine_collect_locations
     std::vector<double> * confidences;
     int index;
     size_t frame_index;
-    int64 start_time;
-    int64 end_time;
+    lt_t start_time;
+    lt_t end_time;
 };
 
 struct params_display
@@ -291,8 +291,8 @@ struct params_display
     std::vector<Rect> * found;
     Mat * img_to_show;
     size_t frame_index;
-    int64 start_time;
-    int64 end_time;
+    lt_t start_time;
+    lt_t end_time;
 };
 
 
@@ -796,7 +796,7 @@ void* App::thread_display(node_t* _node, pthread_barrier_t* init_barrier, bool s
 #endif
 
 
-                printf("%lu response time: %f\n", in_buf->frame_index, (hog_work_end - in_buf->start_time) / getTickFrequency());
+                // printf("%lu response time: %f\n", in_buf->frame_index, (hog_work_end - in_buf->start_time) / getTickFrequency());
 
                 // Draw positive classified windows
                 if (shouldDisplay || args.write_video)
@@ -1249,6 +1249,7 @@ void App::thread_color_convert(node_t *_node, pthread_barrier_t* init_barrier,
                 break;
             frame = frames[j];
             workBegin();
+            lt_t frame_start_time = litmus_clock();
 
             /* color convert node starts below */
             // Change format of the image
@@ -1295,7 +1296,7 @@ void App::thread_color_convert(node_t *_node, pthread_barrier_t* init_barrier,
                 out_buf->found = found;
                 out_buf->img_to_show = img;
                 out_buf->frame_index = j;
-                out_buf->start_time = hog_work_begin;
+                out_buf->start_time = frame_start_time;
                 CheckError(pgm_complete(node));
             } else {
                 cpu_hog.nlevels = nlevels;
@@ -2838,6 +2839,7 @@ void App::thread_fine_CC_S_ABCDE(node_t* _node, pthread_barrier_t* init_barrier,
                 break;
             frame = frames[j];
             workBegin();
+            lt_t frame_start_time = litmus_clock();
 
             /* ===========================
              * color convert
@@ -2888,7 +2890,7 @@ void App::thread_fine_CC_S_ABCDE(node_t* _node, pthread_barrier_t* init_barrier,
              * =========================== */
 
             gpu_hog->fine_CC_S_ABCDE(t_info, out_buf_ptrs, gpu_img, found,
-                                     img_to_show, j, stream, hog_work_begin,
+                                     img_to_show, j, stream, frame_start_time,
                                      omlp_sem_od);
 
             CheckError(pgm_complete(node));
