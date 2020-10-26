@@ -875,6 +875,10 @@ void* App::thread_display(node_t* _node, pthread_barrier_t* init_barrier, bool s
     CheckError(pgm_release_node(node));
 
     free(in_edge);
+
+    /* end is finished */
+    pthread_barrier_wait(init_barrier);
+
     pthread_exit(0);
 }
 
@@ -1215,9 +1219,16 @@ void App::thread_color_convert(node_t *_node, pthread_barrier_t* init_barrier,
     Mat img_aux;
     Mat* img = new Mat();
     Mat* img_to_show;
-    cuda::GpuMat* gpu_img = new cuda::GpuMat();
     vector<Rect>* found = new vector<Rect>();
     Mat frame;
+
+    // Pre-allocate all gpu_img instances we will need (one per frame)
+    int cons_copies = 5; // be conservative so we don't overwrite anything
+    cuda::GpuMat* gpu_img_array[cons_copies];
+    for (unsigned i = 0; i < cons_copies; i++)
+    {
+        gpu_img_array[i] = new cuda::GpuMat();
+    }
 
     /* initialization is finished */
     pthread_barrier_wait(init_barrier);
@@ -1282,6 +1293,7 @@ void App::thread_color_convert(node_t *_node, pthread_barrier_t* init_barrier,
                 */
                 SAMPLE_START_LOCK(lt_t fz_start, NODE_AB);
 
+                cuda::GpuMat *gpu_img = gpu_img_array[(j / args.num_fine_graphs) % cons_copies];
                 gpu_img->upload(*img, stream);
                 cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
 
@@ -1338,14 +1350,9 @@ void App::thread_color_convert(node_t *_node, pthread_barrier_t* init_barrier,
                 }
 
                 handleKey((char)waitKey(3));
-                delete gpu_img;
                 delete found;
                 delete img;
             }
-
-            SAMPLE_START_LOCK(lt_t fz_start, NODE_BC);
-            gpu_img = new cuda::GpuMat();
-            SAMPLE_STOP_LOCK(lt_t fz_len, NODE_BC);
 
             found = new vector<Rect>();
             img = new Mat();
@@ -1364,6 +1371,14 @@ void App::thread_color_convert(node_t *_node, pthread_barrier_t* init_barrier,
 
     if (args.realtime)
         CALL( task_mode(BACKGROUND_TASK) );
+
+    /* end is finished */
+    pthread_barrier_wait(init_barrier);
+
+    for (unsigned i = 0; i < cons_copies; i++)
+    {
+        gpu_img_array[i]->release();
+    }
 }
 
 static void sync_info_init(struct sync_info *s)
@@ -2794,9 +2809,16 @@ void App::thread_fine_CC_S_ABCDE(node_t* _node, pthread_barrier_t* init_barrier,
     Mat img_aux;
     Mat* img = new Mat();
     Mat* img_to_show;
-    cuda::GpuMat* gpu_img = new cuda::GpuMat();
     vector<Rect>* found = new vector<Rect>();
     Mat frame;
+
+    // Pre-allocate all gpu_img instances we will need (one per frame)
+    int cons_copies = 5; // be conservative so we don't overwrite anything
+    cuda::GpuMat* gpu_img_array[cons_copies];
+    for (unsigned i = 0; i < cons_copies; i++)
+    {
+        gpu_img_array[i] = new cuda::GpuMat();
+    }
 
     // Source (compute scale levels)
     cv::cuda::Stream stream;
@@ -2869,6 +2891,7 @@ void App::thread_fine_CC_S_ABCDE(node_t* _node, pthread_barrier_t* init_barrier,
              */
             SAMPLE_START_LOCK(lt_t fz_start, NODE_AB);
 
+            cuda::GpuMat *gpu_img = gpu_img_array[(j / args.num_fine_graphs) % cons_copies];
             gpu_img->upload(*img, stream);
             cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
 
@@ -2892,10 +2915,6 @@ void App::thread_fine_CC_S_ABCDE(node_t* _node, pthread_barrier_t* init_barrier,
 
             CheckError(pgm_complete(node));
 
-            SAMPLE_START_LOCK(fz_start, NODE_BC);
-            gpu_img = new cuda::GpuMat();
-            SAMPLE_STOP_LOCK(fz_len, NODE_BC);
-
             found = new vector<Rect>();
             img = new Mat();
             count_frame++;
@@ -2916,5 +2935,14 @@ void App::thread_fine_CC_S_ABCDE(node_t* _node, pthread_barrier_t* init_barrier,
 
     if (t_info.realtime)
         CALL( task_mode(BACKGROUND_TASK) );
+
+    /* end is finished */
+    pthread_barrier_wait(init_barrier);
+
     pthread_exit(0);
+
+    for (unsigned i = 0; i < cons_copies; i++)
+    {
+        gpu_img_array[i]->release();
+    }
 }

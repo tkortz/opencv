@@ -672,6 +672,10 @@ namespace
         free(out_bufs);
         if (t_info.realtime)
             CALL( task_mode(BACKGROUND_TASK) );
+
+        /* end is finished */
+        pthread_barrier_wait(init_barrier);
+
         pthread_exit(0);
     }
 
@@ -841,6 +845,10 @@ namespace
 
         if (t_info.realtime)
             CALL( task_mode(BACKGROUND_TASK) );
+
+        /* end is finished */
+        pthread_barrier_wait(init_barrier);
+
         pthread_exit(0);
     }
 
@@ -983,6 +991,10 @@ namespace
 
         if (t_info.realtime)
             CALL( task_mode(BACKGROUND_TASK) );
+
+        /* end is finished */
+        pthread_barrier_wait(init_barrier);
+
         pthread_exit(0);
     }
 
@@ -1123,6 +1135,10 @@ namespace
 
         if (t_info.realtime)
             CALL( task_mode(BACKGROUND_TASK) );
+
+        /* end is finished */
+        pthread_barrier_wait(init_barrier);
+
         pthread_exit(0);
     }
 
@@ -1243,6 +1259,10 @@ namespace
         free(out_edge);
         if (t_info.realtime)
             CALL( task_mode(BACKGROUND_TASK) );
+
+        /* end is finished */
+        pthread_barrier_wait(init_barrier);
+
         pthread_exit(0);
     }
 
@@ -1594,10 +1614,6 @@ namespace
 
                     if (in_buf->level_scale != NULL) delete in_buf->level_scale;
                     if (in_buf->confidences != NULL) delete in_buf->confidences;
-
-                    lt_t gpu_img_release_start = module_start_lock(omlp_sem_od, NODE_CD);
-                    in_buf->gpu_img->release();
-                    module_stop_lock(omlp_sem_od, NODE_CD, gpu_img_release_start);
                     /*
                      * end of collect locations
                      * =========================== */
@@ -1635,6 +1651,10 @@ namespace
         free(in_bufs);
         if (t_info.realtime)
             CALL( task_mode(BACKGROUND_TASK) );
+
+        /* end is finished */
+        pthread_barrier_wait(init_barrier);
+
         pthread_exit(0);
     }
 
@@ -2357,6 +2377,10 @@ namespace
 
         if (t_info.realtime)
             CALL( task_mode(BACKGROUND_TASK) );
+
+        /* end is finished */
+        pthread_barrier_wait(init_barrier);
+
         pthread_exit(0);
     }
 
@@ -2518,6 +2542,10 @@ namespace
 
         if (t_info.realtime)
             CALL( task_mode(BACKGROUND_TASK) );
+
+        /* end is finished */
+        pthread_barrier_wait(init_barrier);
+
         pthread_exit(0);
     }
 
@@ -2662,6 +2690,10 @@ namespace
 
         if (t_info.realtime)
             CALL( task_mode(BACKGROUND_TASK) );
+
+        /* end is finished */
+        pthread_barrier_wait(init_barrier);
+
         pthread_exit(0);
     }
 
@@ -2826,6 +2858,10 @@ namespace
         free(out_edge);
         if (t_info.realtime)
             CALL( task_mode(BACKGROUND_TASK) );
+
+        /* end is finished */
+        pthread_barrier_wait(init_barrier);
+
         pthread_exit(0);
     }
 
@@ -3011,6 +3047,10 @@ namespace
 
         if (t_info.realtime)
             CALL( task_mode(BACKGROUND_TASK) );
+
+        /* end is finished */
+        pthread_barrier_wait(init_barrier);
+
         pthread_exit(0);
     }
 
@@ -3190,6 +3230,10 @@ namespace
 
         if (t_info.realtime)
             CALL( task_mode(BACKGROUND_TASK) );
+
+        /* end is finished */
+        pthread_barrier_wait(init_barrier);
+
         pthread_exit(0);
     }
 
@@ -3388,6 +3432,10 @@ namespace
 
         if (t_info.realtime)
             CALL( task_mode(BACKGROUND_TASK) );
+
+        /* end is finished */
+        pthread_barrier_wait(init_barrier);
+
         pthread_exit(0);
     }
 
@@ -3589,6 +3637,10 @@ namespace
 
         if (t_info.realtime)
             CALL( task_mode(BACKGROUND_TASK) );
+
+        /* end is finished */
+        pthread_barrier_wait(init_barrier);
+
         pthread_exit(0);
     }
 
@@ -3822,6 +3874,10 @@ namespace
 
         if (t_info.realtime)
             CALL( task_mode(BACKGROUND_TASK) );
+
+        /* end is finished */
+        pthread_barrier_wait(init_barrier);
+
         pthread_exit(0);
     }
 
@@ -4077,6 +4133,10 @@ namespace
 
         if (t_info.realtime)
             CALL( task_mode(BACKGROUND_TASK) );
+
+        /* end is finished */
+        pthread_barrier_wait(init_barrier);
+
         pthread_exit(0);
     }
 
@@ -4298,6 +4358,10 @@ namespace
         free(out_buf_ptrs);
         if (t_info.realtime)
             CALL( task_mode(BACKGROUND_TASK) );
+
+        /* end is finished */
+        pthread_barrier_wait(init_barrier);
+
         pthread_exit(0);
     }
 
@@ -4588,6 +4652,10 @@ namespace
         free(out_buf_ptrs);
         if (t_info.realtime)
             CALL( task_mode(BACKGROUND_TASK) );
+
+        /* end is finished */
+        pthread_barrier_wait(init_barrier);
+
         pthread_exit(0);
     }
 
@@ -4939,6 +5007,10 @@ namespace
         free(out_buf_ptrs);
         if (t_info.realtime)
             CALL( task_mode(BACKGROUND_TASK) );
+
+        /* end is finished */
+        pthread_barrier_wait(init_barrier);
+
         pthread_exit(0);
     }
 
@@ -5337,6 +5409,10 @@ namespace
         free(out_buf_ptrs);
         if (t_info.realtime)
             CALL( task_mode(BACKGROUND_TASK) );
+
+        /* end is finished */
+        pthread_barrier_wait(init_barrier);
+
         pthread_exit(0);
     }
 
@@ -5815,6 +5891,10 @@ namespace
         free(out_buf_ptrs);
         if (t_info.realtime)
             CALL( task_mode(BACKGROUND_TASK) );
+
+        /* end is finished */
+        pthread_barrier_wait(init_barrier);
+
         pthread_exit(0);
     }
 
@@ -6473,10 +6553,6 @@ namespace
 
                     if (in_buf->level_scale != NULL) delete in_buf->level_scale;
                     if (in_buf->confidences != NULL) delete in_buf->confidences;
-
-                    lt_t gpu_img_release_start = module_start_lock(omlp_sem_od, NODE_CD);
-                    in_buf->gpu_img->release();
-                    module_stop_lock(omlp_sem_od, NODE_CD, gpu_img_release_start);
                     /*
                      * end of collect locations
                      * =========================== */
@@ -6514,6 +6590,10 @@ namespace
         free(in_buf_ptrs);
         if (t_info.realtime)
             CALL( task_mode(BACKGROUND_TASK) );
+
+        /* end is finished */
+        pthread_barrier_wait(init_barrier);
+
         pthread_exit(0);
     }
 
@@ -6810,9 +6890,6 @@ namespace
                     if (in_buf->level_scale != NULL) delete in_buf->level_scale;
                     if (in_buf->confidences != NULL) delete in_buf->confidences;
 
-                    lt_t gpu_img_release_start = module_start_lock(omlp_sem_od, NODE_CD);
-                    in_buf->gpu_img->release();
-                    module_stop_lock(omlp_sem_od, NODE_CD, gpu_img_release_start);
                     /*
                      * end of collect locations
                      * =========================== */
@@ -6850,6 +6927,10 @@ namespace
         free(in_buf_ptrs);
         if (t_info.realtime)
             CALL( task_mode(BACKGROUND_TASK) );
+
+        /* end is finished */
+        pthread_barrier_wait(init_barrier);
+
         pthread_exit(0);
     }
 
@@ -7207,10 +7288,6 @@ namespace
 
                     if (in_buf->level_scale != NULL) delete in_buf->level_scale;
                     if (in_buf->confidences != NULL) delete in_buf->confidences;
-
-                    lt_t gpu_img_release_start = module_start_lock(omlp_sem_od, NODE_CD);
-                    in_buf->gpu_img->release();
-                    module_stop_lock(omlp_sem_od, NODE_CD, gpu_img_release_start);
                     /*
                      * end of collect locations
                      * =========================== */
@@ -7248,6 +7325,10 @@ namespace
         free(in_buf_ptrs);
         if (t_info.realtime)
             CALL( task_mode(BACKGROUND_TASK) );
+
+        /* end is finished */
+        pthread_barrier_wait(init_barrier);
+
         pthread_exit(0);
     }
 
@@ -7670,10 +7751,6 @@ namespace
 
                     if (in_buf->level_scale != NULL) delete in_buf->level_scale;
                     if (in_buf->confidences != NULL) delete in_buf->confidences;
-
-                    lt_t gpu_img_release_start = module_start_lock(omlp_sem_od, NODE_CD);
-                    in_buf->gpu_img->release();
-                    module_stop_lock(omlp_sem_od, NODE_CD, gpu_img_release_start);
                     /*
                      * end of collect locations
                      * =========================== */
@@ -7711,6 +7788,10 @@ namespace
         free(in_buf_ptrs);
         if (t_info.realtime)
             CALL( task_mode(BACKGROUND_TASK) );
+
+        /* end is finished */
+        pthread_barrier_wait(init_barrier);
+
         pthread_exit(0);
     }
 
@@ -8186,10 +8267,6 @@ namespace
 
                     if (in_buf->level_scale != NULL) delete in_buf->level_scale;
                     if (in_buf->confidences != NULL) delete in_buf->confidences;
-
-                    lt_t gpu_img_release_start = module_start_lock(omlp_sem_od, NODE_CD);
-                    in_buf->gpu_img->release();
-                    module_stop_lock(omlp_sem_od, NODE_CD, gpu_img_release_start);
                     /*
                      * end of collect locations
                      * =========================== */
@@ -8227,6 +8304,10 @@ namespace
         free(in_buf_ptrs);
         if (t_info.realtime)
             CALL( task_mode(BACKGROUND_TASK) );
+
+        /* end is finished */
+        pthread_barrier_wait(init_barrier);
+
         pthread_exit(0);
     }
 
