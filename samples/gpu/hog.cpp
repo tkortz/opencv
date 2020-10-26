@@ -717,7 +717,6 @@ Args Args::read(int argc, char** argv)
 App::App(const Args& s)
 {
     cv::cuda::printShortCudaDeviceInfo(cv::cuda::getDevice());
-    cudaSetDeviceFlags(cudaDeviceScheduleSpin);
 
     args = s;
     cout << "\nControls:\n"
