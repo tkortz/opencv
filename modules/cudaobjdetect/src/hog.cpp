@@ -287,7 +287,9 @@ namespace
 
         /* color-convert and source-node combination */
         void fine_CC_S_ABCDE(struct task_info &t_info, void** out_buf_ptrs,
-                             cuda::GpuMat* gpu_img, std::vector<Rect>* found,
+                             cuda::GpuMat* gpu_img,
+                             cuda::GpuMat** grad_array, cuda::GpuMat** qangle_array,
+                             std::vector<Rect>* found,
                              Mat *img, int frame_idx, Stream stream, lt_t frame_start_time,
                              int omlp_sem_od); // color-convert -> classify hists (maybe not all the way)
 
@@ -348,6 +350,8 @@ namespace
     struct params_compute  // a.k.a. compute scales node
     {
         cv::cuda::GpuMat * gpu_img;
+        cv::cuda::GpuMat ** grad_array;
+        cv::cuda::GpuMat ** qangle_array;
         std::vector<Rect> * found;
         Mat * img_to_show;
         size_t frame_index;
@@ -399,6 +403,8 @@ namespace
     struct params_resize
     {
         cv::cuda::GpuMat * gpu_img;
+        cv::cuda::GpuMat * grad;
+        cv::cuda::GpuMat * qangle;
         std::vector<Rect> * found;
         Mat * img_to_show;
         cv::cuda::GpuMat * smaller_img;
@@ -414,6 +420,8 @@ namespace
     struct params_compute_gradients
     {
         cv::cuda::GpuMat * gpu_img;
+        cv::cuda::GpuMat * grad;
+        cv::cuda::GpuMat * qangle;
         std::vector<Rect> * found;
         Mat * img_to_show;
         cv::cuda::GpuMat * smaller_img;
@@ -635,6 +643,8 @@ namespace
                             module_stop_lock(omlp_sem_od, NODE_ABC, smaller_img_alloc_start);
                         }
                         out_buf->gpu_img = in_buf->gpu_img;
+                        out_buf->grad = in_buf->grad_array[i];
+                        out_buf->qangle = in_buf->qangle_array[i];
                         out_buf->found = in_buf->found;
                         out_buf->img_to_show = in_buf->img_to_show;
                         out_buf->smaller_img = smaller_img;
@@ -806,6 +816,8 @@ namespace
                      * =========================== */
 
                     out_buf->gpu_img = in_buf->gpu_img;
+                    out_buf->grad = in_buf->grad;
+                    out_buf->qangle = in_buf->qangle;
                     out_buf->found = in_buf->found;
                     out_buf->img_to_show = in_buf->img_to_show;
                     out_buf->smaller_img = in_buf->smaller_img;
@@ -907,14 +919,9 @@ namespace
                     /* ===========================
                      * compute gradients
                      */
-                    lt_t grad_qangle_alloc_start = module_start_lock(omlp_sem_od, NODE_CDE);
-                    grad = new GpuMat();
-                    qangle = new GpuMat();
-
                     float  angleScale = static_cast<float>(nbins_ / CV_PI);
-                    *grad       = pool.getBuffer(smaller_img->size(), CV_32FC2);
-                    *qangle     = pool.getBuffer(smaller_img->size(), CV_8UC2);
-                    module_stop_lock(omlp_sem_od, NODE_CDE, grad_qangle_alloc_start);
+                    grad = in_buf->grad;
+                    qangle = in_buf->qangle;
 
                     bool change_deadline = t_info.realtime && t_info.sched == FINE_GRAINED;
 
@@ -1084,11 +1091,6 @@ namespace
                     //     CALL(set_current_deadline(curr_deadline + param.period));
                     //     cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
                     // }
-
-                    lt_t grad_qangle_release_start = module_start_lock(omlp_sem_od, NODE_ABCD);
-                    grad->release();
-                    qangle->release();
-                    module_stop_lock(omlp_sem_od, NODE_ABCD, grad_qangle_release_start);
                     /*
                      * end of compute histograms
                      * =========================== */
@@ -1736,14 +1738,9 @@ namespace
                     /* ===========================
                      * compute gradients
                      */
-                    lt_t grad_qangle_alloc_start = module_start_lock(omlp_sem_od, NODE_CDE);
-                    grad = new GpuMat();
-                    qangle = new GpuMat();
-
                     angleScale = static_cast<float>(nbins_ / CV_PI);
-                    *grad       = pool.getBuffer(smaller_img->size(), CV_32FC2);
-                    *qangle     = pool.getBuffer(smaller_img->size(), CV_8UC2);
-                    module_stop_lock(omlp_sem_od, NODE_CDE, grad_qangle_alloc_start);
+                    grad = in_buf->grad;
+                    qangle = in_buf->qangle;
 
                     switch (smaller_img->type())
                     {
@@ -1786,11 +1783,6 @@ namespace
                             cell_size_.width, cell_size_.height,
                             cells_per_block_.width, cells_per_block_.height,
                             StreamAccessor::getStream(stream));
-
-                    lt_t grad_qangle_release_start = module_start_lock(omlp_sem_od, NODE_ABCD);
-                    grad->release();
-                    qangle->release();
-                    module_stop_lock(omlp_sem_od, NODE_ABCD, grad_qangle_release_start);
                     /*
                      * end of compute histograms
                      * =========================== */
@@ -2305,14 +2297,9 @@ namespace
                     /* ===========================
                      * compute gradients
                      */
-                    lt_t grad_qangle_alloc_start = module_start_lock(omlp_sem_od, NODE_CDE);
-                    grad = new GpuMat();
-                    qangle = new GpuMat();
-
                     float  angleScale = static_cast<float>(nbins_ / CV_PI);
-                    *grad       = pool.getBuffer(smaller_img->size(), CV_32FC2);
-                    *qangle     = pool.getBuffer(smaller_img->size(), CV_8UC2);
-                    module_stop_lock(omlp_sem_od, NODE_CDE, grad_qangle_alloc_start);
+                    grad = in_buf->grad;
+                    qangle = in_buf->qangle;
 
                     switch (smaller_img->type())
                     {
@@ -2442,14 +2429,9 @@ namespace
                     /* ===========================
                      * compute gradients
                      */
-                    lt_t grad_qangle_alloc_start = module_start_lock(omlp_sem_od, NODE_CDE);
-                    grad = new GpuMat();
-                    qangle = new GpuMat();
-
                     float  angleScale = static_cast<float>(nbins_ / CV_PI);
-                    *grad       = pool.getBuffer(smaller_img->size(), CV_32FC2);
-                    *qangle     = pool.getBuffer(smaller_img->size(), CV_8UC2);
-                    module_stop_lock(omlp_sem_od, NODE_CDE, grad_qangle_alloc_start);
+                    grad = in_buf->grad;
+                    qangle = in_buf->qangle;
 
                     switch (smaller_img->type())
                     {
@@ -2495,11 +2477,6 @@ namespace
                             cells_per_block_.width, cells_per_block_.height,
                             StreamAccessor::getStream(stream),
                             true, omlp_sem_od);
-
-                    lt_t grad_qangle_release_start = module_start_lock(omlp_sem_od, NODE_ABCD);
-                    grad->release();
-                    qangle->release();
-                    module_stop_lock(omlp_sem_od, NODE_ABCD, grad_qangle_release_start);
                     /*
                      * end of compute histograms
                      * =========================== */
@@ -2627,11 +2604,6 @@ namespace
                             cells_per_block_.width, cells_per_block_.height,
                             StreamAccessor::getStream(stream),
                             true, omlp_sem_od);
-
-                    lt_t grad_qangle_release_start = module_start_lock(omlp_sem_od, NODE_ABCD);
-                    grad->release();
-                    qangle->release();
-                    module_stop_lock(omlp_sem_od, NODE_ABCD, grad_qangle_release_start);
                     /*
                      * end of compute histograms
                      * =========================== */
@@ -2947,14 +2919,9 @@ namespace
                     /* ===========================
                      * compute gradients
                      */
-                    lt_t grad_qangle_alloc_start = module_start_lock(omlp_sem_od, NODE_CDE);
-                    grad = new GpuMat();
-                    qangle = new GpuMat();
-
                     float  angleScale = static_cast<float>(nbins_ / CV_PI);
-                    *grad       = pool.getBuffer(smaller_img->size(), CV_32FC2);
-                    *qangle     = pool.getBuffer(smaller_img->size(), CV_8UC2);
-                    module_stop_lock(omlp_sem_od, NODE_CDE, grad_qangle_alloc_start);
+                    grad = in_buf->grad;
+                    qangle = in_buf->qangle;
 
                     switch (smaller_img->type())
                     {
@@ -3000,11 +2967,6 @@ namespace
                             cells_per_block_.width, cells_per_block_.height,
                             StreamAccessor::getStream(stream),
                             true, omlp_sem_od);
-
-                    lt_t grad_qangle_release_start = module_start_lock(omlp_sem_od, NODE_ABCD);
-                    grad->release();
-                    qangle->release();
-                    module_stop_lock(omlp_sem_od, NODE_ABCD, grad_qangle_release_start);
                     /*
                      * end of compute histograms
                      * =========================== */
@@ -3114,14 +3076,9 @@ namespace
                     /* ===========================
                      * compute gradients
                      */
-                    lt_t grad_qangle_alloc_start = module_start_lock(omlp_sem_od, NODE_CDE);
-                    grad = new GpuMat();
-                    qangle = new GpuMat();
-
                     float  angleScale = static_cast<float>(nbins_ / CV_PI);
-                    *grad       = pool.getBuffer(smaller_img->size(), CV_32FC2);
-                    *qangle     = pool.getBuffer(smaller_img->size(), CV_8UC2);
-                    module_stop_lock(omlp_sem_od, NODE_CDE, grad_qangle_alloc_start);
+                    grad = in_buf->grad;
+                    qangle = in_buf->qangle;
 
                     switch (smaller_img->type())
                     {
@@ -3167,11 +3124,6 @@ namespace
                             cells_per_block_.width, cells_per_block_.height,
                             StreamAccessor::getStream(stream),
                             true, omlp_sem_od);
-
-                    lt_t grad_qangle_release_start = module_start_lock(omlp_sem_od, NODE_ABCD);
-                    grad->release();
-                    qangle->release();
-                    module_stop_lock(omlp_sem_od, NODE_ABCD, grad_qangle_release_start);
                     /*
                      * end of compute histograms
                      * =========================== */
@@ -3319,11 +3271,6 @@ namespace
                             cells_per_block_.width, cells_per_block_.height,
                             StreamAccessor::getStream(stream),
                             true, omlp_sem_od);
-
-                    lt_t grad_qangle_release_start = module_start_lock(omlp_sem_od, NODE_ABCD);
-                    grad->release();
-                    qangle->release();
-                    module_stop_lock(omlp_sem_od, NODE_ABCD, grad_qangle_release_start);
                     /*
                      * end of compute histograms
                      * =========================== */
@@ -3521,14 +3468,9 @@ namespace
                     /* ===========================
                      * compute gradients
                      */
-                    lt_t grad_qangle_alloc_start = module_start_lock(omlp_sem_od, NODE_CDE);
-                    grad = new GpuMat();
-                    qangle = new GpuMat();
-
                     float  angleScale = static_cast<float>(nbins_ / CV_PI);
-                    *grad       = pool.getBuffer(smaller_img->size(), CV_32FC2);
-                    *qangle     = pool.getBuffer(smaller_img->size(), CV_8UC2);
-                    module_stop_lock(omlp_sem_od, NODE_CDE, grad_qangle_alloc_start);
+                    grad = in_buf->grad;
+                    qangle = in_buf->qangle;
 
                     switch (smaller_img->type())
                     {
@@ -3574,11 +3516,6 @@ namespace
                             cells_per_block_.width, cells_per_block_.height,
                             StreamAccessor::getStream(stream),
                             true, omlp_sem_od);
-
-                    lt_t grad_qangle_release_start = module_start_lock(omlp_sem_od, NODE_ABCD);
-                    grad->release();
-                    qangle->release();
-                    module_stop_lock(omlp_sem_od, NODE_ABCD, grad_qangle_release_start);
                     /*
                      * end of compute histograms
                      * =========================== */
@@ -3708,14 +3645,9 @@ namespace
                     /* ===========================
                      * compute gradients
                      */
-                    lt_t grad_qangle_alloc_start = module_start_lock(omlp_sem_od, NODE_CDE);
-                    grad = new GpuMat();
-                    qangle = new GpuMat();
-
                     float  angleScale = static_cast<float>(nbins_ / CV_PI);
-                    *grad       = pool.getBuffer(smaller_img->size(), CV_32FC2);
-                    *qangle     = pool.getBuffer(smaller_img->size(), CV_8UC2);
-                    module_stop_lock(omlp_sem_od, NODE_CDE, grad_qangle_alloc_start);
+                    grad = in_buf->grad;
+                    qangle = in_buf->qangle;
 
                     switch (smaller_img->type())
                     {
@@ -3761,11 +3693,6 @@ namespace
                             cells_per_block_.width, cells_per_block_.height,
                             StreamAccessor::getStream(stream),
                             true, omlp_sem_od);
-
-                    lt_t grad_qangle_release_start = module_start_lock(omlp_sem_od, NODE_ABCD);
-                    grad->release();
-                    qangle->release();
-                    module_stop_lock(omlp_sem_od, NODE_ABCD, grad_qangle_release_start);
                     /*
                      * end of compute histograms
                      * =========================== */
@@ -3967,14 +3894,9 @@ namespace
                     /* ===========================
                      * compute gradients
                      */
-                    lt_t grad_qangle_alloc_start = module_start_lock(omlp_sem_od, NODE_CDE);
-                    grad = new GpuMat();
-                    qangle = new GpuMat();
-
                     float  angleScale = static_cast<float>(nbins_ / CV_PI);
-                    *grad       = pool.getBuffer(smaller_img->size(), CV_32FC2);
-                    *qangle     = pool.getBuffer(smaller_img->size(), CV_8UC2);
-                    module_stop_lock(omlp_sem_od, NODE_CDE, grad_qangle_alloc_start);
+                    grad = in_buf->grad;
+                    qangle = in_buf->qangle;
 
                     switch (smaller_img->type())
                     {
@@ -4020,11 +3942,6 @@ namespace
                             cells_per_block_.width, cells_per_block_.height,
                             StreamAccessor::getStream(stream),
                             true, omlp_sem_od);
-
-                    lt_t grad_qangle_release_start = module_start_lock(omlp_sem_od, NODE_ABCD);
-                    grad->release();
-                    qangle->release();
-                    module_stop_lock(omlp_sem_od, NODE_ABCD, grad_qangle_release_start);
                     /*
                      * end of compute histograms
                      * =========================== */
@@ -4277,6 +4194,8 @@ namespace
                         {
                             struct params_resize *out_buf = (struct params_resize *)out_buf_ptrs[level_idx];
                             out_buf->gpu_img = in_buf->gpu_img;
+                            out_buf->grad = in_buf->grad_array[level_idx];
+                            out_buf->qangle = in_buf->qangle_array[level_idx];
                             out_buf->found = in_buf->found;
                             out_buf->img_to_show = in_buf->img_to_show;
                             out_buf->smaller_img = smaller_img;
@@ -4318,6 +4237,8 @@ namespace
                             struct params_compute_gradients *out_buf = (struct params_compute_gradients *)out_buf_ptrs[level_idx];
 
                             out_buf->gpu_img = in_buf->gpu_img;
+                            out_buf->grad = in_buf->grad_array[level_idx];
+                            out_buf->qangle = in_buf->qangle_array[level_idx];
                             out_buf->found = in_buf->found;
                             out_buf->img_to_show = in_buf->img_to_show;
                             out_buf->smaller_img = smaller_img;
@@ -4507,6 +4428,8 @@ namespace
                         {
                             struct params_resize *out_buf = (struct params_resize *)out_buf_ptrs[level_idx];
                             out_buf->gpu_img = in_buf->gpu_img;
+                            out_buf->grad = in_buf->grad_array[level_idx];
+                            out_buf->qangle = in_buf->qangle_array[level_idx];
                             out_buf->found = in_buf->found;
                             out_buf->img_to_show = in_buf->img_to_show;
                             out_buf->smaller_img = smaller_img;
@@ -4549,6 +4472,8 @@ namespace
                                 struct params_compute_gradients *out_buf = (struct params_compute_gradients *)out_buf_ptrs[level_idx];
 
                                 out_buf->gpu_img = in_buf->gpu_img;
+                                out_buf->grad = in_buf->grad_array[level_idx];
+                                out_buf->qangle = in_buf->qangle_array[level_idx];
                                 out_buf->found = in_buf->found;
                                 out_buf->img_to_show = in_buf->img_to_show;
                                 out_buf->smaller_img = smaller_img;
@@ -4561,8 +4486,8 @@ namespace
                             }
                         }
 
-                        GpuMat * grad;
-                        GpuMat * qangle;
+                        GpuMat *grad = in_buf->grad_array[level_idx];
+                        GpuMat *qangle = in_buf->qangle_array[level_idx];
 
                         if (do_compute_grads)
                         {
@@ -4573,14 +4498,7 @@ namespace
                             /* ===========================
                             * compute gradients
                             */
-                            lt_t grad_qangle_alloc_start = module_start_lock(omlp_sem_od, NODE_CDE);
-                            grad = new GpuMat();
-                            qangle = new GpuMat();
-
                             float  angleScale = static_cast<float>(nbins_ / CV_PI);
-                            *grad       = pool.getBuffer(smaller_img->size(), CV_32FC2);
-                            *qangle     = pool.getBuffer(smaller_img->size(), CV_8UC2);
-                            module_stop_lock(omlp_sem_od, NODE_CDE, grad_qangle_alloc_start);
 
                             switch (smaller_img->type())
                             {
@@ -4807,6 +4725,8 @@ namespace
                         {
                             struct params_resize *out_buf = (struct params_resize *)out_buf_ptrs[level_idx];
                             out_buf->gpu_img = in_buf->gpu_img;
+                            out_buf->grad = in_buf->grad_array[level_idx];
+                            out_buf->qangle = in_buf->qangle_array[level_idx];
                             out_buf->found = in_buf->found;
                             out_buf->img_to_show = in_buf->img_to_show;
                             out_buf->smaller_img = smaller_img;
@@ -4850,6 +4770,8 @@ namespace
                                 struct params_compute_gradients *out_buf = (struct params_compute_gradients *)out_buf_ptrs[level_idx];
 
                                 out_buf->gpu_img = in_buf->gpu_img;
+                                out_buf->grad = in_buf->grad_array[level_idx];
+                                out_buf->qangle = in_buf->qangle_array[level_idx];
                                 out_buf->found = in_buf->found;
                                 out_buf->img_to_show = in_buf->img_to_show;
                                 out_buf->smaller_img = smaller_img;
@@ -4862,8 +4784,8 @@ namespace
                             }
                         }
 
-                        GpuMat * grad;
-                        GpuMat * qangle;
+                        GpuMat *grad = in_buf->grad_array[level_idx];
+                        GpuMat *qangle = in_buf->qangle_array[level_idx];
 
                         if (do_compute_grads)
                         {
@@ -4874,14 +4796,7 @@ namespace
                             /* ===========================
                             * compute gradients
                             */
-                            lt_t grad_qangle_alloc_start = module_start_lock(omlp_sem_od, NODE_CDE);
-                            grad = new GpuMat();
-                            qangle = new GpuMat();
-
                             float  angleScale = static_cast<float>(nbins_ / CV_PI);
-                            *grad       = pool.getBuffer(smaller_img->size(), CV_32FC2);
-                            *qangle     = pool.getBuffer(smaller_img->size(), CV_8UC2);
-                            module_stop_lock(omlp_sem_od, NODE_CDE, grad_qangle_alloc_start);
 
                             switch (smaller_img->type())
                             {
@@ -4954,11 +4869,6 @@ namespace
                                     cells_per_block_.width, cells_per_block_.height,
                                     StreamAccessor::getStream(stream),
                                     true, omlp_sem_od);
-
-                            lt_t grad_qangle_release_start = module_start_lock(omlp_sem_od, NODE_ABCD);
-                            grad->release();
-                            qangle->release();
-                            module_stop_lock(omlp_sem_od, NODE_ABCD, grad_qangle_release_start);
                             /*
                             * end of compute histograms
                             * =========================== */
@@ -5169,6 +5079,8 @@ namespace
                         {
                             struct params_resize *out_buf = (struct params_resize *)out_buf_ptrs[level_idx];
                             out_buf->gpu_img = in_buf->gpu_img;
+                            out_buf->grad = in_buf->grad_array[level_idx];
+                            out_buf->qangle = in_buf->qangle_array[level_idx];
                             out_buf->found = in_buf->found;
                             out_buf->img_to_show = in_buf->img_to_show;
                             out_buf->smaller_img = smaller_img;
@@ -5212,6 +5124,8 @@ namespace
                                 struct params_compute_gradients *out_buf = (struct params_compute_gradients *)out_buf_ptrs[level_idx];
 
                                 out_buf->gpu_img = in_buf->gpu_img;
+                                out_buf->grad = in_buf->grad_array[level_idx];
+                                out_buf->qangle = in_buf->qangle_array[level_idx];
                                 out_buf->found = in_buf->found;
                                 out_buf->img_to_show = in_buf->img_to_show;
                                 out_buf->smaller_img = smaller_img;
@@ -5224,8 +5138,8 @@ namespace
                             }
                         }
 
-                        GpuMat * grad;
-                        GpuMat * qangle;
+                        GpuMat *grad = in_buf->grad_array[level_idx];
+                        GpuMat *qangle = in_buf->qangle_array[level_idx];
 
                         if (do_compute_grads)
                         {
@@ -5236,14 +5150,7 @@ namespace
                             /* ===========================
                             * compute gradients
                             */
-                            lt_t grad_qangle_alloc_start = module_start_lock(omlp_sem_od, NODE_CDE);
-                            grad = new GpuMat();
-                            qangle = new GpuMat();
-
                             float  angleScale = static_cast<float>(nbins_ / CV_PI);
-                            *grad       = pool.getBuffer(smaller_img->size(), CV_32FC2);
-                            *qangle     = pool.getBuffer(smaller_img->size(), CV_8UC2);
-                            module_stop_lock(omlp_sem_od, NODE_CDE, grad_qangle_alloc_start);
 
                             switch (smaller_img->type())
                             {
@@ -5316,11 +5223,6 @@ namespace
                                     cells_per_block_.width, cells_per_block_.height,
                                     StreamAccessor::getStream(stream),
                                     true, omlp_sem_od);
-
-                            lt_t grad_qangle_release_start = module_start_lock(omlp_sem_od, NODE_ABCD);
-                            grad->release();
-                            qangle->release();
-                            module_stop_lock(omlp_sem_od, NODE_ABCD, grad_qangle_release_start);
                             /*
                             * end of compute histograms
                             * =========================== */
@@ -5579,6 +5481,8 @@ namespace
                         {
                             struct params_resize *out_buf = (struct params_resize *)out_buf_ptrs[level_idx];
                             out_buf->gpu_img = in_buf->gpu_img;
+                            out_buf->grad = in_buf->grad_array[level_idx];
+                            out_buf->qangle = in_buf->qangle_array[level_idx];
                             out_buf->found = in_buf->found;
                             out_buf->img_to_show = in_buf->img_to_show;
                             out_buf->smaller_img = smaller_img;
@@ -5622,6 +5526,8 @@ namespace
                                 struct params_compute_gradients *out_buf = (struct params_compute_gradients *)out_buf_ptrs[level_idx];
 
                                 out_buf->gpu_img = in_buf->gpu_img;
+                                out_buf->grad = in_buf->grad_array[level_idx];
+                                out_buf->qangle = in_buf->qangle_array[level_idx];
                                 out_buf->found = in_buf->found;
                                 out_buf->img_to_show = in_buf->img_to_show;
                                 out_buf->smaller_img = smaller_img;
@@ -5634,8 +5540,8 @@ namespace
                             }
                         }
 
-                        GpuMat * grad;
-                        GpuMat * qangle;
+                        GpuMat *grad = in_buf->grad_array[level_idx];
+                        GpuMat *qangle = in_buf->qangle_array[level_idx];
 
                         if (do_compute_grads)
                         {
@@ -5646,14 +5552,7 @@ namespace
                             /* ===========================
                             * compute gradients
                             */
-                            lt_t grad_qangle_alloc_start = module_start_lock(omlp_sem_od, NODE_CDE);
-                            grad = new GpuMat();
-                            qangle = new GpuMat();
-
                             float  angleScale = static_cast<float>(nbins_ / CV_PI);
-                            *grad       = pool.getBuffer(smaller_img->size(), CV_32FC2);
-                            *qangle     = pool.getBuffer(smaller_img->size(), CV_8UC2);
-                            module_stop_lock(omlp_sem_od, NODE_CDE, grad_qangle_alloc_start);
 
                             switch (smaller_img->type())
                             {
@@ -5726,11 +5625,6 @@ namespace
                                     cells_per_block_.width, cells_per_block_.height,
                                     StreamAccessor::getStream(stream),
                                     true, omlp_sem_od);
-
-                            lt_t grad_qangle_release_start = module_start_lock(omlp_sem_od, NODE_ABCD);
-                            grad->release();
-                            qangle->release();
-                            module_stop_lock(omlp_sem_od, NODE_ABCD, grad_qangle_release_start);
                             /*
                             * end of compute histograms
                             * =========================== */
@@ -5910,7 +5804,9 @@ namespace
     }
 
     void HOG_Impl::fine_CC_S_ABCDE(struct task_info &t_info, void** out_buf_ptrs,
-                                   cuda::GpuMat* gpu_img, std::vector<Rect>* found,
+                                   cuda::GpuMat* gpu_img,
+                                   cuda::GpuMat** grad_array, cuda::GpuMat** qangle_array,
+                                   std::vector<Rect>* found,
                                    Mat *img, int frame_idx, Stream stream, lt_t frame_start_time,
                                    int omlp_sem_od)
     {
@@ -6019,6 +5915,8 @@ namespace
             {
                 struct params_resize *out_buf = (struct params_resize *)out_buf_ptrs[level_idx];
                 out_buf->gpu_img = gpu_img;
+                out_buf->grad = grad_array[level_idx];
+                out_buf->qangle = qangle_array[level_idx];
                 out_buf->found = found;
                 out_buf->img_to_show = img;
                 out_buf->smaller_img = smaller_img;
@@ -6059,6 +5957,8 @@ namespace
                     struct params_compute_gradients *out_buf = (struct params_compute_gradients *)out_buf_ptrs[level_idx];
 
                     out_buf->gpu_img = gpu_img;
+                    out_buf->grad = grad_array[level_idx];
+                    out_buf->qangle = qangle_array[level_idx];
                     out_buf->found = found;
                     out_buf->img_to_show = img;
                     out_buf->smaller_img = smaller_img;
@@ -6071,8 +5971,8 @@ namespace
                 }
             }
 
-            GpuMat * grad;
-            GpuMat * qangle;
+            GpuMat *grad = grad_array[level_idx];
+            GpuMat *qangle = qangle_array[level_idx];
 
             if (do_compute_grads)
             {
@@ -6083,14 +5983,7 @@ namespace
                 /* ===========================
                  * compute gradients
                  */
-                lt_t grad_qangle_alloc_start = module_start_lock(omlp_sem_od, NODE_CDE);
-                grad = new GpuMat();
-                qangle = new GpuMat();
-
                 float  angleScale = static_cast<float>(nbins_ / CV_PI);
-                *grad       = pool.getBuffer(smaller_img->size(), CV_32FC2);
-                *qangle     = pool.getBuffer(smaller_img->size(), CV_8UC2);
-                module_stop_lock(omlp_sem_od, NODE_CDE, grad_qangle_alloc_start);
 
                 switch (smaller_img->type())
                 {
@@ -6163,11 +6056,6 @@ namespace
                         cells_per_block_.width, cells_per_block_.height,
                         StreamAccessor::getStream(stream),
                         true, omlp_sem_od);
-
-                lt_t grad_qangle_release_start = module_start_lock(omlp_sem_od, NODE_ABCD);
-                grad->release();
-                qangle->release();
-                module_stop_lock(omlp_sem_od, NODE_ABCD, grad_qangle_release_start);
                 /*
                  * end of compute histograms
                  * =========================== */
@@ -7066,11 +6954,6 @@ namespace
                                     cells_per_block_.width, cells_per_block_.height,
                                     StreamAccessor::getStream(stream),
                                     true, omlp_sem_od);
-
-                            lt_t grad_qangle_release_start = module_start_lock(omlp_sem_od, NODE_ABCD);
-                            grad->release();
-                            qangle->release();
-                            module_stop_lock(omlp_sem_od, NODE_ABCD, grad_qangle_release_start);
                             /*
                             * end of compute histograms
                             * =========================== */
@@ -7452,14 +7335,9 @@ namespace
                             /* ===========================
                             * compute gradients
                             */
-                            lt_t grad_qangle_alloc_start = module_start_lock(omlp_sem_od, NODE_CDE);
-                            grad = new GpuMat();
-                            qangle = new GpuMat();
-
                             float  angleScale = static_cast<float>(nbins_ / CV_PI);
-                            *grad       = pool.getBuffer(smaller_img->size(), CV_32FC2);
-                            *qangle     = pool.getBuffer(smaller_img->size(), CV_8UC2);
-                            module_stop_lock(omlp_sem_od, NODE_CDE, grad_qangle_alloc_start);
+                            grad = in_buf->grad;
+                            qangle = in_buf->qangle;
 
                             switch (smaller_img->type())
                             {
@@ -7526,11 +7404,6 @@ namespace
                                     cells_per_block_.width, cells_per_block_.height,
                                     StreamAccessor::getStream(stream),
                                     true, omlp_sem_od);
-
-                            lt_t grad_qangle_release_start = module_start_lock(omlp_sem_od, NODE_ABCD);
-                            grad->release();
-                            qangle->release();
-                            module_stop_lock(omlp_sem_od, NODE_ABCD, grad_qangle_release_start);
                             /*
                             * end of compute histograms
                             * =========================== */
@@ -7947,6 +7820,9 @@ namespace
 
                             confidences = in_buf->confidences;
                             labels = in_buf->labels;
+
+                            grad = in_buf->grad;
+                            qangle = in_buf->qangle;
                         }
 
                         if (do_compute_grads)
@@ -7960,19 +7836,14 @@ namespace
                                 struct params_compute_gradients *in_buf = (struct params_compute_gradients *)in_buf_ptrs[level_idx];
 
                                 smaller_img = in_buf->smaller_img;
-                            }
 
+                                grad = in_buf->grad;
+                                qangle = in_buf->qangle;
+                            }
                             /* ===========================
                             * compute gradients
                             */
-                            lt_t grad_qangle_alloc_start = module_start_lock(omlp_sem_od, NODE_CDE);
-                            grad = new GpuMat();
-                            qangle = new GpuMat();
-
                             float  angleScale = static_cast<float>(nbins_ / CV_PI);
-                            *grad       = pool.getBuffer(smaller_img->size(), CV_32FC2);
-                            *qangle     = pool.getBuffer(smaller_img->size(), CV_8UC2);
-                            module_stop_lock(omlp_sem_od, NODE_CDE, grad_qangle_alloc_start);
 
                             switch (smaller_img->type())
                             {
@@ -8042,11 +7913,6 @@ namespace
                                     cells_per_block_.width, cells_per_block_.height,
                                     StreamAccessor::getStream(stream),
                                     true, omlp_sem_od);
-
-                            lt_t grad_qangle_release_start = module_start_lock(omlp_sem_od, NODE_ABCD);
-                            grad->release();
-                            qangle->release();
-                            module_stop_lock(omlp_sem_od, NODE_ABCD, grad_qangle_release_start);
                             /*
                             * end of compute histograms
                             * =========================== */

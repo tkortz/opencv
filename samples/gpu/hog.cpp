@@ -155,6 +155,8 @@ private:
 struct params_compute  // a.k.a. compute scales node
 {
     cv::cuda::GpuMat * gpu_img;
+    cv::cuda::GpuMat ** grad_array;
+    cv::cuda::GpuMat ** qangle_array;
     std::vector<Rect> * found;
     Mat * img_to_show;
     size_t frame_index;
@@ -206,6 +208,8 @@ struct params_collect_locations
 struct params_resize
 {
     cv::cuda::GpuMat * gpu_img;
+    cv::cuda::GpuMat * grad;
+    cv::cuda::GpuMat * qangle;
     std::vector<Rect> * found;
     Mat * img_to_show;
     cv::cuda::GpuMat * smaller_img;
@@ -221,6 +225,8 @@ struct params_resize
 struct params_compute_gradients
 {
     cv::cuda::GpuMat * gpu_img;
+    cv::cuda::GpuMat * grad;
+    cv::cuda::GpuMat * qangle;
     std::vector<Rect> * found;
     Mat * img_to_show;
     cv::cuda::GpuMat * smaller_img;
@@ -1230,6 +1236,34 @@ void App::thread_color_convert(node_t *_node, pthread_barrier_t* init_barrier,
         gpu_img_array[i] = new cuda::GpuMat();
     }
 
+    frame = frames[0];
+
+    double level_scale[13];
+    double scale_val = 1.0;
+    for (unsigned i = 0; i < 13; i++)
+    {
+        level_scale[i] = scale_val;
+        scale_val *= scale;
+    }
+
+    cv::cuda::Stream stream;
+    cuda::BufferPool pool(stream);
+    cuda::GpuMat* grad_array[cons_copies][13];
+    cuda::GpuMat* qangle_array[cons_copies][13];
+    for (unsigned i = 0; i < cons_copies; i++)
+    {
+        for (unsigned j = 0; j < 13; j++)
+        {
+            Size sz(cvRound(frame.cols / level_scale[j]), cvRound(frame.rows / level_scale[j]));
+
+            grad_array[i][j] = new cuda::GpuMat();
+            qangle_array[i][j] = new cuda::GpuMat();
+
+            *grad_array[i][j]   = pool.getBuffer(sz, CV_32FC2);
+            *qangle_array[i][j] = pool.getBuffer(sz, CV_8UC2);
+        }
+    }
+
     /* initialization is finished */
     pthread_barrier_wait(init_barrier);
 
@@ -1286,6 +1320,9 @@ void App::thread_color_convert(node_t *_node, pthread_barrier_t* init_barrier,
             // Perform HOG classification
             hogWorkBegin();
 
+            // Which of the (conservatively duplicated) data should we use?
+            unsigned data_idx = (j / args.num_fine_graphs) % cons_copies;
+
             cv::cuda::Stream stream;
             if (use_gpu) {
                 /* =============
@@ -1293,7 +1330,7 @@ void App::thread_color_convert(node_t *_node, pthread_barrier_t* init_barrier,
                 */
                 SAMPLE_START_LOCK(lt_t fz_start, NODE_AB);
 
-                cuda::GpuMat *gpu_img = gpu_img_array[(j / args.num_fine_graphs) % cons_copies];
+                cuda::GpuMat *gpu_img = gpu_img_array[data_idx];
                 gpu_img->upload(*img, stream);
                 cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
 
@@ -1307,6 +1344,8 @@ void App::thread_color_convert(node_t *_node, pthread_barrier_t* init_barrier,
                 gpu_hog->setScaleFactor(scale);
                 gpu_hog->setGroupThreshold(gr_threshold);
                 out_buf->gpu_img = gpu_img;
+                out_buf->grad_array = grad_array[data_idx];
+                out_buf->qangle_array = qangle_array[data_idx];
                 out_buf->found = found;
                 out_buf->img_to_show = img;
                 out_buf->frame_index = j;
@@ -1378,6 +1417,12 @@ void App::thread_color_convert(node_t *_node, pthread_barrier_t* init_barrier,
     for (unsigned i = 0; i < cons_copies; i++)
     {
         gpu_img_array[i]->release();
+
+        for (unsigned j = 0; j < 13; j++)
+        {
+            grad_array[i][j]->release();
+            qangle_array[i][j]->release();
+        }
     }
 }
 
@@ -2812,6 +2857,10 @@ void App::thread_fine_CC_S_ABCDE(node_t* _node, pthread_barrier_t* init_barrier,
     vector<Rect>* found = new vector<Rect>();
     Mat frame;
 
+    // Source (compute scale levels)
+    cv::cuda::Stream stream;
+    gpu_hog->set_up_constants(stream);
+
     // Pre-allocate all gpu_img instances we will need (one per frame)
     int cons_copies = 5; // be conservative so we don't overwrite anything
     cuda::GpuMat* gpu_img_array[cons_copies];
@@ -2820,9 +2869,32 @@ void App::thread_fine_CC_S_ABCDE(node_t* _node, pthread_barrier_t* init_barrier,
         gpu_img_array[i] = new cuda::GpuMat();
     }
 
-    // Source (compute scale levels)
-    cv::cuda::Stream stream;
-    gpu_hog->set_up_constants(stream);
+    frame = frames[0];
+
+    double level_scale[13];
+    double scale_val = 1.0;
+    for (unsigned i = 0; i < 13; i++)
+    {
+        level_scale[i] = scale_val;
+        scale_val *= scale;
+    }
+
+    cuda::BufferPool pool(stream);
+    cuda::GpuMat* grad_array[cons_copies][13];
+    cuda::GpuMat* qangle_array[cons_copies][13];
+    for (unsigned i = 0; i < cons_copies; i++)
+    {
+        for (unsigned j = 0; j < 13; j++)
+        {
+            Size sz(cvRound(frame.cols / level_scale[j]), cvRound(frame.rows / level_scale[j]));
+
+            grad_array[i][j] = new cuda::GpuMat();
+            qangle_array[i][j] = new cuda::GpuMat();
+
+            *grad_array[i][j]   = pool.getBuffer(sz, CV_32FC2);
+            *qangle_array[i][j] = pool.getBuffer(sz, CV_8UC2);
+        }
+    }
 
     /* initialization is finished */
     pthread_barrier_wait(init_barrier);
@@ -2886,12 +2958,15 @@ void App::thread_fine_CC_S_ABCDE(node_t* _node, pthread_barrier_t* init_barrier,
             // Prep HOG classification
             hogWorkBegin();
 
+            // Which of the (conservatively duplicated) data should we use?
+            unsigned data_idx = (j / args.num_fine_graphs) % cons_copies;
+
             /* =============
              * LOCK: upload image to GPU
              */
             SAMPLE_START_LOCK(lt_t fz_start, NODE_AB);
 
-            cuda::GpuMat *gpu_img = gpu_img_array[(j / args.num_fine_graphs) % cons_copies];
+            cuda::GpuMat *gpu_img = gpu_img_array[data_idx];
             gpu_img->upload(*img, stream);
             cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
 
@@ -2909,7 +2984,9 @@ void App::thread_fine_CC_S_ABCDE(node_t* _node, pthread_barrier_t* init_barrier,
              * end of color convert
              * =========================== */
 
-            gpu_hog->fine_CC_S_ABCDE(t_info, out_buf_ptrs, gpu_img, found,
+            gpu_hog->fine_CC_S_ABCDE(t_info, out_buf_ptrs, gpu_img,
+                                     grad_array[data_idx], qangle_array[data_idx],
+                                     found,
                                      img_to_show, j, stream, frame_start_time,
                                      omlp_sem_od);
 
@@ -2944,5 +3021,11 @@ void App::thread_fine_CC_S_ABCDE(node_t* _node, pthread_barrier_t* init_barrier,
     for (unsigned i = 0; i < cons_copies; i++)
     {
         gpu_img_array[i]->release();
+
+        for (unsigned j = 0; j < 13; j++)
+        {
+            grad_array[i][j]->release();
+            qangle_array[i][j]->release();
+        }
     }
 }
