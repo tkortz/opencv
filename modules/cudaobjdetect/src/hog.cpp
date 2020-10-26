@@ -289,6 +289,7 @@ namespace
         void fine_CC_S_ABCDE(struct task_info &t_info, void** out_buf_ptrs,
                              cuda::GpuMat* gpu_img,
                              cuda::GpuMat** grad_array, cuda::GpuMat** qangle_array,
+                             cuda::GpuMat** block_hists_array,
                              std::vector<Rect>* found,
                              Mat *img, int frame_idx, Stream stream, lt_t frame_start_time,
                              int omlp_sem_od); // color-convert -> classify hists (maybe not all the way)
@@ -314,6 +315,8 @@ namespace
         int wait_forbidden_zone(int sem_od, node_config computation);
         int unlock_fzlp(int sem_od);
 
+        int getTotalHistSize(Size img_size) const;
+
     private:
         Size win_size_;
         Size block_size_;
@@ -333,7 +336,6 @@ namespace
         Size cells_per_block_;
 
     private:
-        int getTotalHistSize(Size img_size) const;
         void computeBlockHistograms(const GpuMat& img, GpuMat& block_hists, Stream& stream);
 //        void computeGradient(const GpuMat& img, GpuMat& grad, GpuMat& qangle, Stream& stream);
 
@@ -352,6 +354,7 @@ namespace
         cv::cuda::GpuMat * gpu_img;
         cv::cuda::GpuMat ** grad_array;
         cv::cuda::GpuMat ** qangle_array;
+        cv::cuda::GpuMat ** block_hists_array;
         std::vector<Rect> * found;
         Mat * img_to_show;
         size_t frame_index;
@@ -405,6 +408,7 @@ namespace
         cv::cuda::GpuMat * gpu_img;
         cv::cuda::GpuMat * grad;
         cv::cuda::GpuMat * qangle;
+        cv::cuda::GpuMat * block_hists;
         std::vector<Rect> * found;
         Mat * img_to_show;
         cv::cuda::GpuMat * smaller_img;
@@ -422,6 +426,7 @@ namespace
         cv::cuda::GpuMat * gpu_img;
         cv::cuda::GpuMat * grad;
         cv::cuda::GpuMat * qangle;
+        cv::cuda::GpuMat * block_hists;
         std::vector<Rect> * found;
         Mat * img_to_show;
         cv::cuda::GpuMat * smaller_img;
@@ -437,6 +442,7 @@ namespace
     struct params_compute_histograms
     {
         cv::cuda::GpuMat * gpu_img;
+        cv::cuda::GpuMat * block_hists;
         std::vector<Rect> * found;
         Mat * img_to_show;
         cv::cuda::GpuMat * smaller_img;
@@ -490,6 +496,7 @@ namespace
         Mat * img_to_show;
         cv::cuda::GpuMat * smaller_img;
         cv::cuda::GpuMat * labels;
+        cv::cuda::GpuMat * block_hists;
         std::vector<double> * level_scale;
         std::vector<double> * confidences;
         int index;
@@ -645,6 +652,7 @@ namespace
                         out_buf->gpu_img = in_buf->gpu_img;
                         out_buf->grad = in_buf->grad_array[i];
                         out_buf->qangle = in_buf->qangle_array[i];
+                        out_buf->block_hists = in_buf->block_hists_array[i];
                         out_buf->found = in_buf->found;
                         out_buf->img_to_show = in_buf->img_to_show;
                         out_buf->smaller_img = smaller_img;
@@ -818,6 +826,7 @@ namespace
                     out_buf->gpu_img = in_buf->gpu_img;
                     out_buf->grad = in_buf->grad;
                     out_buf->qangle = in_buf->qangle;
+                    out_buf->block_hists = in_buf->block_hists;
                     out_buf->found = in_buf->found;
                     out_buf->img_to_show = in_buf->img_to_show;
                     out_buf->smaller_img = in_buf->smaller_img;
@@ -957,6 +966,7 @@ namespace
                      * =========================== */
 
                     out_buf->gpu_img = in_buf->gpu_img;
+                    out_buf->block_hists = in_buf->block_hists;
                     out_buf->found = in_buf->found;
                     out_buf->img_to_show = in_buf->img_to_show;
                     out_buf->smaller_img = in_buf->smaller_img;
@@ -1063,14 +1073,10 @@ namespace
                     grad = in_buf->grad;
                     qangle = in_buf->qangle;
 
-                    lt_t block_hists_alloc_start = module_start_lock(omlp_sem_od, NODE_BCDE);
-                    block_hists = new GpuMat();
-
                     /* ===========================
                      * compute histograms
                      */
-                    *block_hists      = pool.getBuffer(1, getTotalHistSize(smaller_img->size()), CV_32FC1);
-                    module_stop_lock(omlp_sem_od, NODE_BCDE, block_hists_alloc_start);
+                    block_hists = in_buf->block_hists;
 
                     bool change_deadline = t_info.realtime && t_info.sched == FINE_GRAINED;
 
@@ -1383,10 +1389,6 @@ namespace
                     /*
                      * end of classify
                      * =========================== */
-
-                    lt_t block_hists_release_start = module_start_lock(omlp_sem_od, NODE_ABCDE);
-                    block_hists->release();
-                    module_stop_lock(omlp_sem_od, NODE_ABCDE, block_hists_release_start);
 
                     out_buf->gpu_img = in_buf->gpu_img;
                     out_buf->found = in_buf->found;
@@ -1765,14 +1767,10 @@ namespace
                      * end of compute gradients
                      * =========================== */
 
-                    lt_t block_hists_alloc_start = module_start_lock(omlp_sem_od, NODE_BCDE);
-                    block_hists = new GpuMat();
-
                     /* ===========================
                      * compute histograms
                      */
-                    *block_hists      = pool.getBuffer(1, getTotalHistSize(smaller_img->size()), CV_32FC1);
-                    module_stop_lock(omlp_sem_od, NODE_BCDE, block_hists_alloc_start);
+                    block_hists = in_buf->block_hists;
 
                     hog::compute_hists(nbins_,
                             block_stride_.width, block_stride_.height,
@@ -2327,6 +2325,7 @@ namespace
                      * =========================== */
 
                     out_buf->gpu_img = in_buf->gpu_img;
+                    out_buf->block_hists = in_buf->block_hists;
                     out_buf->found = in_buf->found;
                     out_buf->img_to_show = in_buf->img_to_show;
                     out_buf->smaller_img = in_buf->smaller_img;
@@ -2458,14 +2457,10 @@ namespace
                      * end of compute gradients
                      * =========================== */
 
-                    lt_t block_hists_alloc_start = module_start_lock(omlp_sem_od, NODE_BCDE);
-                    block_hists = new GpuMat();
-
                     /* ===========================
                      * compute histograms
                      */
-                    *block_hists      = pool.getBuffer(1, getTotalHistSize(smaller_img->size()), CV_32FC1);
-                    module_stop_lock(omlp_sem_od, NODE_BCDE, block_hists_alloc_start);
+                    block_hists = in_buf->block_hists;
 
                     hog::compute_hists(nbins_,
                             block_stride_.width, block_stride_.height,
@@ -2585,14 +2580,10 @@ namespace
                     grad = in_buf->grad;
                     qangle = in_buf->qangle;
 
-                    lt_t block_hists_alloc_start = module_start_lock(omlp_sem_od, NODE_BCDE);
-                    block_hists = new GpuMat();
-
                     /* ===========================
                      * compute histograms
                      */
-                    *block_hists      = pool.getBuffer(1, getTotalHistSize(smaller_img->size()), CV_32FC1);
-                    module_stop_lock(omlp_sem_od, NODE_BCDE, block_hists_alloc_start);
+                    block_hists = in_buf->block_hists;
 
                     hog::compute_hists(nbins_,
                             block_stride_.width, block_stride_.height,
@@ -2791,10 +2782,6 @@ namespace
                      * end of classify
                      * =========================== */
 
-                    lt_t block_hists_release_start = module_start_lock(omlp_sem_od, NODE_ABCDE);
-                    block_hists->release();
-                    module_stop_lock(omlp_sem_od, NODE_ABCDE, block_hists_release_start);
-
                     out_buf->gpu_img = in_buf->gpu_img;
                     out_buf->found = in_buf->found;
                     out_buf->img_to_show = in_buf->img_to_show;
@@ -2948,14 +2935,10 @@ namespace
                      * end of compute gradients
                      * =========================== */
 
-                    lt_t block_hists_alloc_start = module_start_lock(omlp_sem_od, NODE_BCDE);
-                    block_hists = new GpuMat();
-
                     /* ===========================
                      * compute histograms
                      */
-                    *block_hists      = pool.getBuffer(1, getTotalHistSize(smaller_img->size()), CV_32FC1);
-                    module_stop_lock(omlp_sem_od, NODE_BCDE, block_hists_alloc_start);
+                    block_hists = in_buf->block_hists;
 
                     hog::compute_hists(nbins_,
                             block_stride_.width, block_stride_.height,
@@ -3105,14 +3088,10 @@ namespace
                      * end of compute gradients
                      * =========================== */
 
-                    lt_t block_hists_alloc_start = module_start_lock(omlp_sem_od, NODE_BCDE);
-                    block_hists = new GpuMat();
-
                     /* ===========================
                      * compute histograms
                      */
-                    *block_hists      = pool.getBuffer(1, getTotalHistSize(smaller_img->size()), CV_32FC1);
-                    module_stop_lock(omlp_sem_od, NODE_BCDE, block_hists_alloc_start);
+                    block_hists = in_buf->block_hists;
 
                     hog::compute_hists(nbins_,
                             block_stride_.width, block_stride_.height,
@@ -3252,14 +3231,10 @@ namespace
                     grad = in_buf->grad;
                     qangle = in_buf->qangle;
 
-                    lt_t block_hists_alloc_start = module_start_lock(omlp_sem_od, NODE_BCDE);
-                    block_hists = new GpuMat();
-
                     /* ===========================
                      * compute histograms
                      */
-                    *block_hists      = pool.getBuffer(1, getTotalHistSize(smaller_img->size()), CV_32FC1);
-                    module_stop_lock(omlp_sem_od, NODE_BCDE, block_hists_alloc_start);
+                    block_hists = in_buf->block_hists;
 
                     hog::compute_hists(nbins_,
                             block_stride_.width, block_stride_.height,
@@ -3338,10 +3313,6 @@ namespace
                     /*
                      * end of classify
                      * =========================== */
-
-                    lt_t block_hists_release_start = module_start_lock(omlp_sem_od, NODE_ABCDE);
-                    block_hists->release();
-                    module_stop_lock(omlp_sem_od, NODE_ABCDE, block_hists_release_start);
 
                     out_buf->gpu_img = in_buf->gpu_img;
                     out_buf->found = in_buf->found;
@@ -3497,14 +3468,10 @@ namespace
                      * end of compute gradients
                      * =========================== */
 
-                    lt_t block_hists_alloc_start = module_start_lock(omlp_sem_od, NODE_BCDE);
-                    block_hists = new GpuMat();
-
                     /* ===========================
                      * compute histograms
                      */
-                    *block_hists      = pool.getBuffer(1, getTotalHistSize(smaller_img->size()), CV_32FC1);
-                    module_stop_lock(omlp_sem_od, NODE_BCDE, block_hists_alloc_start);
+                    block_hists = in_buf->block_hists;
 
                     hog::compute_hists(nbins_,
                             block_stride_.width, block_stride_.height,
@@ -3674,14 +3641,10 @@ namespace
                      * end of compute gradients
                      * =========================== */
 
-                    lt_t block_hists_alloc_start = module_start_lock(omlp_sem_od, NODE_BCDE);
-                    block_hists = new GpuMat();
-
                     /* ===========================
                      * compute histograms
                      */
-                    *block_hists      = pool.getBuffer(1, getTotalHistSize(smaller_img->size()), CV_32FC1);
-                    module_stop_lock(omlp_sem_od, NODE_BCDE, block_hists_alloc_start);
+                    block_hists = in_buf->block_hists;
 
                     hog::compute_hists(nbins_,
                             block_stride_.width, block_stride_.height,
@@ -3760,10 +3723,6 @@ namespace
                     /*
                      * end of classify
                      * =========================== */
-
-                    lt_t block_hists_release_start = module_start_lock(omlp_sem_od, NODE_ABCDE);
-                    block_hists->release();
-                    module_stop_lock(omlp_sem_od, NODE_ABCDE, block_hists_release_start);
 
                     out_buf->gpu_img = in_buf->gpu_img;
                     out_buf->found = in_buf->found;
@@ -3923,14 +3882,10 @@ namespace
                      * end of compute gradients
                      * =========================== */
 
-                    lt_t block_hists_alloc_start = module_start_lock(omlp_sem_od, NODE_BCDE);
-                    block_hists = new GpuMat();
-
                     /* ===========================
                      * compute histograms
                      */
-                    *block_hists      = pool.getBuffer(1, getTotalHistSize(smaller_img->size()), CV_32FC1);
-                    module_stop_lock(omlp_sem_od, NODE_BCDE, block_hists_alloc_start);
+                    block_hists = in_buf->block_hists;
 
                     hog::compute_hists(nbins_,
                             block_stride_.width, block_stride_.height,
@@ -4009,10 +3964,6 @@ namespace
                     /*
                      * end of classify
                      * =========================== */
-
-                    lt_t block_hists_release_start = module_start_lock(omlp_sem_od, NODE_ABCDE);
-                    block_hists->release();
-                    module_stop_lock(omlp_sem_od, NODE_ABCDE, block_hists_release_start);
 
                     out_buf->gpu_img = in_buf->gpu_img;
                     out_buf->found = in_buf->found;
@@ -4196,6 +4147,7 @@ namespace
                             out_buf->gpu_img = in_buf->gpu_img;
                             out_buf->grad = in_buf->grad_array[level_idx];
                             out_buf->qangle = in_buf->qangle_array[level_idx];
+                            out_buf->block_hists = in_buf->block_hists_array[level_idx];
                             out_buf->found = in_buf->found;
                             out_buf->img_to_show = in_buf->img_to_show;
                             out_buf->smaller_img = smaller_img;
@@ -4239,6 +4191,7 @@ namespace
                             out_buf->gpu_img = in_buf->gpu_img;
                             out_buf->grad = in_buf->grad_array[level_idx];
                             out_buf->qangle = in_buf->qangle_array[level_idx];
+                            out_buf->block_hists = in_buf->block_hists_array[level_idx];
                             out_buf->found = in_buf->found;
                             out_buf->img_to_show = in_buf->img_to_show;
                             out_buf->smaller_img = smaller_img;
@@ -4430,6 +4383,7 @@ namespace
                             out_buf->gpu_img = in_buf->gpu_img;
                             out_buf->grad = in_buf->grad_array[level_idx];
                             out_buf->qangle = in_buf->qangle_array[level_idx];
+                            out_buf->block_hists = in_buf->block_hists_array[level_idx];
                             out_buf->found = in_buf->found;
                             out_buf->img_to_show = in_buf->img_to_show;
                             out_buf->smaller_img = smaller_img;
@@ -4474,6 +4428,7 @@ namespace
                                 out_buf->gpu_img = in_buf->gpu_img;
                                 out_buf->grad = in_buf->grad_array[level_idx];
                                 out_buf->qangle = in_buf->qangle_array[level_idx];
+                                out_buf->block_hists = in_buf->block_hists_array[level_idx];
                                 out_buf->found = in_buf->found;
                                 out_buf->img_to_show = in_buf->img_to_show;
                                 out_buf->smaller_img = smaller_img;
@@ -4528,6 +4483,7 @@ namespace
                             struct params_compute_histograms *out_buf = (struct params_compute_histograms *)out_buf_ptrs[level_idx];
 
                             out_buf->gpu_img = in_buf->gpu_img;
+                            out_buf->block_hists = in_buf->block_hists_array[level_idx];
                             out_buf->found = in_buf->found;
                             out_buf->img_to_show = in_buf->img_to_show;
                             out_buf->smaller_img = smaller_img;
@@ -4727,6 +4683,7 @@ namespace
                             out_buf->gpu_img = in_buf->gpu_img;
                             out_buf->grad = in_buf->grad_array[level_idx];
                             out_buf->qangle = in_buf->qangle_array[level_idx];
+                            out_buf->block_hists = in_buf->block_hists_array[level_idx];
                             out_buf->found = in_buf->found;
                             out_buf->img_to_show = in_buf->img_to_show;
                             out_buf->smaller_img = smaller_img;
@@ -4772,6 +4729,7 @@ namespace
                                 out_buf->gpu_img = in_buf->gpu_img;
                                 out_buf->grad = in_buf->grad_array[level_idx];
                                 out_buf->qangle = in_buf->qangle_array[level_idx];
+                                out_buf->block_hists = in_buf->block_hists_array[level_idx];
                                 out_buf->found = in_buf->found;
                                 out_buf->img_to_show = in_buf->img_to_show;
                                 out_buf->smaller_img = smaller_img;
@@ -4828,6 +4786,7 @@ namespace
                                 struct params_compute_histograms *out_buf = (struct params_compute_histograms *)out_buf_ptrs[level_idx];
 
                                 out_buf->gpu_img = in_buf->gpu_img;
+                                out_buf->block_hists = in_buf->block_hists_array[level_idx];
                                 out_buf->found = in_buf->found;
                                 out_buf->img_to_show = in_buf->img_to_show;
                                 out_buf->smaller_img = smaller_img;
@@ -4850,14 +4809,10 @@ namespace
                             fprintf(stdout, "[S] Computing histograms for level %d.\n", level_idx);
 #endif
 
-                            lt_t block_hists_alloc_start = module_start_lock(omlp_sem_od, NODE_BCDE);
-                            block_hists = new GpuMat();
-
                             /* ===========================
                             * compute histograms
                             */
-                            *block_hists = pool.getBuffer(1, getTotalHistSize(smaller_img->size()), CV_32FC1);
-                            module_stop_lock(omlp_sem_od, NODE_BCDE, block_hists_alloc_start);
+                            block_hists = in_buf->block_hists_array[level_idx];
 
                             hog::compute_hists(nbins_,
                                     block_stride_.width, block_stride_.height,
@@ -5081,6 +5036,7 @@ namespace
                             out_buf->gpu_img = in_buf->gpu_img;
                             out_buf->grad = in_buf->grad_array[level_idx];
                             out_buf->qangle = in_buf->qangle_array[level_idx];
+                            out_buf->block_hists = in_buf->block_hists_array[level_idx];
                             out_buf->found = in_buf->found;
                             out_buf->img_to_show = in_buf->img_to_show;
                             out_buf->smaller_img = smaller_img;
@@ -5126,6 +5082,7 @@ namespace
                                 out_buf->gpu_img = in_buf->gpu_img;
                                 out_buf->grad = in_buf->grad_array[level_idx];
                                 out_buf->qangle = in_buf->qangle_array[level_idx];
+                                out_buf->block_hists = in_buf->block_hists_array[level_idx];
                                 out_buf->found = in_buf->found;
                                 out_buf->img_to_show = in_buf->img_to_show;
                                 out_buf->smaller_img = smaller_img;
@@ -5182,6 +5139,7 @@ namespace
                                 struct params_compute_histograms *out_buf = (struct params_compute_histograms *)out_buf_ptrs[level_idx];
 
                                 out_buf->gpu_img = in_buf->gpu_img;
+                                out_buf->block_hists = in_buf->block_hists_array[level_idx];
                                 out_buf->found = in_buf->found;
                                 out_buf->img_to_show = in_buf->img_to_show;
                                 out_buf->smaller_img = smaller_img;
@@ -5204,14 +5162,10 @@ namespace
                             fprintf(stdout, "[S] Computing histograms for level %d.\n", level_idx);
 #endif
 
-                            lt_t block_hists_alloc_start = module_start_lock(omlp_sem_od, NODE_BCDE);
-                            block_hists = new GpuMat();
-
                             /* ===========================
                             * compute histograms
                             */
-                            *block_hists = pool.getBuffer(1, getTotalHistSize(smaller_img->size()), CV_32FC1);
-                            module_stop_lock(omlp_sem_od, NODE_BCDE, block_hists_alloc_start);
+                            block_hists = in_buf->block_hists_array[level_idx];
 
                             hog::compute_hists(nbins_,
                                     block_stride_.width, block_stride_.height,
@@ -5483,6 +5437,7 @@ namespace
                             out_buf->gpu_img = in_buf->gpu_img;
                             out_buf->grad = in_buf->grad_array[level_idx];
                             out_buf->qangle = in_buf->qangle_array[level_idx];
+                            out_buf->block_hists = in_buf->block_hists_array[level_idx];
                             out_buf->found = in_buf->found;
                             out_buf->img_to_show = in_buf->img_to_show;
                             out_buf->smaller_img = smaller_img;
@@ -5528,6 +5483,7 @@ namespace
                                 out_buf->gpu_img = in_buf->gpu_img;
                                 out_buf->grad = in_buf->grad_array[level_idx];
                                 out_buf->qangle = in_buf->qangle_array[level_idx];
+                                out_buf->block_hists = in_buf->block_hists_array[level_idx];
                                 out_buf->found = in_buf->found;
                                 out_buf->img_to_show = in_buf->img_to_show;
                                 out_buf->smaller_img = smaller_img;
@@ -5584,6 +5540,7 @@ namespace
                                 struct params_compute_histograms *out_buf = (struct params_compute_histograms *)out_buf_ptrs[level_idx];
 
                                 out_buf->gpu_img = in_buf->gpu_img;
+                                out_buf->block_hists = in_buf->block_hists_array[level_idx];
                                 out_buf->found = in_buf->found;
                                 out_buf->img_to_show = in_buf->img_to_show;
                                 out_buf->smaller_img = smaller_img;
@@ -5606,14 +5563,10 @@ namespace
                             fprintf(stdout, "[S] Computing histograms for level %d.\n", level_idx);
 #endif
 
-                            lt_t block_hists_alloc_start = module_start_lock(omlp_sem_od, NODE_BCDE);
-                            block_hists = new GpuMat();
-
                             /* ===========================
                             * compute histograms
                             */
-                            *block_hists = pool.getBuffer(1, getTotalHistSize(smaller_img->size()), CV_32FC1);
-                            module_stop_lock(omlp_sem_od, NODE_BCDE, block_hists_alloc_start);
+                            block_hists = in_buf->block_hists_array[level_idx];
 
                             hog::compute_hists(nbins_,
                                     block_stride_.width, block_stride_.height,
@@ -5738,10 +5691,6 @@ namespace
                             * end of classify
                             * =========================== */
 
-                            lt_t block_hists_release_start = module_start_lock(omlp_sem_od, NODE_ABCDE);
-                            block_hists->release();
-                            module_stop_lock(omlp_sem_od, NODE_ABCDE, block_hists_release_start);
-
                             struct params_fine_collect_locations *out_buf = (struct params_fine_collect_locations *)out_buf_ptrs[level_idx];
 
                             out_buf->gpu_img = in_buf->gpu_img;
@@ -5806,6 +5755,7 @@ namespace
     void HOG_Impl::fine_CC_S_ABCDE(struct task_info &t_info, void** out_buf_ptrs,
                                    cuda::GpuMat* gpu_img,
                                    cuda::GpuMat** grad_array, cuda::GpuMat** qangle_array,
+                                   cuda::GpuMat** block_hists_array,
                                    std::vector<Rect>* found,
                                    Mat *img, int frame_idx, Stream stream, lt_t frame_start_time,
                                    int omlp_sem_od)
@@ -5917,6 +5867,7 @@ namespace
                 out_buf->gpu_img = gpu_img;
                 out_buf->grad = grad_array[level_idx];
                 out_buf->qangle = qangle_array[level_idx];
+                out_buf->block_hists = block_hists_array[level_idx];
                 out_buf->found = found;
                 out_buf->img_to_show = img;
                 out_buf->smaller_img = smaller_img;
@@ -5959,6 +5910,7 @@ namespace
                     out_buf->gpu_img = gpu_img;
                     out_buf->grad = grad_array[level_idx];
                     out_buf->qangle = qangle_array[level_idx];
+                    out_buf->block_hists = block_hists_array[level_idx];
                     out_buf->found = found;
                     out_buf->img_to_show = img;
                     out_buf->smaller_img = smaller_img;
@@ -6015,6 +5967,7 @@ namespace
                     struct params_compute_histograms *out_buf = (struct params_compute_histograms *)out_buf_ptrs[level_idx];
 
                     out_buf->gpu_img = gpu_img;
+                    out_buf->block_hists = block_hists_array[level_idx];
                     out_buf->found = found;
                     out_buf->img_to_show = img;
                     out_buf->smaller_img = smaller_img;
@@ -6037,14 +5990,10 @@ namespace
                 fprintf(stdout, "[CC] Computing histograms for level %d.\n", level_idx);
 #endif
 
-                lt_t block_hists_alloc_start = module_start_lock(omlp_sem_od, NODE_BCDE);
-                block_hists = new GpuMat();
-
                 /* ===========================
                  * compute histograms
                  */
-                *block_hists = pool.getBuffer(1, getTotalHistSize(smaller_img->size()), CV_32FC1);
-                module_stop_lock(omlp_sem_od, NODE_BCDE, block_hists_alloc_start);
+                block_hists = block_hists_array[level_idx];
 
                 hog::compute_hists(nbins_,
                         block_stride_.width, block_stride_.height,
@@ -6168,10 +6117,6 @@ namespace
                 /*
                  * end of classify
                  * =========================== */
-
-                lt_t block_hists_release_start = module_start_lock(omlp_sem_od, NODE_ABCDE);
-                block_hists->release();
-                module_stop_lock(omlp_sem_od, NODE_ABCDE, block_hists_release_start);
 
                 struct params_fine_collect_locations *out_buf = (struct params_fine_collect_locations *)out_buf_ptrs[level_idx];
 
@@ -6335,10 +6280,6 @@ namespace
                         /*
                         * end of classify
                         * =========================== */
-
-                        lt_t block_hists_release_start = module_start_lock(omlp_sem_od, NODE_ABCDE);
-                        block_hists->release();
-                        module_stop_lock(omlp_sem_od, NODE_ABCDE, block_hists_release_start);
                     }
 
                     struct params_fine_classify * in_buf = (struct params_fine_classify *) in_buf_ptrs[a_level_to_process];
@@ -6671,10 +6612,6 @@ namespace
                         /*
                         * end of classify
                         * =========================== */
-
-                        lt_t block_hists_release_start = module_start_lock(omlp_sem_od, NODE_ABCDE);
-                        block_hists->release();
-                        module_stop_lock(omlp_sem_od, NODE_ABCDE, block_hists_release_start);
                     }
 
                     struct params_fine_normalize * in_buf = (struct params_fine_normalize *) in_buf_ptrs[a_level_to_process];
@@ -6935,14 +6872,10 @@ namespace
                             grad = in_buf->grad;
                             qangle = in_buf->qangle;
 
-                            lt_t block_hists_alloc_start = module_start_lock(omlp_sem_od, NODE_BCDE);
-                            block_hists = new GpuMat();
-
                             /* ===========================
                             * compute histograms
                             */
-                            *block_hists      = pool.getBuffer(1, getTotalHistSize(smaller_img->size()), CV_32FC1);
-                            module_stop_lock(omlp_sem_od, NODE_BCDE, block_hists_alloc_start);
+                            block_hists = in_buf->block_hists;
 
                             hog::compute_hists(nbins_,
                                     block_stride_.width, block_stride_.height,
@@ -7065,10 +6998,6 @@ namespace
                         /*
                         * end of classify
                         * =========================== */
-
-                        lt_t block_hists_release_start = module_start_lock(omlp_sem_od, NODE_ABCDE);
-                        block_hists->release();
-                        module_stop_lock(omlp_sem_od, NODE_ABCDE, block_hists_release_start);
                     }
 
                     struct params_compute_histograms * in_buf = (struct params_compute_histograms *) in_buf_ptrs[a_level_to_process];
@@ -7383,17 +7312,12 @@ namespace
                                 smaller_img = in_buf->smaller_img;
                                 grad = in_buf->grad;
                                 qangle = in_buf->qangle;
+                                block_hists = in_buf->block_hists;
                             }
-
-                            lt_t block_hists_alloc_start = module_start_lock(omlp_sem_od, NODE_BCDE);
-                            block_hists = new GpuMat();
 
                             /* ===========================
                             * compute histograms
                             */
-                            *block_hists      = pool.getBuffer(1, getTotalHistSize(smaller_img->size()), CV_32FC1);
-                            module_stop_lock(omlp_sem_od, NODE_BCDE, block_hists_alloc_start);
-
                             hog::compute_hists(nbins_,
                                     block_stride_.width, block_stride_.height,
                                     smaller_img->rows, smaller_img->cols,
@@ -7518,10 +7442,6 @@ namespace
                         /*
                         * end of classify
                         * =========================== */
-
-                        lt_t block_hists_release_start = module_start_lock(omlp_sem_od, NODE_ABCDE);
-                        block_hists->release();
-                        module_stop_lock(omlp_sem_od, NODE_ABCDE, block_hists_release_start);
                     }
 
                     struct params_compute_gradients * in_buf = (struct params_compute_gradients *) in_buf_ptrs[a_level_to_process];
@@ -7892,17 +7812,12 @@ namespace
                                 smaller_img = in_buf->smaller_img;
                                 grad = in_buf->grad;
                                 qangle = in_buf->qangle;
+                                block_hists = in_buf->block_hists;
                             }
-
-                            lt_t block_hists_alloc_start = module_start_lock(omlp_sem_od, NODE_BCDE);
-                            block_hists = new GpuMat();
 
                             /* ===========================
                             * compute histograms
                             */
-                            *block_hists      = pool.getBuffer(1, getTotalHistSize(smaller_img->size()), CV_32FC1);
-                            module_stop_lock(omlp_sem_od, NODE_BCDE, block_hists_alloc_start);
-
                             hog::compute_hists(nbins_,
                                     block_stride_.width, block_stride_.height,
                                     smaller_img->rows, smaller_img->cols,
@@ -8027,10 +7942,6 @@ namespace
                         /*
                         * end of classify
                         * =========================== */
-
-                        lt_t block_hists_release_start = module_start_lock(omlp_sem_od, NODE_ABCDE);
-                        block_hists->release();
-                        module_stop_lock(omlp_sem_od, NODE_ABCDE, block_hists_release_start);
                     }
 
                     struct params_resize * in_buf = (struct params_resize *) in_buf_ptrs[a_level_to_process];

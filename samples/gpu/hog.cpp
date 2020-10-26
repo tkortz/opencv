@@ -157,6 +157,7 @@ struct params_compute  // a.k.a. compute scales node
     cv::cuda::GpuMat * gpu_img;
     cv::cuda::GpuMat ** grad_array;
     cv::cuda::GpuMat ** qangle_array;
+    cv::cuda::GpuMat ** block_hists_array;
     std::vector<Rect> * found;
     Mat * img_to_show;
     size_t frame_index;
@@ -210,6 +211,7 @@ struct params_resize
     cv::cuda::GpuMat * gpu_img;
     cv::cuda::GpuMat * grad;
     cv::cuda::GpuMat * qangle;
+    cv::cuda::GpuMat * block_hists;
     std::vector<Rect> * found;
     Mat * img_to_show;
     cv::cuda::GpuMat * smaller_img;
@@ -227,6 +229,7 @@ struct params_compute_gradients
     cv::cuda::GpuMat * gpu_img;
     cv::cuda::GpuMat * grad;
     cv::cuda::GpuMat * qangle;
+    cv::cuda::GpuMat * block_hists;
     std::vector<Rect> * found;
     Mat * img_to_show;
     cv::cuda::GpuMat * smaller_img;
@@ -242,6 +245,7 @@ struct params_compute_gradients
 struct params_compute_histograms
 {
     cv::cuda::GpuMat * gpu_img;
+    cv::cuda::GpuMat * block_hists;
     std::vector<Rect> * found;
     Mat * img_to_show;
     cv::cuda::GpuMat * smaller_img;
@@ -295,6 +299,7 @@ struct params_fine_collect_locations
     Mat * img_to_show;
     cv::cuda::GpuMat * smaller_img;
     cv::cuda::GpuMat * labels;
+    cv::cuda::GpuMat * block_hists;
     std::vector<double> * level_scale;
     std::vector<double> * confidences;
     int index;
@@ -1229,7 +1234,7 @@ void App::thread_color_convert(node_t *_node, pthread_barrier_t* init_barrier,
     Mat frame;
 
     // Pre-allocate all gpu_img instances we will need (one per frame)
-    int cons_copies = 5; // be conservative so we don't overwrite anything
+    unsigned cons_copies = 5; // be conservative so we don't overwrite anything
     cuda::GpuMat* gpu_img_array[cons_copies];
     for (unsigned i = 0; i < cons_copies; i++)
     {
@@ -1250,6 +1255,7 @@ void App::thread_color_convert(node_t *_node, pthread_barrier_t* init_barrier,
     cuda::BufferPool pool(stream);
     cuda::GpuMat* grad_array[cons_copies][13];
     cuda::GpuMat* qangle_array[cons_copies][13];
+    cuda::GpuMat* block_hists_array[cons_copies][13];
     for (unsigned i = 0; i < cons_copies; i++)
     {
         for (unsigned j = 0; j < 13; j++)
@@ -1261,6 +1267,10 @@ void App::thread_color_convert(node_t *_node, pthread_barrier_t* init_barrier,
 
             *grad_array[i][j]   = pool.getBuffer(sz, CV_32FC2);
             *qangle_array[i][j] = pool.getBuffer(sz, CV_8UC2);
+
+            block_hists_array[i][j] = new cuda::GpuMat();
+
+            *block_hists_array[i][j] = pool.getBuffer(1, gpu_hog->getTotalHistSize(sz), CV_32FC1);
         }
     }
 
@@ -1346,6 +1356,7 @@ void App::thread_color_convert(node_t *_node, pthread_barrier_t* init_barrier,
                 out_buf->gpu_img = gpu_img;
                 out_buf->grad_array = grad_array[data_idx];
                 out_buf->qangle_array = qangle_array[data_idx];
+                out_buf->block_hists_array = block_hists_array[data_idx];
                 out_buf->found = found;
                 out_buf->img_to_show = img;
                 out_buf->frame_index = j;
@@ -1422,6 +1433,7 @@ void App::thread_color_convert(node_t *_node, pthread_barrier_t* init_barrier,
         {
             grad_array[i][j]->release();
             qangle_array[i][j]->release();
+            block_hists_array[i][j]->release();
         }
     }
 }
@@ -2862,7 +2874,7 @@ void App::thread_fine_CC_S_ABCDE(node_t* _node, pthread_barrier_t* init_barrier,
     gpu_hog->set_up_constants(stream);
 
     // Pre-allocate all gpu_img instances we will need (one per frame)
-    int cons_copies = 5; // be conservative so we don't overwrite anything
+    unsigned cons_copies = 5; // be conservative so we don't overwrite anything
     cuda::GpuMat* gpu_img_array[cons_copies];
     for (unsigned i = 0; i < cons_copies; i++)
     {
@@ -2882,6 +2894,7 @@ void App::thread_fine_CC_S_ABCDE(node_t* _node, pthread_barrier_t* init_barrier,
     cuda::BufferPool pool(stream);
     cuda::GpuMat* grad_array[cons_copies][13];
     cuda::GpuMat* qangle_array[cons_copies][13];
+    cuda::GpuMat* block_hists_array[cons_copies][13];
     for (unsigned i = 0; i < cons_copies; i++)
     {
         for (unsigned j = 0; j < 13; j++)
@@ -2893,6 +2906,10 @@ void App::thread_fine_CC_S_ABCDE(node_t* _node, pthread_barrier_t* init_barrier,
 
             *grad_array[i][j]   = pool.getBuffer(sz, CV_32FC2);
             *qangle_array[i][j] = pool.getBuffer(sz, CV_8UC2);
+
+            block_hists_array[i][j] = new cuda::GpuMat();
+
+            *block_hists_array[i][j] = pool.getBuffer(1, gpu_hog->getTotalHistSize(sz), CV_32FC1);
         }
     }
 
@@ -2986,6 +3003,7 @@ void App::thread_fine_CC_S_ABCDE(node_t* _node, pthread_barrier_t* init_barrier,
 
             gpu_hog->fine_CC_S_ABCDE(t_info, out_buf_ptrs, gpu_img,
                                      grad_array[data_idx], qangle_array[data_idx],
+                                     block_hists_array[data_idx],
                                      found,
                                      img_to_show, j, stream, frame_start_time,
                                      omlp_sem_od);
@@ -3026,6 +3044,7 @@ void App::thread_fine_CC_S_ABCDE(node_t* _node, pthread_barrier_t* init_barrier,
         {
             grad_array[i][j]->release();
             qangle_array[i][j]->release();
+            block_hists_array[i][j]->release();
         }
     }
 }

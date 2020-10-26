@@ -298,6 +298,7 @@ public:
     virtual void fine_CC_S_ABCDE(struct task_info &t_info, void** out_buf_ptrs,
                                  cuda::GpuMat* gpu_img,
                                  cuda::GpuMat** grad_array, cuda::GpuMat** qangle_array,
+                                 cuda::GpuMat** block_hists_array,
                                  std::vector<Rect>* found,
                                  Mat *img, int frame_idx, Stream stream, lt_t frame_start_time,
                                  int omlp_sem_od) = 0; // color-convert -> classify hists (maybe not all the way)
@@ -322,6 +323,8 @@ public:
     virtual int lock_fzlp(int sem_od) = 0;
     virtual int wait_forbidden_zone(int sem_od, node_config computation) = 0;
     virtual int unlock_fzlp(int sem_od) = 0;
+
+    virtual int getTotalHistSize(Size img_size) const = 0;
 };
 
 //
