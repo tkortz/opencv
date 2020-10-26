@@ -402,12 +402,12 @@ namespace cv { namespace cuda { namespace device
                 cudaSafeCall(cudaStreamSynchronize(0));
             }
 
-            unlock_fzlp(omlp_sem_od);
-
             lt_t fz_len = litmus_clock() - fz_start;
 
             fprintf(stdout, "[%d | %d] Computation %d took %llu microseconds.\n",
                     gettid(), getpid(), NODE_C, fz_len / 1000);
+
+            unlock_fzlp(omlp_sem_od);
             /*
             * UNLOCK: compute hists
             * ============= */
@@ -534,12 +534,12 @@ namespace cv { namespace cuda { namespace device
                 cudaSafeCall(cudaStreamSynchronize(0));
             }
 
-            unlock_fzlp(omlp_sem_od);
-
             lt_t fz_len = litmus_clock() - fz_start;
 
             fprintf(stdout, "[%d | %d] Computation %d took %llu microseconds.\n",
                     gettid(), getpid(), NODE_D, fz_len / 1000);
+
+            unlock_fzlp(omlp_sem_od);
             /*
             * UNLOCK: normalize hists
             * ============= */
@@ -618,12 +618,12 @@ namespace cv { namespace cuda { namespace device
             cudaSafeCall(cudaStreamSynchronize(0));
             cudaSafeCall(cudaStreamDestroy(stream));
 
-            unlock_fzlp(omlp_sem_od);
-
             lt_t fz_len = litmus_clock() - fz_start;
 
             fprintf(stdout, "[%d | %d] Computation %d took %llu microseconds.\n",
                     gettid(), getpid(), NODE_E, fz_len / 1000);
+
+            unlock_fzlp(omlp_sem_od);
             /*
             * UNLOCK: classify hists
             * ============= */
@@ -707,12 +707,12 @@ namespace cv { namespace cuda { namespace device
            cudaSafeCall(cudaStreamSynchronize(0));
            //cudaSafeCall(cudaStreamDestroy(stream));
 
-           unlock_fzlp(omlp_sem_od);
-
            lt_t fz_len = litmus_clock() - fz_start;
 
            fprintf(stdout, "[%d | %d] Computation %d took %llu microseconds.\n",
                    gettid(), getpid(), NODE_E, fz_len / 1000);
+
+           unlock_fzlp(omlp_sem_od);
            /*
            * UNLOCK: classify hists
            * ============= */
@@ -967,12 +967,12 @@ namespace cv { namespace cuda { namespace device
                 cudaSafeCall(cudaStreamSynchronize(0));
             }
 
-            unlock_fzlp(omlp_sem_od);
-
             lt_t fz_len = litmus_clock() - fz_start;
 
             fprintf(stdout, "[%d | %d] Computation %d took %llu microseconds.\n",
                     gettid(), getpid(), NODE_B, fz_len / 1000);
+
+            unlock_fzlp(omlp_sem_od);
             /*
                 * UNLOCK: compute gradients
                 * ============= */
@@ -1067,12 +1067,12 @@ namespace cv { namespace cuda { namespace device
                 cudaSafeCall(cudaStreamSynchronize(0));
             }
 
-            unlock_fzlp(omlp_sem_od);
-
             lt_t fz_len = litmus_clock() - fz_start;
 
             fprintf(stdout, "[%d | %d] Computation %d took %llu microseconds.\n",
                     gettid(), getpid(), NODE_B, fz_len / 1000);
+
+            unlock_fzlp(omlp_sem_od);
             /*
              * UNLOCK: compute gradients
              * ============= */
@@ -1224,12 +1224,12 @@ namespace cv { namespace cuda { namespace device
                 cudaSafeCall(cudaStreamSynchronize(0));
             }
 
-            unlock_fzlp(omlp_sem_od);
-
             lt_t fz_len = litmus_clock() - fz_start;
 
             fprintf(stdout, "[%d | %d] Computation %d took %llu microseconds.\n",
                     gettid(), getpid(), NODE_A, fz_len / 1000);
+
+            unlock_fzlp(omlp_sem_od);
             /*
              * UNLOCK: resize
              * ============= */

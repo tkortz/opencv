@@ -1484,12 +1484,12 @@ namespace
                             labels->download(labels_host, stream);
                             cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
 
-                            hog::unlock_fzlp(omlp_sem_od);
-
                             lt_t fz_len = litmus_clock() - fz_start;
 
                             fprintf(stdout, "[%d | %d] Computation %d took %llu microseconds.\n",
                                     gettid(), getpid(), NODE_DE, fz_len / 1000);
+
+                            hog::unlock_fzlp(omlp_sem_od);
                             /*
                             * UNLOCK: download labels from GPU
                             * ============= */
@@ -1518,12 +1518,12 @@ namespace
                             labels->download(labels_host, stream);
                             cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
 
-                            hog::unlock_fzlp(omlp_sem_od);
-
                             lt_t fz_len = litmus_clock() - fz_start;
 
                             fprintf(stdout, "[%d | %d] Computation %d took %llu microseconds.\n",
                                     gettid(), getpid(), NODE_DE, fz_len / 1000);
+
+                            hog::unlock_fzlp(omlp_sem_od);
                             /*
                             * UNLOCK: download labels from GPU
                             * ============= */
@@ -6246,12 +6246,12 @@ namespace
                             labels->download(labels_host, stream);
                             cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
 
-                            hog::unlock_fzlp(omlp_sem_od);
-
                             lt_t fz_len = litmus_clock() - fz_start;
 
                             fprintf(stdout, "[%d | %d] Computation %d took %llu microseconds.\n",
                                     gettid(), getpid(), NODE_DE, fz_len / 1000);
+
+                            hog::unlock_fzlp(omlp_sem_od);
                             /*
                             * UNLOCK: download labels from GPU
                             * ============= */
@@ -6572,12 +6572,12 @@ namespace
                             labels->download(labels_host, stream);
                             cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
 
-                            hog::unlock_fzlp(omlp_sem_od);
-
                             lt_t fz_len = litmus_clock() - fz_start;
 
                             fprintf(stdout, "[%d | %d] Computation %d took %llu microseconds.\n",
                                     gettid(), getpid(), NODE_DE, fz_len / 1000);
+
+                            hog::unlock_fzlp(omlp_sem_od);
                             /*
                             * UNLOCK: download labels from GPU
                             * ============= */
@@ -6956,12 +6956,12 @@ namespace
                             labels->download(labels_host, stream);
                             cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
 
-                            hog::unlock_fzlp(omlp_sem_od);
-
                             lt_t fz_len = litmus_clock() - fz_start;
 
                             fprintf(stdout, "[%d | %d] Computation %d took %llu microseconds.\n",
                                     gettid(), getpid(), NODE_DE, fz_len / 1000);
+
+                            hog::unlock_fzlp(omlp_sem_od);
                             /*
                             * UNLOCK: download labels from GPU
                             * ============= */
@@ -7403,12 +7403,12 @@ namespace
                             labels->download(labels_host, stream);
                             cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
 
-                            hog::unlock_fzlp(omlp_sem_od);
-
                             lt_t fz_len = litmus_clock() - fz_start;
 
                             fprintf(stdout, "[%d | %d] Computation %d took %llu microseconds.\n",
                                     gettid(), getpid(), NODE_DE, fz_len / 1000);
+
+                            hog::unlock_fzlp(omlp_sem_od);
                             /*
                             * UNLOCK: download labels from GPU
                             * ============= */
@@ -7903,12 +7903,12 @@ namespace
                             labels->download(labels_host, stream);
                             cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
 
-                            hog::unlock_fzlp(omlp_sem_od);
-
                             lt_t fz_len = litmus_clock() - fz_start;
 
                             fprintf(stdout, "[%d | %d] Computation %d took %llu microseconds.\n",
                                     gettid(), getpid(), NODE_DE, fz_len / 1000);
+
+                            hog::unlock_fzlp(omlp_sem_od);
                             /*
                             * UNLOCK: download labels from GPU
                             * ============= */

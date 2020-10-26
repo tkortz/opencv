@@ -1277,12 +1277,12 @@ void App::thread_color_convert(node_t *_node, pthread_barrier_t* init_barrier,
                 gpu_img->upload(*img, stream);
                 cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
 
-                gpu_hog->unlock_fzlp(omlp_sem_od);
-
                 lt_t fz_len = litmus_clock() - fz_start;
 
                 fprintf(stdout, "[%d | %d] Computation %d took %llu microseconds.\n",
                         gettid(), getpid(), NODE_AB, fz_len / 1000);
+
+                gpu_hog->unlock_fzlp(omlp_sem_od);
                 /*
                 * UNLOCK: upload image to GPU
                 * ============= */
@@ -2869,12 +2869,12 @@ void App::thread_fine_CC_S_ABCDE(node_t* _node, pthread_barrier_t* init_barrier,
             gpu_img->upload(*img, stream);
             cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
 
-            gpu_hog->unlock_fzlp(omlp_sem_od);
-
             lt_t fz_len = litmus_clock() - fz_start;
 
             fprintf(stdout, "[%d | %d] Computation %d took %llu microseconds.\n",
                     gettid(), getpid(), NODE_AB, fz_len / 1000);
+
+            gpu_hog->unlock_fzlp(omlp_sem_od);
             /*
              * UNLOCK: upload image to GPU
              * ============= */
