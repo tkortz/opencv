@@ -290,6 +290,7 @@ namespace
                              cuda::GpuMat* gpu_img,
                              cuda::GpuMat** grad_array, cuda::GpuMat** qangle_array,
                              cuda::GpuMat** block_hists_array,
+                             cuda::GpuMat** smaller_img_array, cuda::GpuMat** labels_array,
                              std::vector<Rect>* found,
                              Mat *img, int frame_idx, Stream stream, lt_t frame_start_time,
                              int omlp_sem_od); // color-convert -> classify hists (maybe not all the way)
@@ -316,6 +317,9 @@ namespace
         int unlock_fzlp(int sem_od);
 
         int getTotalHistSize(Size img_size) const;
+
+        int numPartsWithin(int size, int part_size, int stride) const;
+        Size numPartsWithin(Size size, Size part_size, Size stride) const;
 
     private:
         Size win_size_;
@@ -344,9 +348,6 @@ namespace
         GpuMat detector_;
     };
 
-    static int numPartsWithin(int size, int part_size, int stride);
-    static Size numPartsWithin(Size size, Size part_size, Size stride);
-
     void set_up_litmus_task(const struct task_info &t_info, struct rt_task &param, int *sem_od);
 
     struct params_compute  // a.k.a. compute scales node
@@ -355,6 +356,8 @@ namespace
         cv::cuda::GpuMat ** grad_array;
         cv::cuda::GpuMat ** qangle_array;
         cv::cuda::GpuMat ** block_hists_array;
+        cv::cuda::GpuMat ** smaller_img_array;
+        cv::cuda::GpuMat ** labels_array;
         std::vector<Rect> * found;
         Mat * img_to_show;
         size_t frame_index;
@@ -623,13 +626,10 @@ namespace
 
                     BufferPool pool(stream);
 
-                    GpuMat * smaller_img_array = new GpuMat[level_scale->size()];
-                    GpuMat * labels_array = new GpuMat[level_scale->size()];
-
                     for (size_t i = 0; i < level_scale->size(); i++)
                     {
-                        GpuMat * smaller_img = smaller_img_array + i;
-                        GpuMat * labels = labels_array + i;
+                        GpuMat * smaller_img = in_buf->smaller_img_array[i];
+                        GpuMat * labels = in_buf->labels_array[i];
                         struct params_resize *out_buf = out_bufs[i];
 
                         if (detector_.empty())
@@ -642,12 +642,6 @@ namespace
                         if (sz == gpu_img->size())
                         {
                             *smaller_img = *gpu_img;
-                        }
-                        else
-                        {
-                            lt_t smaller_img_alloc_start = module_start_lock(omlp_sem_od, NODE_ABC);
-                            *smaller_img = pool.getBuffer(sz, gpu_img->type());
-                            module_stop_lock(omlp_sem_od, NODE_ABC, smaller_img_alloc_start);
                         }
                         out_buf->gpu_img = in_buf->gpu_img;
                         out_buf->grad = in_buf->grad_array[i];
@@ -1335,8 +1329,6 @@ namespace
                     /* ===========================
                      * classify
                      */
-                    wins_per_img = numPartsWithin(smaller_img->size(), win_size_, win_stride_);
-
                     // unsigned long long curr_deadline;
                     // if (t_info.realtime && t_info.sched == FINE_GRAINED) {
                     //     CALL(get_current_deadline(&curr_deadline));
@@ -1344,10 +1336,6 @@ namespace
 
                     if (confidences == NULL)
                     {
-                        lt_t labels_alloc_start = module_start_lock(omlp_sem_od, NODE_BCD);
-                        *labels = pool.getBuffer(1, wins_per_img.area(), CV_8UC1);
-                        module_stop_lock(omlp_sem_od, NODE_BCD, labels_alloc_start);
-
                         // if (t_info.realtime && t_info.sched == FINE_GRAINED) {
                         //     CALL(set_current_deadline(curr_deadline + param.period));
                         // }
@@ -1366,10 +1354,6 @@ namespace
                     }
                     else
                     {
-                        lt_t labels_alloc_start = module_start_lock(omlp_sem_od, NODE_BCD);
-                        *labels = pool.getBuffer(1, wins_per_img.area(), CV_32FC1);
-                        module_stop_lock(omlp_sem_od, NODE_BCD, labels_alloc_start);
-
                         // if (t_info.realtime && t_info.sched == FINE_GRAINED) {
                         //     CALL(set_current_deadline(curr_deadline + param.period));
                         // }
@@ -1882,12 +1866,12 @@ namespace
         return hog::unlock_fzlp(sem_od);
     }
 
-    static int numPartsWithin(int size, int part_size, int stride)
+    int HOG_Impl::numPartsWithin(int size, int part_size, int stride) const
     {
         return (size - part_size + stride) / stride;
     }
 
-    static Size numPartsWithin(Size size, Size part_size, Size stride)
+    Size HOG_Impl::numPartsWithin(Size size, Size part_size, Size stride) const
     {
         return Size(numPartsWithin(size.width, part_size.width, stride.width),
                     numPartsWithin(size.height, part_size.height, stride.height));
@@ -2740,14 +2724,8 @@ namespace
                     /* ===========================
                      * classify
                      */
-                    wins_per_img = numPartsWithin(smaller_img->size(), win_size_, win_stride_);
-
                     if (confidences == NULL)
                     {
-                        lt_t labels_alloc_start = module_start_lock(omlp_sem_od, NODE_BCD);
-                        *labels = pool.getBuffer(1, wins_per_img.area(), CV_8UC1);
-                        module_stop_lock(omlp_sem_od, NODE_BCD, labels_alloc_start);
-
                         hog::classify_hists(win_size_.height, win_size_.width,
                                 block_stride_.height, block_stride_.width,
                                 win_stride_.height, win_stride_.width,
@@ -2762,10 +2740,6 @@ namespace
                     }
                     else
                     {
-                        lt_t labels_alloc_start = module_start_lock(omlp_sem_od, NODE_BCD);
-                        *labels = pool.getBuffer(1, wins_per_img.area(), CV_32FC1);
-                        module_stop_lock(omlp_sem_od, NODE_BCD, labels_alloc_start);
-
                         hog::compute_confidence_hists(win_size_.height, win_size_.width,
                                 block_stride_.height, block_stride_.width,
                                 win_stride_.height, win_stride_.width,
@@ -3272,14 +3246,8 @@ namespace
                     /* ===========================
                      * classify
                      */
-                    wins_per_img = numPartsWithin(smaller_img->size(), win_size_, win_stride_);
-
                     if (confidences == NULL)
                     {
-                        lt_t labels_alloc_start = module_start_lock(omlp_sem_od, NODE_BCD);
-                        *labels = pool.getBuffer(1, wins_per_img.area(), CV_8UC1);
-                        module_stop_lock(omlp_sem_od, NODE_BCD, labels_alloc_start);
-
                         hog::classify_hists(win_size_.height, win_size_.width,
                                 block_stride_.height, block_stride_.width,
                                 win_stride_.height, win_stride_.width,
@@ -3294,10 +3262,6 @@ namespace
                     }
                     else
                     {
-                        lt_t labels_alloc_start = module_start_lock(omlp_sem_od, NODE_BCD);
-                        *labels = pool.getBuffer(1, wins_per_img.area(), CV_32FC1);
-                        module_stop_lock(omlp_sem_od, NODE_BCD, labels_alloc_start);
-
                         hog::compute_confidence_hists(win_size_.height, win_size_.width,
                                 block_stride_.height, block_stride_.width,
                                 win_stride_.height, win_stride_.width,
@@ -3682,14 +3646,8 @@ namespace
                     /* ===========================
                      * classify
                      */
-                    wins_per_img = numPartsWithin(smaller_img->size(), win_size_, win_stride_);
-
                     if (confidences == NULL)
                     {
-                        lt_t labels_alloc_start = module_start_lock(omlp_sem_od, NODE_BCD);
-                        *labels = pool.getBuffer(1, wins_per_img.area(), CV_8UC1);
-                        module_stop_lock(omlp_sem_od, NODE_BCD, labels_alloc_start);
-
                         hog::classify_hists(win_size_.height, win_size_.width,
                                 block_stride_.height, block_stride_.width,
                                 win_stride_.height, win_stride_.width,
@@ -3704,10 +3662,6 @@ namespace
                     }
                     else
                     {
-                        lt_t labels_alloc_start = module_start_lock(omlp_sem_od, NODE_BCD);
-                        *labels = pool.getBuffer(1, wins_per_img.area(), CV_32FC1);
-                        module_stop_lock(omlp_sem_od, NODE_BCD, labels_alloc_start);
-
                         hog::compute_confidence_hists(win_size_.height, win_size_.width,
                                 block_stride_.height, block_stride_.width,
                                 win_stride_.height, win_stride_.width,
@@ -3923,14 +3877,8 @@ namespace
                     /* ===========================
                      * classify
                      */
-                    wins_per_img = numPartsWithin(smaller_img->size(), win_size_, win_stride_);
-
                     if (confidences == NULL)
                     {
-                        lt_t labels_alloc_start = module_start_lock(omlp_sem_od, NODE_BCD);
-                        *labels = pool.getBuffer(1, wins_per_img.area(), CV_8UC1);
-                        module_stop_lock(omlp_sem_od, NODE_BCD, labels_alloc_start);
-
                         hog::classify_hists(win_size_.height, win_size_.width,
                                 block_stride_.height, block_stride_.width,
                                 win_stride_.height, win_stride_.width,
@@ -3945,10 +3893,6 @@ namespace
                     }
                     else
                     {
-                        lt_t labels_alloc_start = module_start_lock(omlp_sem_od, NODE_BCD);
-                        *labels = pool.getBuffer(1, wins_per_img.area(), CV_32FC1);
-                        module_stop_lock(omlp_sem_od, NODE_BCD, labels_alloc_start);
-
                         hog::compute_confidence_hists(win_size_.height, win_size_.width,
                                 block_stride_.height, block_stride_.width,
                                 win_stride_.height, win_stride_.width,
@@ -4103,14 +4047,11 @@ namespace
                     levels = std::max(levels, 1);
                     level_scale->resize(levels);
 
-                    GpuMat * smaller_img_array = new GpuMat[level_scale->size()];
-                    GpuMat * labels_array = new GpuMat[level_scale->size()];
-
                     for (size_t level_idx = 0; level_idx < level_scale->size(); level_idx++)
                     {
                         // Compute a scale level
-                        GpuMat * smaller_img = smaller_img_array + level_idx;
-                        GpuMat * labels = labels_array + level_idx;
+                        GpuMat * smaller_img = in_buf->smaller_img_array[level_idx];
+                        GpuMat * labels = in_buf->labels_array[level_idx];
 
                         if (detector_.empty())
                             break;
@@ -4122,12 +4063,6 @@ namespace
                         if (sz == gpu_img->size())
                         {
                             *smaller_img = *gpu_img;
-                        }
-                        else
-                        {
-                            lt_t smaller_img_alloc_start = module_start_lock(omlp_sem_od, NODE_ABC);
-                            *smaller_img = pool.getBuffer(sz, gpu_img->type());
-                            module_stop_lock(omlp_sem_od, NODE_ABC, smaller_img_alloc_start);
                         }
 
                         bool do_resize = false;
@@ -4334,14 +4269,11 @@ namespace
                     levels = std::max(levels, 1);
                     level_scale->resize(levels);
 
-                    GpuMat * smaller_img_array = new GpuMat[level_scale->size()];
-                    GpuMat * labels_array = new GpuMat[level_scale->size()];
-
                     for (size_t level_idx = 0; level_idx < level_scale->size(); level_idx++)
                     {
                         // Compute a scale level
-                        GpuMat * smaller_img = smaller_img_array + level_idx;
-                        GpuMat * labels = labels_array + level_idx;
+                        GpuMat * smaller_img = in_buf->smaller_img_array[level_idx];
+                        GpuMat * labels = in_buf->labels_array[level_idx];
 
                         if (detector_.empty())
                             break;
@@ -4353,12 +4285,6 @@ namespace
                         if (sz == gpu_img->size())
                         {
                             *smaller_img = *gpu_img;
-                        }
-                        else
-                        {
-                            lt_t smaller_img_alloc_start = module_start_lock(omlp_sem_od, NODE_ABC);
-                            *smaller_img = pool.getBuffer(sz, gpu_img->type());
-                            module_stop_lock(omlp_sem_od, NODE_ABC, smaller_img_alloc_start);
                         }
 
                         bool do_resize = false;
@@ -4628,14 +4554,11 @@ namespace
                     levels = std::max(levels, 1);
                     level_scale->resize(levels);
 
-                    GpuMat * smaller_img_array = new GpuMat[level_scale->size()];
-                    GpuMat * labels_array = new GpuMat[level_scale->size()];
-
                     for (size_t level_idx = 0; level_idx < level_scale->size(); level_idx++)
                     {
                         // Compute a scale level
-                        GpuMat * smaller_img = smaller_img_array + level_idx;
-                        GpuMat * labels = labels_array + level_idx;
+                        GpuMat * smaller_img = in_buf->smaller_img_array[level_idx];
+                        GpuMat * labels = in_buf->labels_array[level_idx];
 
                         if (detector_.empty())
                             break;
@@ -4647,12 +4570,6 @@ namespace
                         if (sz == gpu_img->size())
                         {
                             *smaller_img = *gpu_img;
-                        }
-                        else
-                        {
-                            lt_t smaller_img_alloc_start = module_start_lock(omlp_sem_od, NODE_ABC);
-                            *smaller_img = pool.getBuffer(sz, gpu_img->type());
-                            module_stop_lock(omlp_sem_od, NODE_ABC, smaller_img_alloc_start);
                         }
 
                         bool do_resize = false;
@@ -4974,14 +4891,11 @@ namespace
                     levels = std::max(levels, 1);
                     level_scale->resize(levels);
 
-                    GpuMat * smaller_img_array = new GpuMat[level_scale->size()];
-                    GpuMat * labels_array = new GpuMat[level_scale->size()];
-
                     for (size_t level_idx = 0; level_idx < level_scale->size(); level_idx++)
                     {
                         // Compute a scale level
-                        GpuMat * smaller_img = smaller_img_array + level_idx;
-                        GpuMat * labels = labels_array + level_idx;
+                        GpuMat * smaller_img = in_buf->smaller_img_array[level_idx];
+                        GpuMat * labels = in_buf->labels_array[level_idx];
 
                         if (detector_.empty())
                             break;
@@ -4993,12 +4907,6 @@ namespace
                         if (sz == gpu_img->size())
                         {
                             *smaller_img = *gpu_img;
-                        }
-                        else
-                        {
-                            lt_t smaller_img_alloc_start = module_start_lock(omlp_sem_od, NODE_ABC);
-                            *smaller_img = pool.getBuffer(sz, gpu_img->type());
-                            module_stop_lock(omlp_sem_od, NODE_ABC, smaller_img_alloc_start);
                         }
 
                         bool do_resize = false;
@@ -5367,14 +5275,11 @@ namespace
                     levels = std::max(levels, 1);
                     level_scale->resize(levels);
 
-                    GpuMat * smaller_img_array = new GpuMat[level_scale->size()];
-                    GpuMat * labels_array = new GpuMat[level_scale->size()];
-
                     for (size_t level_idx = 0; level_idx < level_scale->size(); level_idx++)
                     {
                         // Compute a scale level
-                        GpuMat * smaller_img = smaller_img_array + level_idx;
-                        GpuMat * labels = labels_array + level_idx;
+                        GpuMat * smaller_img = in_buf->smaller_img_array[level_idx];
+                        GpuMat * labels = in_buf->labels_array[level_idx];
 
                         if (detector_.empty())
                             break;
@@ -5386,12 +5291,6 @@ namespace
                         if (sz == gpu_img->size())
                         {
                             *smaller_img = *gpu_img;
-                        }
-                        else
-                        {
-                            lt_t smaller_img_alloc_start = module_start_lock(omlp_sem_od, NODE_ABC);
-                            *smaller_img = pool.getBuffer(sz, gpu_img->type());
-                            module_stop_lock(omlp_sem_od, NODE_ABC, smaller_img_alloc_start);
                         }
 
                         bool do_resize = false;
@@ -5649,14 +5548,8 @@ namespace
                             /* ===========================
                             * classify
                             */
-                            Size wins_per_img = numPartsWithin(smaller_img->size(), win_size_, win_stride_);
-
                             if (confidences == NULL)
                             {
-                                lt_t labels_alloc_start = module_start_lock(omlp_sem_od, NODE_BCD);
-                                *labels = pool.getBuffer(1, wins_per_img.area(), CV_8UC1);
-                                module_stop_lock(omlp_sem_od, NODE_BCD, labels_alloc_start);
-
                                 hog::classify_hists(win_size_.height, win_size_.width,
                                         block_stride_.height, block_stride_.width,
                                         win_stride_.height, win_stride_.width,
@@ -5671,10 +5564,6 @@ namespace
                             }
                             else
                             {
-                                lt_t labels_alloc_start = module_start_lock(omlp_sem_od, NODE_BCD);
-                                *labels = pool.getBuffer(1, wins_per_img.area(), CV_32FC1);
-                                module_stop_lock(omlp_sem_od, NODE_BCD, labels_alloc_start);
-
                                 hog::compute_confidence_hists(win_size_.height, win_size_.width,
                                         block_stride_.height, block_stride_.width,
                                         win_stride_.height, win_stride_.width,
@@ -5756,6 +5645,7 @@ namespace
                                    cuda::GpuMat* gpu_img,
                                    cuda::GpuMat** grad_array, cuda::GpuMat** qangle_array,
                                    cuda::GpuMat** block_hists_array,
+                                   cuda::GpuMat** smaller_img_array, cuda::GpuMat** labels_array,
                                    std::vector<Rect>* found,
                                    Mat *img, int frame_idx, Stream stream, lt_t frame_start_time,
                                    int omlp_sem_od)
@@ -5797,14 +5687,11 @@ namespace
         levels = std::max(levels, 1);
         level_scale->resize(levels);
 
-        GpuMat * smaller_img_array = new GpuMat[level_scale->size()];
-        GpuMat * labels_array = new GpuMat[level_scale->size()];
-
         for (size_t level_idx = 0; level_idx < level_scale->size(); level_idx++)
         {
             // Compute a scale level
-            GpuMat * smaller_img = smaller_img_array + level_idx;
-            GpuMat * labels = labels_array + level_idx;
+            GpuMat * smaller_img = smaller_img_array[level_idx];
+            GpuMat * labels = labels_array[level_idx];
 
             if (detector_.empty())
                 break;
@@ -5816,12 +5703,6 @@ namespace
             if (sz == gpu_img->size())
             {
                 *smaller_img = *gpu_img;
-            }
-            else
-            {
-                lt_t smaller_img_alloc_start = module_start_lock(omlp_sem_od, NODE_ABC);
-                *smaller_img = pool.getBuffer(sz, gpu_img->type());
-                module_stop_lock(omlp_sem_od, NODE_ABC, smaller_img_alloc_start);
             }
 
             bool do_resize = false;
@@ -6076,14 +5957,8 @@ namespace
                 /* ===========================
                  * classify
                  */
-                Size wins_per_img = numPartsWithin(smaller_img->size(), win_size_, win_stride_);
-
                 if (confidences == NULL)
                 {
-                    lt_t labels_alloc_start = module_start_lock(omlp_sem_od, NODE_BCD);
-                    *labels = pool.getBuffer(1, wins_per_img.area(), CV_8UC1);
-                    module_stop_lock(omlp_sem_od, NODE_BCD, labels_alloc_start);
-
                     hog::classify_hists(win_size_.height, win_size_.width,
                             block_stride_.height, block_stride_.width,
                             win_stride_.height, win_stride_.width,
@@ -6098,10 +5973,6 @@ namespace
                 }
                 else
                 {
-                    lt_t labels_alloc_start = module_start_lock(omlp_sem_od, NODE_BCD);
-                    *labels = pool.getBuffer(1, wins_per_img.area(), CV_32FC1);
-                    module_stop_lock(omlp_sem_od, NODE_BCD, labels_alloc_start);
-
                     hog::compute_confidence_hists(win_size_.height, win_size_.width,
                             block_stride_.height, block_stride_.width,
                             win_stride_.height, win_stride_.width,
@@ -6164,10 +6035,10 @@ namespace
             fprintf(stderr, "classify_hists+sink node out buffer is NULL\n");
 
         std::vector<Rect>* found;
-        GpuMat * smaller_img_array;
+        GpuMat * smaller_img_array[13];
         std::vector<double> * level_scale;
         std::vector<double> * confidences;
-        GpuMat * labels_array;
+        GpuMat * labels_array[13];
         Stream stream;
         double scale;
 
@@ -6217,6 +6088,8 @@ namespace
 
                         if (!do_classify_hists)
                         {
+                            smaller_img_array[level_idx] = ((struct params_fine_collect_locations *)in_buf_ptrs[level_idx])->smaller_img;
+                            labels_array[level_idx] = ((struct params_fine_collect_locations *)in_buf_ptrs[level_idx])->labels;
                             continue; // no work to do!
                         }
 
@@ -6239,14 +6112,8 @@ namespace
                         /* ===========================
                         * classify
                         */
-                        wins_per_img = numPartsWithin(smaller_img->size(), win_size_, win_stride_);
-
                         if (confidences == NULL)
                         {
-                            lt_t labels_alloc_start = module_start_lock(omlp_sem_od, NODE_BCD);
-                            *labels = pool.getBuffer(1, wins_per_img.area(), CV_8UC1);
-                            module_stop_lock(omlp_sem_od, NODE_BCD, labels_alloc_start);
-
                             hog::classify_hists(win_size_.height, win_size_.width,
                                     block_stride_.height, block_stride_.width,
                                     win_stride_.height, win_stride_.width,
@@ -6261,10 +6128,6 @@ namespace
                         }
                         else
                         {
-                            lt_t labels_alloc_start = module_start_lock(omlp_sem_od, NODE_BCD);
-                            *labels = pool.getBuffer(1, wins_per_img.area(), CV_32FC1);
-                            module_stop_lock(omlp_sem_od, NODE_BCD, labels_alloc_start);
-
                             hog::compute_confidence_hists(win_size_.height, win_size_.width,
                                     block_stride_.height, block_stride_.width,
                                     win_stride_.height, win_stride_.width,
@@ -6280,14 +6143,15 @@ namespace
                         /*
                         * end of classify
                         * =========================== */
+
+                        smaller_img_array[level_idx] = smaller_img;
+                        labels_array[level_idx] = labels;
                     }
 
                     struct params_fine_classify * in_buf = (struct params_fine_classify *) in_buf_ptrs[a_level_to_process];
                     found = in_buf->found;
-                    smaller_img_array = in_buf->smaller_img - in_buf->index;
                     level_scale = in_buf->level_scale;
                     confidences = in_buf->confidences;
-                    labels_array = in_buf->labels - in_buf->index;
 
                     /* ===========================
                      * collect locations
@@ -6295,8 +6159,8 @@ namespace
                     found->clear();
                     for (size_t i = 0; i < level_scale->size(); i++)
                     {
-                        smaller_img = smaller_img_array + i;
-                        labels = labels_array + i;
+                        smaller_img = smaller_img_array[i];
+                        labels = labels_array[i];
                         scale = (*level_scale)[i];
 
                         std::vector<double> level_confidences;
@@ -6369,10 +6233,6 @@ namespace
                             if (confidences)
                                 confidences->push_back(level_confidences[j]);
                         }
-                        lt_t smaller_img_release_start = module_start_lock(omlp_sem_od, NODE_NONE);
-                        smaller_img->release();
-                        labels->release();
-                        module_stop_lock(omlp_sem_od, NODE_NONE, smaller_img_release_start);
                     }
 
                     if (group_threshold_ > 0)
@@ -6453,10 +6313,10 @@ namespace
             fprintf(stderr, "normalize_hists->sink node out buffer is NULL\n");
 
         std::vector<Rect>* found;
-        GpuMat * smaller_img_array;
+        GpuMat * smaller_img_array[13];
         std::vector<double> * level_scale;
         std::vector<double> * confidences = NULL;
-        GpuMat * labels_array;
+        GpuMat * labels_array[13];
         Stream stream;
         double scale;
 
@@ -6511,6 +6371,8 @@ namespace
 
                         if (!do_classify_hists)
                         {
+                            smaller_img_array[level_idx] = ((struct params_fine_collect_locations *)in_buf_ptrs[level_idx])->smaller_img;
+                            labels_array[level_idx] = ((struct params_fine_collect_locations *)in_buf_ptrs[level_idx])->labels;
                             continue; // no work to do!
                         }
 
@@ -6571,14 +6433,8 @@ namespace
                         /* ===========================
                         * classify
                         */
-                        wins_per_img = numPartsWithin(smaller_img->size(), win_size_, win_stride_);
-
                         if (confidences == NULL)
                         {
-                            lt_t labels_alloc_start = module_start_lock(omlp_sem_od, NODE_BCD);
-                            *labels = pool.getBuffer(1, wins_per_img.area(), CV_8UC1);
-                            module_stop_lock(omlp_sem_od, NODE_BCD, labels_alloc_start);
-
                             hog::classify_hists(win_size_.height, win_size_.width,
                                     block_stride_.height, block_stride_.width,
                                     win_stride_.height, win_stride_.width,
@@ -6593,10 +6449,6 @@ namespace
                         }
                         else
                         {
-                            lt_t labels_alloc_start = module_start_lock(omlp_sem_od, NODE_BCD);
-                            *labels = pool.getBuffer(1, wins_per_img.area(), CV_32FC1);
-                            module_stop_lock(omlp_sem_od, NODE_BCD, labels_alloc_start);
-
                             hog::compute_confidence_hists(win_size_.height, win_size_.width,
                                     block_stride_.height, block_stride_.width,
                                     win_stride_.height, win_stride_.width,
@@ -6612,14 +6464,15 @@ namespace
                         /*
                         * end of classify
                         * =========================== */
+
+                        smaller_img_array[level_idx] = smaller_img;
+                        labels_array[level_idx] = labels;
                     }
 
                     struct params_fine_normalize * in_buf = (struct params_fine_normalize *) in_buf_ptrs[a_level_to_process];
                     found = in_buf->found;
-                    smaller_img_array = in_buf->smaller_img - in_buf->index;
                     level_scale = in_buf->level_scale;
                     confidences = in_buf->confidences;
-                    labels_array = in_buf->labels - in_buf->index;
 
                     /* ===========================
                      * collect locations
@@ -6627,8 +6480,8 @@ namespace
                     found->clear();
                     for (size_t i = 0; i < level_scale->size(); i++)
                     {
-                        smaller_img = smaller_img_array + i;
-                        labels = labels_array + i;
+                        smaller_img = smaller_img_array[i];
+                        labels = labels_array[i];
                         scale = (*level_scale)[i];
 
                         std::vector<double> level_confidences;
@@ -6701,10 +6554,6 @@ namespace
                             if (confidences)
                                 confidences->push_back(level_confidences[j]);
                         }
-                        lt_t smaller_img_release_start = module_start_lock(omlp_sem_od, NODE_NONE);
-                        smaller_img->release();
-                        labels->release();
-                        module_stop_lock(omlp_sem_od, NODE_NONE, smaller_img_release_start);
                     }
 
                     if (group_threshold_ > 0)
@@ -6786,10 +6635,10 @@ namespace
             fprintf(stderr, "compute_hists->sink node out buffer is NULL\n");
 
         std::vector<Rect>* found;
-        GpuMat * smaller_img_array;
+        GpuMat * smaller_img_array[13];
         std::vector<double> * level_scale;
         std::vector<double> * confidences = NULL;
-        GpuMat * labels_array;
+        GpuMat * labels_array[13];
         Stream stream;
         double scale;
 
@@ -6854,6 +6703,8 @@ namespace
 
                         if (!do_classify_hists)
                         {
+                            smaller_img_array[level_idx] = ((struct params_fine_collect_locations *)in_buf_ptrs[level_idx])->smaller_img;
+                            labels_array[level_idx] = ((struct params_fine_collect_locations *)in_buf_ptrs[level_idx])->labels;
                             continue; // no work to do!
                         }
 
@@ -6957,14 +6808,8 @@ namespace
                         /* ===========================
                         * classify
                         */
-                        wins_per_img = numPartsWithin(smaller_img->size(), win_size_, win_stride_);
-
                         if (confidences == NULL)
                         {
-                            lt_t labels_alloc_start = module_start_lock(omlp_sem_od, NODE_BCD);
-                            *labels = pool.getBuffer(1, wins_per_img.area(), CV_8UC1);
-                            module_stop_lock(omlp_sem_od, NODE_BCD, labels_alloc_start);
-
                             hog::classify_hists(win_size_.height, win_size_.width,
                                     block_stride_.height, block_stride_.width,
                                     win_stride_.height, win_stride_.width,
@@ -6979,10 +6824,6 @@ namespace
                         }
                         else
                         {
-                            lt_t labels_alloc_start = module_start_lock(omlp_sem_od, NODE_BCD);
-                            *labels = pool.getBuffer(1, wins_per_img.area(), CV_32FC1);
-                            module_stop_lock(omlp_sem_od, NODE_BCD, labels_alloc_start);
-
                             hog::compute_confidence_hists(win_size_.height, win_size_.width,
                                     block_stride_.height, block_stride_.width,
                                     win_stride_.height, win_stride_.width,
@@ -6998,14 +6839,15 @@ namespace
                         /*
                         * end of classify
                         * =========================== */
+
+                        smaller_img_array[level_idx] = smaller_img;
+                        labels_array[level_idx] = labels;
                     }
 
                     struct params_compute_histograms * in_buf = (struct params_compute_histograms *) in_buf_ptrs[a_level_to_process];
                     found = in_buf->found;
-                    smaller_img_array = in_buf->smaller_img - in_buf->index;
                     level_scale = in_buf->level_scale;
                     confidences = in_buf->confidences;
-                    labels_array = in_buf->labels - in_buf->index;
 
                     /* ===========================
                      * collect locations
@@ -7013,8 +6855,8 @@ namespace
                     found->clear();
                     for (size_t i = 0; i < level_scale->size(); i++)
                     {
-                        smaller_img = smaller_img_array + i;
-                        labels = labels_array + i;
+                        smaller_img = smaller_img_array[i];
+                        labels = labels_array[i];
                         scale = (*level_scale)[i];
 
                         std::vector<double> level_confidences;
@@ -7087,10 +6929,6 @@ namespace
                             if (confidences)
                                 confidences->push_back(level_confidences[j]);
                         }
-                        lt_t smaller_img_release_start = module_start_lock(omlp_sem_od, NODE_NONE);
-                        smaller_img->release();
-                        labels->release();
-                        module_stop_lock(omlp_sem_od, NODE_NONE, smaller_img_release_start);
                     }
 
                     if (group_threshold_ > 0)
@@ -7171,10 +7009,10 @@ namespace
             fprintf(stderr, "compute_grads->sink node out buffer is NULL\n");
 
         std::vector<Rect>* found;
-        GpuMat * smaller_img_array;
+        GpuMat * smaller_img_array[13];
         std::vector<double> * level_scale;
         std::vector<double> * confidences = NULL;
-        GpuMat * labels_array;
+        GpuMat * labels_array[13];
         Stream stream;
         double scale;
 
@@ -7245,6 +7083,8 @@ namespace
 
                         if (!do_classify_hists)
                         {
+                            smaller_img_array[level_idx] = ((struct params_fine_collect_locations *)in_buf_ptrs[level_idx])->smaller_img;
+                            labels_array[level_idx] = ((struct params_fine_collect_locations *)in_buf_ptrs[level_idx])->labels;
                             continue; // no work to do!
                         }
 
@@ -7401,14 +7241,8 @@ namespace
                         /* ===========================
                         * classify
                         */
-                        wins_per_img = numPartsWithin(smaller_img->size(), win_size_, win_stride_);
-
                         if (confidences == NULL)
                         {
-                            lt_t labels_alloc_start = module_start_lock(omlp_sem_od, NODE_BCD);
-                            *labels = pool.getBuffer(1, wins_per_img.area(), CV_8UC1);
-                            module_stop_lock(omlp_sem_od, NODE_BCD, labels_alloc_start);
-
                             hog::classify_hists(win_size_.height, win_size_.width,
                                     block_stride_.height, block_stride_.width,
                                     win_stride_.height, win_stride_.width,
@@ -7423,10 +7257,6 @@ namespace
                         }
                         else
                         {
-                            lt_t labels_alloc_start = module_start_lock(omlp_sem_od, NODE_BCD);
-                            *labels = pool.getBuffer(1, wins_per_img.area(), CV_32FC1);
-                            module_stop_lock(omlp_sem_od, NODE_BCD, labels_alloc_start);
-
                             hog::compute_confidence_hists(win_size_.height, win_size_.width,
                                     block_stride_.height, block_stride_.width,
                                     win_stride_.height, win_stride_.width,
@@ -7442,14 +7272,15 @@ namespace
                         /*
                         * end of classify
                         * =========================== */
+
+                        smaller_img_array[level_idx] = smaller_img;
+                        labels_array[level_idx] = labels;
                     }
 
                     struct params_compute_gradients * in_buf = (struct params_compute_gradients *) in_buf_ptrs[a_level_to_process];
                     found = in_buf->found;
-                    smaller_img_array = in_buf->smaller_img - in_buf->index;
                     level_scale = in_buf->level_scale;
                     confidences = in_buf->confidences;
-                    labels_array = in_buf->labels - in_buf->index;
 
                     /* ===========================
                      * collect locations
@@ -7457,8 +7288,8 @@ namespace
                     found->clear();
                     for (size_t i = 0; i < level_scale->size(); i++)
                     {
-                        smaller_img = smaller_img_array + i;
-                        labels = labels_array + i;
+                        smaller_img = smaller_img_array[i];
+                        labels = labels_array[i];
                         scale = (*level_scale)[i];
 
                         std::vector<double> level_confidences;
@@ -7531,10 +7362,6 @@ namespace
                             if (confidences)
                                 confidences->push_back(level_confidences[j]);
                         }
-                        lt_t smaller_img_release_start = module_start_lock(omlp_sem_od, NODE_NONE);
-                        smaller_img->release();
-                        labels->release();
-                        module_stop_lock(omlp_sem_od, NODE_NONE, smaller_img_release_start);
                     }
 
                     if (group_threshold_ > 0)
@@ -7615,10 +7442,10 @@ namespace
             fprintf(stderr, "resize->sink node out buffer is NULL\n");
 
         std::vector<Rect>* found;
-        GpuMat * smaller_img_array;
+        GpuMat * smaller_img_array[13];
         std::vector<double> * level_scale;
         std::vector<double> * confidences = NULL;
-        GpuMat * labels_array;
+        GpuMat * labels_array[13];
         Stream stream;
         double scale;
 
@@ -7701,6 +7528,8 @@ namespace
 
                         if (!do_classify_hists)
                         {
+                            smaller_img_array[level_idx] = ((struct params_fine_collect_locations *)in_buf_ptrs[level_idx])->smaller_img;
+                            labels_array[level_idx] = ((struct params_fine_collect_locations *)in_buf_ptrs[level_idx])->labels;
                             continue; // no work to do!
                         }
 
@@ -7901,14 +7730,8 @@ namespace
                         /* ===========================
                         * classify
                         */
-                        wins_per_img = numPartsWithin(smaller_img->size(), win_size_, win_stride_);
-
                         if (confidences == NULL)
                         {
-                            lt_t labels_alloc_start = module_start_lock(omlp_sem_od, NODE_BCD);
-                            *labels = pool.getBuffer(1, wins_per_img.area(), CV_8UC1);
-                            module_stop_lock(omlp_sem_od, NODE_BCD, labels_alloc_start);
-
                             hog::classify_hists(win_size_.height, win_size_.width,
                                     block_stride_.height, block_stride_.width,
                                     win_stride_.height, win_stride_.width,
@@ -7923,10 +7746,6 @@ namespace
                         }
                         else
                         {
-                            lt_t labels_alloc_start = module_start_lock(omlp_sem_od, NODE_BCD);
-                            *labels = pool.getBuffer(1, wins_per_img.area(), CV_32FC1);
-                            module_stop_lock(omlp_sem_od, NODE_BCD, labels_alloc_start);
-
                             hog::compute_confidence_hists(win_size_.height, win_size_.width,
                                     block_stride_.height, block_stride_.width,
                                     win_stride_.height, win_stride_.width,
@@ -7942,14 +7761,15 @@ namespace
                         /*
                         * end of classify
                         * =========================== */
+
+                        smaller_img_array[level_idx] = smaller_img;
+                        labels_array[level_idx] = labels;
                     }
 
                     struct params_resize * in_buf = (struct params_resize *) in_buf_ptrs[a_level_to_process];
                     found = in_buf->found;
-                    smaller_img_array = in_buf->smaller_img - in_buf->index;
                     level_scale = in_buf->level_scale;
                     confidences = in_buf->confidences;
-                    labels_array = in_buf->labels - in_buf->index;
 
                     /* ===========================
                      * collect locations
@@ -7957,8 +7777,8 @@ namespace
                     found->clear();
                     for (size_t i = 0; i < level_scale->size(); i++)
                     {
-                        smaller_img = smaller_img_array + i;
-                        labels = labels_array + i;
+                        smaller_img = smaller_img_array[i];
+                        labels = labels_array[i];
                         scale = (*level_scale)[i];
 
                         std::vector<double> level_confidences;
@@ -8031,10 +7851,6 @@ namespace
                             if (confidences)
                                 confidences->push_back(level_confidences[j]);
                         }
-                        lt_t smaller_img_release_start = module_start_lock(omlp_sem_od, NODE_NONE);
-                        smaller_img->release();
-                        labels->release();
-                        module_stop_lock(omlp_sem_od, NODE_NONE, smaller_img_release_start);
                     }
 
                     if (group_threshold_ > 0)

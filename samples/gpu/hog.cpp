@@ -158,6 +158,8 @@ struct params_compute  // a.k.a. compute scales node
     cv::cuda::GpuMat ** grad_array;
     cv::cuda::GpuMat ** qangle_array;
     cv::cuda::GpuMat ** block_hists_array;
+    cv::cuda::GpuMat ** smaller_img_array;
+    cv::cuda::GpuMat ** labels_array;
     std::vector<Rect> * found;
     Mat * img_to_show;
     size_t frame_index;
@@ -1256,6 +1258,8 @@ void App::thread_color_convert(node_t *_node, pthread_barrier_t* init_barrier,
     cuda::GpuMat* grad_array[cons_copies][13];
     cuda::GpuMat* qangle_array[cons_copies][13];
     cuda::GpuMat* block_hists_array[cons_copies][13];
+    cuda::GpuMat* smaller_img_array[cons_copies][13];
+    cuda::GpuMat* labels_array[cons_copies][13];
     for (unsigned i = 0; i < cons_copies; i++)
     {
         for (unsigned j = 0; j < 13; j++)
@@ -1271,6 +1275,17 @@ void App::thread_color_convert(node_t *_node, pthread_barrier_t* init_barrier,
             block_hists_array[i][j] = new cuda::GpuMat();
 
             *block_hists_array[i][j] = pool.getBuffer(1, gpu_hog->getTotalHistSize(sz), CV_32FC1);
+
+            smaller_img_array[i][j] = new cuda::GpuMat();
+
+            if (j != 0)
+            {
+                *smaller_img_array[i][j] = pool.getBuffer(sz, gpu_img_array[i]->type());
+            }
+
+            labels_array[i][j] = new cuda::GpuMat();
+
+            *labels_array[i][j] = pool.getBuffer(1, gpu_hog->numPartsWithin(sz, win_size, win_stride).area(), CV_8UC1);
         }
     }
 
@@ -1357,6 +1372,8 @@ void App::thread_color_convert(node_t *_node, pthread_barrier_t* init_barrier,
                 out_buf->grad_array = grad_array[data_idx];
                 out_buf->qangle_array = qangle_array[data_idx];
                 out_buf->block_hists_array = block_hists_array[data_idx];
+                out_buf->smaller_img_array = smaller_img_array[data_idx];
+                out_buf->labels_array = labels_array[data_idx];
                 out_buf->found = found;
                 out_buf->img_to_show = img;
                 out_buf->frame_index = j;
@@ -1434,6 +1451,8 @@ void App::thread_color_convert(node_t *_node, pthread_barrier_t* init_barrier,
             grad_array[i][j]->release();
             qangle_array[i][j]->release();
             block_hists_array[i][j]->release();
+            smaller_img_array[i][j]->release();
+            labels_array[i][j]->release();
         }
     }
 }
@@ -2895,6 +2914,8 @@ void App::thread_fine_CC_S_ABCDE(node_t* _node, pthread_barrier_t* init_barrier,
     cuda::GpuMat* grad_array[cons_copies][13];
     cuda::GpuMat* qangle_array[cons_copies][13];
     cuda::GpuMat* block_hists_array[cons_copies][13];
+    cuda::GpuMat* smaller_img_array[cons_copies][13];
+    cuda::GpuMat* labels_array[cons_copies][13];
     for (unsigned i = 0; i < cons_copies; i++)
     {
         for (unsigned j = 0; j < 13; j++)
@@ -2910,6 +2931,17 @@ void App::thread_fine_CC_S_ABCDE(node_t* _node, pthread_barrier_t* init_barrier,
             block_hists_array[i][j] = new cuda::GpuMat();
 
             *block_hists_array[i][j] = pool.getBuffer(1, gpu_hog->getTotalHistSize(sz), CV_32FC1);
+
+            smaller_img_array[i][j] = new cuda::GpuMat();
+
+            if (j != 0)
+            {
+                *smaller_img_array[i][j] = pool.getBuffer(sz, CV_8UC1); // HARD-CODED!!
+            }
+
+            labels_array[i][j] = new cuda::GpuMat();
+
+            *labels_array[i][j] = pool.getBuffer(1, gpu_hog->numPartsWithin(sz, win_size, win_stride).area(), CV_8UC1);
         }
     }
 
@@ -3004,6 +3036,7 @@ void App::thread_fine_CC_S_ABCDE(node_t* _node, pthread_barrier_t* init_barrier,
             gpu_hog->fine_CC_S_ABCDE(t_info, out_buf_ptrs, gpu_img,
                                      grad_array[data_idx], qangle_array[data_idx],
                                      block_hists_array[data_idx],
+                                     smaller_img_array[data_idx], labels_array[data_idx],
                                      found,
                                      img_to_show, j, stream, frame_start_time,
                                      omlp_sem_od);
@@ -3045,6 +3078,8 @@ void App::thread_fine_CC_S_ABCDE(node_t* _node, pthread_barrier_t* init_barrier,
             grad_array[i][j]->release();
             qangle_array[i][j]->release();
             block_hists_array[i][j]->release();
+            smaller_img_array[i][j]->release();
+            labels_array[i][j]->release();
         }
     }
 }

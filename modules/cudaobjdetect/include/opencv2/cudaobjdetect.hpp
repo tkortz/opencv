@@ -299,6 +299,7 @@ public:
                                  cuda::GpuMat* gpu_img,
                                  cuda::GpuMat** grad_array, cuda::GpuMat** qangle_array,
                                  cuda::GpuMat** block_hists_array,
+                                 cuda::GpuMat** smaller_img_array, cuda::GpuMat** labels_array,
                                  std::vector<Rect>* found,
                                  Mat *img, int frame_idx, Stream stream, lt_t frame_start_time,
                                  int omlp_sem_od) = 0; // color-convert -> classify hists (maybe not all the way)
@@ -325,6 +326,9 @@ public:
     virtual int unlock_fzlp(int sem_od) = 0;
 
     virtual int getTotalHistSize(Size img_size) const = 0;
+
+    virtual int numPartsWithin(int size, int part_size, int stride) const = 0;
+    virtual Size numPartsWithin(Size size, Size part_size, Size stride) const = 0;
 };
 
 //
