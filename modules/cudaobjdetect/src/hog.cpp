@@ -1453,10 +1453,8 @@ namespace
             fprintf(stderr, "detect node out buffer is NULL\n");
 
         std::vector<Rect>* found;
-        GpuMat * smaller_img_array;
         std::vector<double> * level_scale;
         std::vector<double> * confidences;
-        GpuMat * labels_array;
         Stream stream;
         double scale;
 
@@ -1485,10 +1483,8 @@ namespace
 
                     struct params_fine_collect_locations * in_buf = in_bufs[0];
                     found = in_buf->found;
-                    smaller_img_array = in_buf->smaller_img - in_buf->index;
                     level_scale = in_buf->level_scale;
                     confidences = in_buf->confidences;
-                    labels_array = in_buf->labels - in_buf->index;
 
                     /* ===========================
                      * collect locations
@@ -1496,8 +1492,8 @@ namespace
                     found->clear();
                     for (size_t i = 0; i < level_scale->size(); i++)
                     {
-                        smaller_img = smaller_img_array + i;
-                        labels = labels_array + i;
+                        smaller_img = in_bufs[i]->smaller_img;
+                        labels = in_bufs[i]->labels;
                         scale = (*level_scale)[i];
 
                         std::vector<double> level_confidences;
@@ -1589,10 +1585,6 @@ namespace
                             if (confidences)
                                 confidences->push_back(level_confidences[j]);
                         }
-                        lt_t smaller_img_release_start = module_start_lock(omlp_sem_od, NODE_NONE);
-                        smaller_img->release();
-                        labels->release();
-                        module_stop_lock(omlp_sem_od, NODE_NONE, smaller_img_release_start);
                     }
 
                     if (group_threshold_ > 0)
@@ -5804,8 +5796,8 @@ namespace
                 }
             }
 
-            GpuMat *grad = grad_array[level_idx];
-            GpuMat *qangle = qangle_array[level_idx];
+            GpuMat *grad;
+            GpuMat *qangle;
 
             if (do_compute_grads)
             {
@@ -5817,6 +5809,8 @@ namespace
                  * compute gradients
                  */
                 float  angleScale = static_cast<float>(nbins_ / CV_PI);
+                grad = grad_array[level_idx];
+                qangle = qangle_array[level_idx];
 
                 switch (smaller_img->type())
                 {
