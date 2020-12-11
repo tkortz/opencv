@@ -1515,6 +1515,7 @@ namespace
                             lt_t fz_start = litmus_clock();
 
                             labels->download(labels_host, stream);
+                            exit_np();
                             cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
 
                             lt_t fz_len = litmus_clock() - fz_start;
@@ -1549,6 +1550,7 @@ namespace
                             lt_t fz_start = litmus_clock();
 
                             labels->download(labels_host, stream);
+                            exit_np();
                             cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
 
                             lt_t fz_len = litmus_clock() - fz_start;
@@ -6176,6 +6178,7 @@ namespace
                             lt_t fz_start = litmus_clock();
 
                             labels->download(labels_host, stream);
+                            exit_np();
                             cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
 
                             lt_t fz_len = litmus_clock() - fz_start;
@@ -6497,6 +6500,7 @@ namespace
                             lt_t fz_start = litmus_clock();
 
                             labels->download(labels_host, stream);
+                            exit_np();
                             cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
 
                             lt_t fz_len = litmus_clock() - fz_start;
@@ -6872,6 +6876,7 @@ namespace
                             lt_t fz_start = litmus_clock();
 
                             labels->download(labels_host, stream);
+                            exit_np();
                             cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
 
                             lt_t fz_len = litmus_clock() - fz_start;
@@ -7305,6 +7310,7 @@ namespace
                             lt_t fz_start = litmus_clock();
 
                             labels->download(labels_host, stream);
+                            exit_np();
                             cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
 
                             lt_t fz_len = litmus_clock() - fz_start;
@@ -7794,6 +7800,7 @@ namespace
                             lt_t fz_start = litmus_clock();
 
                             labels->download(labels_host, stream);
+                            exit_np();
                             cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
 
                             lt_t fz_len = litmus_clock() - fz_start;

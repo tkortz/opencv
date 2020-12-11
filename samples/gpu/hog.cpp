@@ -1353,10 +1353,12 @@ void App::thread_color_convert(node_t *_node, pthread_barrier_t* init_barrier,
                 /* =============
                 * LOCK: upload image to GPU
                 */
+                cuda::GpuMat *gpu_img = gpu_img_array[data_idx];
+
                 SAMPLE_START_LOCK(lt_t fz_start, NODE_AB);
 
-                cuda::GpuMat *gpu_img = gpu_img_array[data_idx];
                 gpu_img->upload(*img, stream);
+                exit_np();
                 cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
 
                 SAMPLE_STOP_LOCK(lt_t fz_len, NODE_AB);
@@ -3013,10 +3015,12 @@ void App::thread_fine_CC_S_ABCDE(node_t* _node, pthread_barrier_t* init_barrier,
             /* =============
              * LOCK: upload image to GPU
              */
+            cuda::GpuMat *gpu_img = gpu_img_array[data_idx];
+
             SAMPLE_START_LOCK(lt_t fz_start, NODE_AB);
 
-            cuda::GpuMat *gpu_img = gpu_img_array[data_idx];
             gpu_img->upload(*img, stream);
+            exit_np();
             cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
 
             SAMPLE_STOP_LOCK(lt_t fz_len, NODE_AB);

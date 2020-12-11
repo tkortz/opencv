@@ -146,7 +146,7 @@ namespace cv { namespace cuda { namespace device
                     break;
             }
 
-            zone_length = ms2ns(100);
+            zone_length = ms2ns(1); // default to 1 milliseconds
 
             if (sem_od >= 0)
             {
@@ -395,6 +395,8 @@ namespace cv { namespace cuda { namespace device
             else
                 compute_hists_kernel_many_blocks<1><<<grid, threads, smem>>>(img_block_width, grad, qangle, scale, block_hists, cell_size_x, patch_size, block_patch_size, threads_cell, threads_block, half_cell_size);
 
+            exit_np();
+
             cudaSafeCall( cudaGetLastError() );
 
             if (true || should_sync)
@@ -527,6 +529,8 @@ namespace cv { namespace cuda { namespace device
             else
                 CV_Error(cv::Error::StsBadArg, "normalize_hists: histogram's size is too big, try to decrease number of bins");
 
+            exit_np();
+
             cudaSafeCall( cudaGetLastError() );
 
             if (true || should_sync)
@@ -595,6 +599,7 @@ namespace cv { namespace cuda { namespace device
             dim3 threads(nthreads, 1, nblocks);
             dim3 grid(divUp(img_win_width, nblocks), img_win_height);
 
+            int img_block_width = (width - ncells_block_x * cell_size_x + block_stride_x) / block_stride_x;
             /* =============
              * LOCK: classify hists
              */
@@ -607,12 +612,14 @@ namespace cv { namespace cuda { namespace device
 
             cudaStream_t stream;
             cudaSafeCall(cudaStreamCreate(&stream));
-            int img_block_width = (width - ncells_block_x * cell_size_x + block_stride_x) / block_stride_x;
 
             classify_hists_kernel_many_blocks<nthreads, nblocks><<<grid,
                 threads>>>(
                 img_win_width, img_block_width, win_block_stride_x, win_block_stride_y,
                 block_hists, coefs, free_coef, threshold, labels);
+
+            exit_np();
+
             cudaSafeCall( cudaGetLastError() );
 
             cudaSafeCall(cudaStreamSynchronize(0));
@@ -684,6 +691,9 @@ namespace cv { namespace cuda { namespace device
            dim3 threads(nthreads, 1, nblocks);
            dim3 grid(divUp(img_win_width, nblocks), img_win_height);
 
+           int img_block_width = (width - ncells_block_x * cell_size_x + block_stride_x) /
+                                                       block_stride_x;
+
            /* =============
             * LOCK: classify hists
             */
@@ -694,9 +704,6 @@ namespace cv { namespace cuda { namespace device
 
            cudaSafeCall(cudaFuncSetCacheConfig(compute_confidence_hists_kernel_many_blocks<nthreads, nblocks>,
                                                                                    cudaFuncCachePreferL1));
-
-           int img_block_width = (width - ncells_block_x * cell_size_x + block_stride_x) /
-                                                       block_stride_x;
            //cudaStream_t stream;
            //cudaSafeCall(cudaStreamCreate(&stream));
 
@@ -704,6 +711,9 @@ namespace cv { namespace cuda { namespace device
                nblocks><<<grid, threads>>>(
                    img_win_width, img_block_width, win_block_stride_x, win_block_stride_y,
                    block_hists, coefs, free_coef, threshold, confidences);
+
+           exit_np();
+
            cudaSafeCall(cudaStreamSynchronize(0));
            //cudaSafeCall(cudaStreamDestroy(stream));
 
@@ -960,6 +970,8 @@ namespace cv { namespace cuda { namespace device
             else
                 compute_gradients_8UC4_kernel<nthreads, 0><<<gdim, bdim>>>(height, width, img, angle_scale, grad, qangle);
 
+            exit_np();
+
             cudaSafeCall( cudaGetLastError() );
 
             if (true || should_sync)
@@ -1059,6 +1071,8 @@ namespace cv { namespace cuda { namespace device
                 compute_gradients_8UC1_kernel<nthreads, 1><<<gdim, bdim>>>(height, width, img, angle_scale, grad, qangle);
             else
                 compute_gradients_8UC1_kernel<nthreads, 0><<<gdim, bdim>>>(height, width, img, angle_scale, grad, qangle);
+
+            exit_np();
 
             cudaSafeCall( cudaGetLastError() );
 
@@ -1192,6 +1206,12 @@ namespace cv { namespace cuda { namespace device
             size_t texOfs = 0;
             int colOfs = 0;
 
+            dim3 threads(32, 8);
+            dim3 grid(divUp(dst.cols, threads.x), divUp(dst.rows, threads.y));
+
+            float sx = static_cast<float>(src.cols) / dst.cols;
+            float sy = static_cast<float>(src.rows) / dst.rows;
+
             /* =============
              * LOCK: resize
              */
@@ -1210,13 +1230,10 @@ namespace cv { namespace cuda { namespace device
                 cudaSafeCall( cudaBindTexture2D(&texOfs, tex, src.data, desc, src.cols, src.rows, src.step) );
             }
 
-            dim3 threads(32, 8);
-            dim3 grid(divUp(dst.cols, threads.x), divUp(dst.rows, threads.y));
-
-            float sx = static_cast<float>(src.cols) / dst.cols;
-            float sy = static_cast<float>(src.rows) / dst.rows;
-
             resize_for_hog_kernel<<<grid, threads>>>(sx, sy, (PtrStepSz<T>)dst, colOfs, tex_index);
+
+            exit_np();
+
             cudaSafeCall( cudaGetLastError() );
 
             if (true || should_sync)
