@@ -7921,9 +7921,19 @@ namespace
             param.release_policy = TASK_PERIODIC;
         param.cls = RT_CLASS_SOFT;
         param.priority = LITMUS_LOWEST_PRIORITY;
-        param.cpu = 1;
-        // if (t_info.cluster != -1)
-        //     param.cpu = domain_to_first_cpu(t_info.cluster);
+        if (t_info.cluster == -1)
+        {
+            param.cpu = 1; // default to 1, maybe ignored by GSN-EDF?
+        }
+        else if (t_info.sched == CONFIGURABLE) // the cluster is not -1
+        {
+            param.cpu = t_info.cluster;
+        }
+        else // the cluster is not -1 and it's not configurable, so migrate to that cluster
+        {
+            param.cpu = domain_to_first_cpu(t_info.cluster);
+        }
+
         CALL( set_rt_task_param(gettid(), &param) );
         fprintf(stdout, "[%d | %d] Finished setting rt params.\n", gettid(), getpid());
         CALL( init_litmus() );
