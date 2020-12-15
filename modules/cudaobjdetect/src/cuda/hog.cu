@@ -352,7 +352,8 @@ namespace cv { namespace cuda { namespace device
                            int ncells_block_x, int ncells_block_y,
                            const cudaStream_t& stream,
                            bool should_sync = true,
-                           int omlp_sem_od = -1)
+                           int omlp_sem_od = -1,
+                           bool should_lock = true)
         {
             const int ncells_block = ncells_block_x * ncells_block_y;
             const int patch_side = cell_size_x / 4;
@@ -381,7 +382,8 @@ namespace cv { namespace cuda { namespace device
             /* =============
              * LOCK: compute hists
              */
-            lock_fzlp(omlp_sem_od);
+            if (should_lock)
+                lock_fzlp(omlp_sem_od);
             wait_forbidden_zone(omlp_sem_od, NODE_C);
 
             lt_t fz_start = litmus_clock();
@@ -409,7 +411,8 @@ namespace cv { namespace cuda { namespace device
             fprintf(stdout, "[%d | %d] Computation %d took %llu microseconds.\n",
                     gettid(), getpid(), NODE_C, fz_len / 1000);
 
-            unlock_fzlp(omlp_sem_od);
+            if (should_lock)
+                unlock_fzlp(omlp_sem_od);
             /*
             * UNLOCK: compute hists
             * ============= */
@@ -496,7 +499,8 @@ namespace cv { namespace cuda { namespace device
                              int ncells_block_x, int ncells_block_y,
                              const cudaStream_t& stream,
                              bool should_sync = true,
-                             int omlp_sem_od = -1)
+                             int omlp_sem_od = -1,
+                             bool should_lock = true)
         {
             const int nblocks = 1;
 
@@ -511,7 +515,8 @@ namespace cv { namespace cuda { namespace device
             /* =============
              * LOCK: normalize hists
              */
-            lock_fzlp(omlp_sem_od);
+            if (should_lock)
+                lock_fzlp(omlp_sem_od);
             wait_forbidden_zone(omlp_sem_od, NODE_D);
 
             lt_t fz_start = litmus_clock();
@@ -543,7 +548,8 @@ namespace cv { namespace cuda { namespace device
             fprintf(stdout, "[%d | %d] Computation %d took %llu microseconds.\n",
                     gettid(), getpid(), NODE_D, fz_len / 1000);
 
-            unlock_fzlp(omlp_sem_od);
+            if (should_lock)
+                unlock_fzlp(omlp_sem_od);
             /*
             * UNLOCK: normalize hists
             * ============= */
@@ -586,7 +592,8 @@ namespace cv { namespace cuda { namespace device
         void classify_hists(int win_height, int win_width, int block_stride_y, int block_stride_x,
                             int win_stride_y, int win_stride_x, int height, int width, float* block_hists,
                             float* coefs, float free_coef, float threshold, int cell_size_x, int ncells_block_x, unsigned char* labels,
-                            int omlp_sem_od = -1)
+                            int omlp_sem_od = -1,
+                            bool should_lock = true)
         {
             const int nthreads = 256;
             const int nblocks = 1;
@@ -603,7 +610,8 @@ namespace cv { namespace cuda { namespace device
             /* =============
              * LOCK: classify hists
              */
-            lock_fzlp(omlp_sem_od);
+            if (should_lock)
+                lock_fzlp(omlp_sem_od);
             wait_forbidden_zone(omlp_sem_od, NODE_E);
 
             lt_t fz_start = litmus_clock();
@@ -630,7 +638,8 @@ namespace cv { namespace cuda { namespace device
             fprintf(stdout, "[%d | %d] Computation %d took %llu microseconds.\n",
                     gettid(), getpid(), NODE_E, fz_len / 1000);
 
-            unlock_fzlp(omlp_sem_od);
+            if (should_lock)
+                unlock_fzlp(omlp_sem_od);
             /*
             * UNLOCK: classify hists
             * ============= */
@@ -678,7 +687,8 @@ namespace cv { namespace cuda { namespace device
        void compute_confidence_hists(int win_height, int win_width, int block_stride_y, int block_stride_x,
                                                int win_stride_y, int win_stride_x, int height, int width, float* block_hists,
                                                float* coefs, float free_coef, float threshold, int cell_size_x, int ncells_block_x, float *confidences,
-                                               int omlp_sem_od = -1)
+                                               int omlp_sem_od = -1,
+                                               bool should_lock = true)
        {
            const int nthreads = 256;
            const int nblocks = 1;
@@ -697,7 +707,8 @@ namespace cv { namespace cuda { namespace device
            /* =============
             * LOCK: classify hists
             */
-           lock_fzlp(omlp_sem_od);
+           if (should_lock)
+               lock_fzlp(omlp_sem_od);
            wait_forbidden_zone(omlp_sem_od, NODE_E);
 
            lt_t fz_start = litmus_clock();
@@ -722,7 +733,8 @@ namespace cv { namespace cuda { namespace device
            fprintf(stdout, "[%d | %d] Computation %d took %llu microseconds.\n",
                    gettid(), getpid(), NODE_E, fz_len / 1000);
 
-           unlock_fzlp(omlp_sem_od);
+           if (should_lock)
+               unlock_fzlp(omlp_sem_od);
            /*
            * UNLOCK: classify hists
            * ============= */
@@ -949,7 +961,8 @@ namespace cv { namespace cuda { namespace device
                                     bool correct_gamma,
                                     const cudaStream_t& stream,
                                     bool should_sync = true,
-                                    int omlp_sem_od = -1)
+                                    int omlp_sem_od = -1,
+                                    bool should_lock = true)
         {
             (void)nbins;
             const int nthreads = 256;
@@ -960,7 +973,8 @@ namespace cv { namespace cuda { namespace device
             /* =============
              * LOCK: compute gradients
              */
-            lock_fzlp(omlp_sem_od);
+            if (should_lock)
+                lock_fzlp(omlp_sem_od);
             wait_forbidden_zone(omlp_sem_od, NODE_B);
 
             lt_t fz_start = litmus_clock();
@@ -984,7 +998,8 @@ namespace cv { namespace cuda { namespace device
             fprintf(stdout, "[%d | %d] Computation %d took %llu microseconds.\n",
                     gettid(), getpid(), NODE_B, fz_len / 1000);
 
-            unlock_fzlp(omlp_sem_od);
+            if (should_lock)
+                unlock_fzlp(omlp_sem_od);
             /*
                 * UNLOCK: compute gradients
                 * ============= */
@@ -1051,7 +1066,8 @@ namespace cv { namespace cuda { namespace device
                                     bool correct_gamma,
                                     const cudaStream_t& stream,
                                     bool should_sync = true,
-                                    int omlp_sem_od = -1)
+                                    int omlp_sem_od = -1,
+                                    bool should_lock = true)
         {
             (void)nbins;
             const int nthreads = 256;
@@ -1062,7 +1078,8 @@ namespace cv { namespace cuda { namespace device
             /* =============
              * LOCK: compute gradients
              */
-            lock_fzlp(omlp_sem_od);
+            if (should_lock)
+                lock_fzlp(omlp_sem_od);
             wait_forbidden_zone(omlp_sem_od, NODE_B);
 
             lt_t fz_start = litmus_clock();
@@ -1086,7 +1103,8 @@ namespace cv { namespace cuda { namespace device
             fprintf(stdout, "[%d | %d] Computation %d took %llu microseconds.\n",
                     gettid(), getpid(), NODE_B, fz_len / 1000);
 
-            unlock_fzlp(omlp_sem_od);
+            if (should_lock)
+                unlock_fzlp(omlp_sem_od);
             /*
              * UNLOCK: compute gradients
              * ============= */
@@ -1199,7 +1217,8 @@ namespace cv { namespace cuda { namespace device
 
         template<class T, class TEX>
         static void resize_for_hog(const PtrStepSzb& src, PtrStepSzb dst, TEX& tex,
-                                   const cudaStream_t& stream, int tex_index, bool should_sync, int omlp_sem_od)
+                                   const cudaStream_t& stream, int tex_index, bool should_sync, int omlp_sem_od,
+                                   bool should_lock = true)
         {
             tex.filterMode = cudaFilterModeLinear;
 
@@ -1215,7 +1234,8 @@ namespace cv { namespace cuda { namespace device
             /* =============
              * LOCK: resize
              */
-            lock_fzlp(omlp_sem_od);
+            if (should_lock)
+                lock_fzlp(omlp_sem_od);
             wait_forbidden_zone(omlp_sem_od, NODE_A);
 
             lt_t fz_start = litmus_clock();
@@ -1246,53 +1266,57 @@ namespace cv { namespace cuda { namespace device
             fprintf(stdout, "[%d | %d] Computation %d took %llu microseconds.\n",
                     gettid(), getpid(), NODE_A, fz_len / 1000);
 
-            unlock_fzlp(omlp_sem_od);
+            if (should_lock)
+                unlock_fzlp(omlp_sem_od);
             /*
              * UNLOCK: resize
              * ============= */
         }
 
         void resize_8UC1(const PtrStepSzb& src, PtrStepSzb dst,
-                         const cudaStream_t& stream, bool should_sync = true, int omlp_sem_od = -1)
+                         const cudaStream_t& stream, bool should_sync = true, int omlp_sem_od = -1,
+                         bool should_lock = true)
         {
-            resize_for_hog<uchar> (src, dst, resize8UC1_tex_local0, stream, 0, should_sync, omlp_sem_od);
+            resize_for_hog<uchar> (src, dst, resize8UC1_tex_local0, stream, 0, should_sync, omlp_sem_od, should_lock);
         }
         void resize_8UC4(const PtrStepSzb& src, PtrStepSzb dst,
-                         const cudaStream_t& stream, bool should_sync = true, int omlp_sem_od = -1)
+                         const cudaStream_t& stream, bool should_sync = true, int omlp_sem_od = -1,
+                         bool should_lock = true)
         {
-            resize_for_hog<uchar4>(src, dst, resize8UC4_tex_local0, stream, 0, should_sync, omlp_sem_od);
+            resize_for_hog<uchar4>(src, dst, resize8UC4_tex_local0, stream, 0, should_sync, omlp_sem_od, should_lock);
         }
 
         void resize_8UC1_thread_safe(const PtrStepSzb& src, PtrStepSzb dst,
                                      const cudaStream_t& stream, int index,
-                                     bool should_sync = true, int omlp_sem_od = -1)
+                                     bool should_sync = true, int omlp_sem_od = -1,
+                                     bool should_lock = true)
         {
             int tex_index = index % TEX_NUM;
             switch(tex_index)
             {
                 case 0:
-                    resize_for_hog<uchar>(src, dst, resize8UC1_tex_local0, stream, tex_index, should_sync, omlp_sem_od);
+                    resize_for_hog<uchar>(src, dst, resize8UC1_tex_local0, stream, tex_index, should_sync, omlp_sem_od, should_lock);
                     break;
                 case 1:
-                    resize_for_hog<uchar>(src, dst, resize8UC1_tex_local1, stream, tex_index, should_sync, omlp_sem_od);
+                    resize_for_hog<uchar>(src, dst, resize8UC1_tex_local1, stream, tex_index, should_sync, omlp_sem_od, should_lock);
                     break;
                 case 2:
-                    resize_for_hog<uchar>(src, dst, resize8UC1_tex_local2, stream, tex_index, should_sync, omlp_sem_od);
+                    resize_for_hog<uchar>(src, dst, resize8UC1_tex_local2, stream, tex_index, should_sync, omlp_sem_od, should_lock);
                     break;
                 case 3:
-                    resize_for_hog<uchar>(src, dst, resize8UC1_tex_local3, stream, tex_index, should_sync, omlp_sem_od);
+                    resize_for_hog<uchar>(src, dst, resize8UC1_tex_local3, stream, tex_index, should_sync, omlp_sem_od, should_lock);
                     break;
                 case 4:
-                    resize_for_hog<uchar>(src, dst, resize8UC1_tex_local4, stream, tex_index, should_sync, omlp_sem_od);
+                    resize_for_hog<uchar>(src, dst, resize8UC1_tex_local4, stream, tex_index, should_sync, omlp_sem_od, should_lock);
                     break;
                 case 5:
-                    resize_for_hog<uchar>(src, dst, resize8UC1_tex_local5, stream, tex_index, should_sync, omlp_sem_od);
+                    resize_for_hog<uchar>(src, dst, resize8UC1_tex_local5, stream, tex_index, should_sync, omlp_sem_od, should_lock);
                     break;
                 case 6:
-                    resize_for_hog<uchar>(src, dst, resize8UC1_tex_local6, stream, tex_index, should_sync, omlp_sem_od);
+                    resize_for_hog<uchar>(src, dst, resize8UC1_tex_local6, stream, tex_index, should_sync, omlp_sem_od, should_lock);
                     break;
                 case 7:
-                    resize_for_hog<uchar>(src, dst, resize8UC1_tex_local7, stream, tex_index, should_sync, omlp_sem_od);
+                    resize_for_hog<uchar>(src, dst, resize8UC1_tex_local7, stream, tex_index, should_sync, omlp_sem_od, should_lock);
                     break;
                 default:
                     return;
@@ -1301,34 +1325,35 @@ namespace cv { namespace cuda { namespace device
 
         void resize_8UC4_thread_safe(const PtrStepSzb& src, PtrStepSzb dst,
                                      const cudaStream_t& stream, int index,
-                                     bool should_sync = true, int omlp_sem_od = -1)
+                                     bool should_sync = true, int omlp_sem_od = -1,
+                                     bool should_lock = true)
         {
             int tex_index = index % TEX_NUM;
             switch(tex_index)
             {
                 case 0:
-                    resize_for_hog<uchar4>(src, dst, resize8UC4_tex_local0, stream, tex_index, should_sync, omlp_sem_od);
+                    resize_for_hog<uchar4>(src, dst, resize8UC4_tex_local0, stream, tex_index, should_sync, omlp_sem_od, should_lock);
                     break;
                 case 1:
-                    resize_for_hog<uchar4>(src, dst, resize8UC4_tex_local1, stream, tex_index, should_sync, omlp_sem_od);
+                    resize_for_hog<uchar4>(src, dst, resize8UC4_tex_local1, stream, tex_index, should_sync, omlp_sem_od, should_lock);
                     break;
                 case 2:
-                    resize_for_hog<uchar4>(src, dst, resize8UC4_tex_local2, stream, tex_index, should_sync, omlp_sem_od);
+                    resize_for_hog<uchar4>(src, dst, resize8UC4_tex_local2, stream, tex_index, should_sync, omlp_sem_od, should_lock);
                     break;
                 case 3:
-                    resize_for_hog<uchar4>(src, dst, resize8UC4_tex_local3, stream, tex_index, should_sync, omlp_sem_od);
+                    resize_for_hog<uchar4>(src, dst, resize8UC4_tex_local3, stream, tex_index, should_sync, omlp_sem_od, should_lock);
                     break;
                 case 4:
-                    resize_for_hog<uchar4>(src, dst, resize8UC4_tex_local4, stream, tex_index, should_sync, omlp_sem_od);
+                    resize_for_hog<uchar4>(src, dst, resize8UC4_tex_local4, stream, tex_index, should_sync, omlp_sem_od, should_lock);
                     break;
                 case 5:
-                    resize_for_hog<uchar4>(src, dst, resize8UC4_tex_local5, stream, tex_index, should_sync, omlp_sem_od);
+                    resize_for_hog<uchar4>(src, dst, resize8UC4_tex_local5, stream, tex_index, should_sync, omlp_sem_od, should_lock);
                     break;
                 case 6:
-                    resize_for_hog<uchar4>(src, dst, resize8UC4_tex_local6, stream, tex_index, should_sync, omlp_sem_od);
+                    resize_for_hog<uchar4>(src, dst, resize8UC4_tex_local6, stream, tex_index, should_sync, omlp_sem_od, should_lock);
                     break;
                 case 7:
-                    resize_for_hog<uchar4>(src, dst, resize8UC4_tex_local7, stream, tex_index, should_sync, omlp_sem_od);
+                    resize_for_hog<uchar4>(src, dst, resize8UC4_tex_local7, stream, tex_index, should_sync, omlp_sem_od, should_lock);
                     break;
                 default:
                     return;

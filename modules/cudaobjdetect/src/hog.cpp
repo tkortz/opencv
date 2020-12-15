@@ -125,7 +125,8 @@ namespace cv { namespace cuda { namespace device
                            int ncells_block_x, int ncells_block_y,
                            const cudaStream_t& stream,
                            bool should_sync = true,
-                           int omlp_sem_od = -1);
+                           int omlp_sem_od = -1,
+                           bool should_lock = true);
 
         void normalize_hists(int nbins,
                              int block_stride_x, int block_stride_y,
@@ -136,18 +137,21 @@ namespace cv { namespace cuda { namespace device
                              int ncells_block_x, int ncells_block_y,
                              const cudaStream_t& stream,
                              bool should_sync = true,
-                             int omlp_sem_od = -1);
+                             int omlp_sem_od = -1,
+                             bool should_lock = true);
 
         void classify_hists(int win_height, int win_width, int block_stride_y,
                             int block_stride_x, int win_stride_y, int win_stride_x, int height,
                             int width, float* block_hists, float* coefs, float free_coef,
                             float threshold, int cell_size_x, int ncells_block_x, unsigned char* labels,
-                            int omlp_sem_od = -1);
+                            int omlp_sem_od = -1,
+                            bool should_lock = true);
 
         void compute_confidence_hists(int win_height, int win_width, int block_stride_y, int block_stride_x,
                                       int win_stride_y, int win_stride_x, int height, int width, float* block_hists,
                                       float* coefs, float free_coef, float threshold, int cell_size_x, int ncells_block_x, float *confidences,
-                                      int omlp_sem_od = -1);
+                                      int omlp_sem_od = -1,
+                                      bool should_lock = true);
 
         void extract_descrs_by_rows(int win_height, int win_width,
                                     int block_stride_y, int block_stride_x,
@@ -173,7 +177,8 @@ namespace cv { namespace cuda { namespace device
                                     bool correct_gamma,
                                     const cudaStream_t& stream,
                                     bool should_sync = true,
-                                    int omlp_sem_od = -1);
+                                    int omlp_sem_od = -1,
+                                    bool should_lock = true);
         void compute_gradients_8UC4(int nbins,
                                     int height, int width, const cv::cuda::PtrStepSzb& img,
                                     float angle_scale,
@@ -181,12 +186,22 @@ namespace cv { namespace cuda { namespace device
                                     bool correct_gamma,
                                     const cudaStream_t& stream,
                                     bool should_sync = true,
-                                    int omlp_sem_od = -1);
+                                    int omlp_sem_od = -1,
+                                    bool should_lock = true);
 
-        void resize_8UC1(const cv::cuda::PtrStepSzb& src, cv::cuda::PtrStepSzb dst, const cudaStream_t& stream, bool should_sync = true, int omlp_sem_od = -1);
-        void resize_8UC4(const cv::cuda::PtrStepSzb& src, cv::cuda::PtrStepSzb dst, const cudaStream_t& stream, bool should_sync = true, int omlp_sem_od = -1);
-        void resize_8UC1_thread_safe(const cv::cuda::PtrStepSzb& src, cv::cuda::PtrStepSzb dst, const cudaStream_t& stream, int index, bool should_sync = true, int omlp_sem_od = -1);
-        void resize_8UC4_thread_safe(const cv::cuda::PtrStepSzb& src, cv::cuda::PtrStepSzb dst, const cudaStream_t& stream, int index, bool should_sync = true, int omlp_sem_od = -1);
+        void resize_8UC1(const cv::cuda::PtrStepSzb& src, cv::cuda::PtrStepSzb dst,
+                         const cudaStream_t& stream,
+                         bool should_sync = true, int omlp_sem_od = -1, bool should_lock = true);
+        void resize_8UC4(const cv::cuda::PtrStepSzb& src, cv::cuda::PtrStepSzb dst, const
+                         cudaStream_t& stream,
+                         bool should_sync = true, int omlp_sem_od = -1, bool should_lock = true);
+
+        void resize_8UC1_thread_safe(const cv::cuda::PtrStepSzb& src, cv::cuda::PtrStepSzb dst,
+                                     const cudaStream_t& stream, int index,
+                                     bool should_sync = true, int omlp_sem_od = -1, bool should_lock = true);
+        void resize_8UC4_thread_safe(const cv::cuda::PtrStepSzb& src, cv::cuda::PtrStepSzb dst,
+                                     const cudaStream_t& stream, int index,
+                                     bool should_sync = true, int omlp_sem_od = -1, bool should_lock = true);
 
         int open_fzlp_lock();
         int lock_fzlp(int sem_od);
