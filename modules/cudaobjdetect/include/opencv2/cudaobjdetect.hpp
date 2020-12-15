@@ -120,8 +120,8 @@ struct task_info
  *
  * These are in milliseconds.
  */
-#define PERIOD            40
-#define RELATIVE_DEADLINE 40
+#define PERIOD            62.5
+#define RELATIVE_DEADLINE 62.5
 #define EXEC_COST         5
 /**
   @addtogroup cuda
