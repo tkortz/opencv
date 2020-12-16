@@ -5778,12 +5778,18 @@ namespace
                 if (t_info.sched == CONFIGURABLE && t_info.early)
                     gpu_period_guard(t_info.s_info_in, t_info.s_info_out);
 
+                /* =============
+                 * LOCK: coalesce all kernels for this level
+                 * (based on config, any from this level in this node)
+                 */
+                hog::lock_fzlp(omlp_sem_od);
+
                 if (smaller_img->size() != gpu_img->size())
                 {
                     switch (gpu_img->type())
                     {
-                        case CV_8UC1: hog::resize_8UC1_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), frame_idx, true, omlp_sem_od); break;
-                        case CV_8UC4: hog::resize_8UC4_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), frame_idx, true, omlp_sem_od); break;
+                        case CV_8UC1: hog::resize_8UC1_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), frame_idx, true, omlp_sem_od, false); break;
+                        case CV_8UC4: hog::resize_8UC4_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), frame_idx, true, omlp_sem_od, false); break;
                     }
                 }
 
@@ -5838,7 +5844,7 @@ namespace
                                 *grad, *qangle,
                                 gamma_correction_,
                                 StreamAccessor::getStream(stream),
-                                true, omlp_sem_od);
+                                true, omlp_sem_od, false);
                         break;
                     case CV_8UC4:
                         hog::compute_gradients_8UC4(nbins_,
@@ -5847,7 +5853,7 @@ namespace
                                 *grad, *qangle,
                                 gamma_correction_,
                                 StreamAccessor::getStream(stream),
-                                true, omlp_sem_od);
+                                true, omlp_sem_od, false);
                         break;
                 }
                 /*
@@ -5896,7 +5902,7 @@ namespace
                         cell_size_.width, cell_size_.height,
                         cells_per_block_.width, cells_per_block_.height,
                         StreamAccessor::getStream(stream),
-                        true, omlp_sem_od);
+                        true, omlp_sem_od, false);
                 /*
                  * end of compute histograms
                  * =========================== */
@@ -5936,7 +5942,7 @@ namespace
                         cell_size_.width, cell_size_.height,
                         cells_per_block_.width, cells_per_block_.height,
                         StreamAccessor::getStream(stream),
-                        true, omlp_sem_od);
+                        true, omlp_sem_od, false);
                 /*
                  * end of nomalize histograms
                  * =========================== */
@@ -5980,7 +5986,7 @@ namespace
                             (float)hit_threshold_,
                             cell_size_.width, cells_per_block_.width,
                             labels->ptr(),
-                            omlp_sem_od);
+                            omlp_sem_od, false);
                 }
                 else
                 {
@@ -5994,7 +6000,7 @@ namespace
                             (float)hit_threshold_,
                             cell_size_.width, cells_per_block_.width,
                             labels->ptr<float>(),
-                            omlp_sem_od);
+                            omlp_sem_od, false);
                 }
                 /*
                  * end of classify
@@ -6013,6 +6019,11 @@ namespace
                 out_buf->frame_index = frame_idx;
                 out_buf->start_time = frame_start_time;
             }
+
+            hog::unlock_fzlp(omlp_sem_od);
+            /*
+             * UNLOCK: coalesce all kernels for this level
+             * ============= */
         }
         /*
          * end of compute scale levels
@@ -6083,6 +6094,11 @@ namespace
                     fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
 #endif
 
+                    /* =============
+                     * LOCK: classify (coalesce all levels together)
+                     */
+                    hog::lock_fzlp(omlp_sem_od);
+
                     int a_level_to_process = -1;
                     for (unsigned level_idx = 0; level_idx < sink_config.size(); level_idx++)
                     {
@@ -6135,7 +6151,7 @@ namespace
                                     (float)hit_threshold_,
                                     cell_size_.width, cells_per_block_.width,
                                     labels->ptr(),
-                                    omlp_sem_od);
+                                    omlp_sem_od, false);
                         }
                         else
                         {
@@ -6149,7 +6165,7 @@ namespace
                                     (float)hit_threshold_,
                                     cell_size_.width, cells_per_block_.width,
                                     labels->ptr<float>(),
-                                    omlp_sem_od);
+                                    omlp_sem_od, false);
                         }
                         /*
                         * end of classify
@@ -6158,6 +6174,11 @@ namespace
                         smaller_img_array[level_idx] = smaller_img;
                         labels_array[level_idx] = labels;
                     }
+
+                    hog::unlock_fzlp(omlp_sem_od);
+                    /*
+                     * UNLOCK: classify (coalesce all levels together)
+                     * ============= */
 
                     struct params_fine_classify * in_buf = (struct params_fine_classify *) in_buf_ptrs[a_level_to_process];
                     found = in_buf->found;
@@ -6168,6 +6189,12 @@ namespace
                      * collect locations
                      */
                     found->clear();
+
+                    /* =============
+                     * LOCK: coalesce all downloads of labels from GPU
+                     */
+                    hog::lock_fzlp(omlp_sem_od);
+
                     for (size_t i = 0; i < level_scale->size(); i++)
                     {
                         smaller_img = smaller_img_array[i];
@@ -6185,9 +6212,8 @@ namespace
                             Mat labels_host;
 
                             /* =============
-                            * LOCK: download labels from GPU
+                            * CHECK FZ: download labels from GPU
                             */
-                            hog::lock_fzlp(omlp_sem_od);
                             hog::wait_forbidden_zone(omlp_sem_od, NODE_DE);
 
                             lt_t fz_start = litmus_clock();
@@ -6200,11 +6226,6 @@ namespace
 
                             fprintf(stdout, "[%d | %d] Computation %d took %llu microseconds.\n",
                                     gettid(), getpid(), NODE_DE, fz_len / 1000);
-
-                            hog::unlock_fzlp(omlp_sem_od);
-                            /*
-                            * UNLOCK: download labels from GPU
-                            * ============= */
 
                             unsigned char* vec = labels_host.ptr();
                             for (int i = 0; i < wins_per_img.area(); i++)
@@ -6246,6 +6267,11 @@ namespace
                                 confidences->push_back(level_confidences[j]);
                         }
                     }
+
+                    hog::unlock_fzlp(omlp_sem_od);
+                    /*
+                     * UNLOCK: coalesce all downloads of labels from GPU
+                     * ============= */
 
                     if (group_threshold_ > 0)
                     {
