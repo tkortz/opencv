@@ -7180,6 +7180,8 @@ namespace
 
                             confidences = in_buf->confidences;
                             labels = in_buf->labels;
+
+                            block_hists = in_buf->block_hists;
                         }
 
                         if (do_compute_hists)
@@ -7614,6 +7616,8 @@ namespace
                             confidences = in_buf->confidences;
                             labels = in_buf->labels;
 
+                            block_hists = in_buf->block_hists;
+
                             grad = in_buf->grad;
                             qangle = in_buf->qangle;
                         }
@@ -7669,6 +7673,8 @@ namespace
 
                                 confidences = in_buf->confidences;
                                 labels = in_buf->labels;
+
+                                block_hists = in_buf->block_hists;
                             }
                         }
 
