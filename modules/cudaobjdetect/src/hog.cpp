@@ -6020,10 +6020,13 @@ namespace
                 out_buf->start_time = frame_start_time;
             }
 
-            hog::unlock_fzlp(omlp_sem_od);
-            /*
-             * UNLOCK: coalesce all kernels for this level
-             * ============= */
+            if (do_resize)
+            {
+                hog::unlock_fzlp(omlp_sem_od);
+                /*
+                * UNLOCK: coalesce all kernels for this level
+                * ============= */
+            }
         }
         /*
          * end of compute scale levels
