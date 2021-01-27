@@ -3,6 +3,7 @@
 #include <fstream>
 #include <sstream>
 #include <stdexcept>
+#include <litmus.h>
 #include "opencv2/core.hpp"
 #include <opencv2/core/utility.hpp>
 #include "opencv2/video.hpp"
@@ -22,6 +23,15 @@ using namespace std;
 using namespace cv;
 using namespace cv::videostab;
 
+#define CALL( exp ) do { \
+        int ret; \
+        ret = exp; \
+        if (ret != 0) \
+        fprintf(stderr, "%s failed: %m\n", #exp);\
+        else \
+        fprintf(stderr, "%s ok.\n", #exp); \
+} while (0)
+
 Ptr<IFrameSource> stabilizedFrames;
 string saveMotionsPath;
 double outputFps;
@@ -39,6 +49,21 @@ void run()
     VideoWriter writer;
     Mat stabilizedFrame;
     int nframes = 0;
+
+    struct rt_task param;
+    init_rt_task_param(&param);
+    param.exec_cost = ms2ns(1000);
+    param.period = ms2ns(1000);
+    param.relative_deadline = ms2ns(1000);
+    param.phase = ms2ns(0);
+    param.budget_policy = NO_ENFORCEMENT;
+    param.cls = RT_CLASS_SOFT;
+    param.priority = LITMUS_LOWEST_PRIORITY;
+    param.cpu = 2;
+    CALL( init_litmus() );
+    CALL( set_rt_task_param(gettid(), &param) );
+    CALL( task_mode(LITMUS_RT_TASK) );
+    CALL( wait_for_ts_release() );
 
     // for each stabilized frame
     while (!(stabilizedFrame = stabilizedFrames->nextFrame()).empty())
@@ -61,10 +86,14 @@ void run()
             char key = static_cast<char>(waitKey(3));
             if (key == 27) { cout << endl; break; }
         }
+
+        sleep_next_period();
     }
 
     cout << "processed frames: " << nframes << endl
          << "finished\n";
+
+    CALL( task_mode(BACKGROUND_TASK) );
 }
 
 
