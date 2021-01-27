@@ -46,7 +46,7 @@
 #include "opencv2/core/cuda/reduce.hpp"
 #include "opencv2/core/cuda/functional.hpp"
 #include "opencv2/core/cuda/warp_shuffle.hpp"
-#include "opencv2/cudaobjdetect.hpp"
+#include "opencv2/rtcudaobjdetect.hpp"
 
 #include <sys/types.h>
 #include <unistd.h>

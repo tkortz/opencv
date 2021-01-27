@@ -22,7 +22,7 @@ set(OPENCV_RT_SAMPLES_REQUIRED_DEPS
   opencv_cudawarping
   opencv_cudaimgproc
   opencv_cudalegacy
-  opencv_cudaobjdetect
+  opencv_rtcudaobjdetect
   pgm
   litmus)
 ocv_check_dependencies(${OPENCV_RT_SAMPLES_REQUIRED_DEPS})
