@@ -46,15 +46,11 @@
 #include "opencv2/core/cuda/reduce.hpp"
 #include "opencv2/core/cuda/functional.hpp"
 #include "opencv2/core/cuda/warp_shuffle.hpp"
-#include "opencv2/cudaobjdetect.hpp"
-
-#include <sys/types.h>
-#include <unistd.h>
 
 namespace cv { namespace cuda { namespace device
 {
 
-    namespace hog_rt
+    namespace hog
     {
         __constant__ int cnbins;
         __constant__ int cblock_stride_x;
@@ -68,111 +64,6 @@ namespace cv { namespace cuda { namespace device
         __constant__ int cdescr_size;
         __constant__ int cdescr_width;
 
-        int use_locks = 1;
-
-        int open_fzlp_lock()
-        {
-            if (!use_locks) return -3;
-
-            // fprintf(stdout, "[%d | %d] Attempting to open OMLP (%d) semaphore now.\n", gettid(), getpid(), OMLP_SEM);
-
-            int lock_od = -1;
-            obj_type_t protocol = OMLP_SEM;
-            int resource_id = 4; // non-negative integer
-            const char *lock_namespace = "./rtspin-locks";
-            int cluster = 0;
-            if (protocol >= 0) {
-                /* open reference to semaphore */
-                lock_od = litmus_open_lock(protocol, resource_id, lock_namespace, &cluster);
-                if (lock_od < 0) {
-                    perror("litmus_open_lock");
-                    fprintf(stderr, "Could not open lock.\n");
-                }
-                // else {
-                //     fprintf(stdout, "[%d | %d] Successfully opened OMLP semaphore lock: %d.\n", gettid(), getpid(), lock_od);
-                // }
-            }
-
-            return lock_od;
-        }
-
-        int lock_fzlp(int sem_od)
-        {
-            if (!use_locks) return -3;
-
-            int res = -2;
-
-            if (sem_od >= 0)
-            {
-                // fprintf(stdout, "[%d | %d] Calling lock (%d) at time \t%llu\n", gettid(), getpid(), sem_od, litmus_clock());
-                res = litmus_lock(sem_od);
-                // fprintf(stdout, "[%d | %d] Acquired lock at time \t%llu (status=%d)\n", gettid(), getpid(), litmus_clock(), res);
-            }
-
-            return res;
-        }
-
-        int wait_forbidden_zone(int sem_od, node_config computation)
-        {
-            if (!use_locks) return -3;
-
-            int res = -2;
-
-            int zone_length = 0;
-            switch (computation) {
-                case NODE_A: // resize
-                    zone_length = us2ns(360); // 5.4 us, measured at 179.8 us
-                    break;
-                case NODE_B: // compute gradients
-                    zone_length = us2ns(4896); // 16.2 us, measured at 2448.1 us
-                    break;
-                case NODE_C: // compute hists
-                    zone_length = us2ns(843); // 56.8 us, measured at 421.4 us
-                    break;
-                case NODE_D: // normalize hists
-                    zone_length = us2ns(811); // 15.1 us, measured at 405.5 us
-                    break;
-                case NODE_E: // classify hists
-                    zone_length = us2ns(666); // 50.5 us, measured at 333.2 us
-                    break;
-                case NODE_AB: // stand-in for copy-in of image
-                    zone_length = us2ns(10000);//4884); // 38.5 us, measured at 2442.0 us
-                    break;
-                case NODE_DE: // stand-in for copy-out of results
-                    zone_length = us2ns(10000);//4582); // 1.6 us, measured at 2290.9 us
-                    break;
-                default:
-                    zone_length = ms2ns(10); // default to 10 milliseconds
-                    break;
-            }
-
-            zone_length = ms2ns(1); // default to 1 milliseconds
-
-            if (sem_od >= 0)
-            {
-                fprintf(stdout, "[%d | %d] Checking FZ at time \t%llu (computation %d)\n", gettid(), getpid(), litmus_clock(), computation);
-                res = litmus_access_forbidden_zone_check(sem_od, zone_length);
-                fprintf(stdout, "[%d | %d] Not in FZ at time \t%llu (status=%d)\n", gettid(), getpid(), litmus_clock(), res);
-            }
-
-            return res;
-        }
-
-        int unlock_fzlp(int sem_od)
-        {
-            if (!use_locks) return -3;
-
-            int res = -2;
-
-            if (sem_od >= 0)
-            {
-                // fprintf(stdout, "[%d | %d] Unlocking at time \t\t%llu\n", gettid(), getpid(), litmus_clock());
-                res = litmus_unlock(sem_od);
-                // fprintf(stdout, "[%d | %d] Unlocked at time \t\t%llu (status=%d)\n", gettid(), getpid(), litmus_clock(), res);
-            }
-
-            return res;
-        }
 
         /* Returns the nearest upper power of two, works only for
         the typical GPU thread count (pert block) values */
@@ -213,25 +104,25 @@ namespace cv { namespace cuda { namespace device
                               int ncells_block_x, int ncells_block_y,
                               const cudaStream_t& stream)
         {
-            cudaSafeCall(cudaMemcpyToSymbolAsync(cnbins,               &nbins,               sizeof(nbins),               0, cudaMemcpyHostToDevice));
-            cudaSafeCall(cudaMemcpyToSymbolAsync(cblock_stride_x,      &block_stride_x,      sizeof(block_stride_x),      0, cudaMemcpyHostToDevice));
-            cudaSafeCall(cudaMemcpyToSymbolAsync(cblock_stride_y,      &block_stride_y,      sizeof(block_stride_y),      0, cudaMemcpyHostToDevice));
-            cudaSafeCall(cudaMemcpyToSymbolAsync(cnblocks_win_x,       &nblocks_win_x,       sizeof(nblocks_win_x),       0, cudaMemcpyHostToDevice));
-            cudaSafeCall(cudaMemcpyToSymbolAsync(cnblocks_win_y,       &nblocks_win_y,       sizeof(nblocks_win_y),       0, cudaMemcpyHostToDevice));
-            cudaSafeCall(cudaMemcpyToSymbolAsync(cncells_block_x,      &ncells_block_x,      sizeof(ncells_block_x),      0, cudaMemcpyHostToDevice));
-            cudaSafeCall(cudaMemcpyToSymbolAsync(cncells_block_y,      &ncells_block_y,      sizeof(ncells_block_y),      0, cudaMemcpyHostToDevice));
+            cudaSafeCall(cudaMemcpyToSymbolAsync(cnbins,               &nbins,               sizeof(nbins),               0, cudaMemcpyHostToDevice, stream));
+            cudaSafeCall(cudaMemcpyToSymbolAsync(cblock_stride_x,      &block_stride_x,      sizeof(block_stride_x),      0, cudaMemcpyHostToDevice, stream));
+            cudaSafeCall(cudaMemcpyToSymbolAsync(cblock_stride_y,      &block_stride_y,      sizeof(block_stride_y),      0, cudaMemcpyHostToDevice, stream));
+            cudaSafeCall(cudaMemcpyToSymbolAsync(cnblocks_win_x,       &nblocks_win_x,       sizeof(nblocks_win_x),       0, cudaMemcpyHostToDevice, stream));
+            cudaSafeCall(cudaMemcpyToSymbolAsync(cnblocks_win_y,       &nblocks_win_y,       sizeof(nblocks_win_y),       0, cudaMemcpyHostToDevice, stream));
+            cudaSafeCall(cudaMemcpyToSymbolAsync(cncells_block_x,      &ncells_block_x,      sizeof(ncells_block_x),      0, cudaMemcpyHostToDevice, stream));
+            cudaSafeCall(cudaMemcpyToSymbolAsync(cncells_block_y,      &ncells_block_y,      sizeof(ncells_block_y),      0, cudaMemcpyHostToDevice, stream));
 
             int block_hist_size = nbins * ncells_block_x * ncells_block_y;
-            cudaSafeCall(cudaMemcpyToSymbolAsync(cblock_hist_size,     &block_hist_size,     sizeof(block_hist_size),     0, cudaMemcpyHostToDevice));
+            cudaSafeCall(cudaMemcpyToSymbolAsync(cblock_hist_size,     &block_hist_size,     sizeof(block_hist_size),     0, cudaMemcpyHostToDevice, stream));
 
             int block_hist_size_2up = power_2up(block_hist_size);
-            cudaSafeCall(cudaMemcpyToSymbolAsync(cblock_hist_size_2up, &block_hist_size_2up, sizeof(block_hist_size_2up), 0, cudaMemcpyHostToDevice));
+            cudaSafeCall(cudaMemcpyToSymbolAsync(cblock_hist_size_2up, &block_hist_size_2up, sizeof(block_hist_size_2up), 0, cudaMemcpyHostToDevice, stream));
 
             int descr_width = nblocks_win_x * block_hist_size;
-            cudaSafeCall(cudaMemcpyToSymbolAsync(cdescr_width,         &descr_width,         sizeof(descr_width),         0, cudaMemcpyHostToDevice));
+            cudaSafeCall(cudaMemcpyToSymbolAsync(cdescr_width,         &descr_width,         sizeof(descr_width),         0, cudaMemcpyHostToDevice, stream));
 
             int descr_size = descr_width * nblocks_win_y;
-            cudaSafeCall(cudaMemcpyToSymbolAsync(cdescr_size,          &descr_size,          sizeof(descr_size),          0, cudaMemcpyHostToDevice));
+            cudaSafeCall(cudaMemcpyToSymbolAsync(cdescr_size,          &descr_size,          sizeof(descr_size),          0, cudaMemcpyHostToDevice, stream));
         }
 
 
@@ -350,10 +241,7 @@ namespace cv { namespace cuda { namespace device
                            float* block_hists,
                            int cell_size_x, int cell_size_y,
                            int ncells_block_x, int ncells_block_y,
-                           const cudaStream_t& stream,
-                           bool should_sync = true,
-                           int omlp_sem_od = -1,
-                           bool should_lock = true)
+                           const cudaStream_t& stream)
         {
             const int ncells_block = ncells_block_x * ncells_block_y;
             const int patch_side = cell_size_x / 4;
@@ -378,44 +266,16 @@ namespace cv { namespace cuda { namespace device
             int hists_size = (nbins * ncells_block * patch_size * nblocks) * sizeof(float);
             int final_hists_size = (nbins * ncells_block * nblocks) * sizeof(float);
             int smem = hists_size + final_hists_size;
-
-            /* =============
-             * LOCK: compute hists
-             */
-            if (should_lock)
-                lock_fzlp(omlp_sem_od);
-            wait_forbidden_zone(omlp_sem_od, NODE_C);
-
-            lt_t fz_start = litmus_clock();
-
             if (nblocks == 4)
-                compute_hists_kernel_many_blocks<4><<<grid, threads, smem>>>(img_block_width, grad, qangle, scale, block_hists, cell_size_x, patch_size, block_patch_size, threads_cell, threads_block, half_cell_size);
+                compute_hists_kernel_many_blocks<4><<<grid, threads, smem, stream>>>(img_block_width, grad, qangle, scale, block_hists, cell_size_x, patch_size, block_patch_size, threads_cell, threads_block, half_cell_size);
             else if (nblocks == 3)
-                compute_hists_kernel_many_blocks<3><<<grid, threads, smem>>>(img_block_width, grad, qangle, scale, block_hists, cell_size_x, patch_size, block_patch_size, threads_cell, threads_block, half_cell_size);
+                compute_hists_kernel_many_blocks<3><<<grid, threads, smem, stream>>>(img_block_width, grad, qangle, scale, block_hists, cell_size_x, patch_size, block_patch_size, threads_cell, threads_block, half_cell_size);
             else if (nblocks == 2)
-                compute_hists_kernel_many_blocks<2><<<grid, threads, smem>>>(img_block_width, grad, qangle, scale, block_hists, cell_size_x, patch_size, block_patch_size, threads_cell, threads_block, half_cell_size);
+                compute_hists_kernel_many_blocks<2><<<grid, threads, smem, stream>>>(img_block_width, grad, qangle, scale, block_hists, cell_size_x, patch_size, block_patch_size, threads_cell, threads_block, half_cell_size);
             else
-                compute_hists_kernel_many_blocks<1><<<grid, threads, smem>>>(img_block_width, grad, qangle, scale, block_hists, cell_size_x, patch_size, block_patch_size, threads_cell, threads_block, half_cell_size);
-
-            exit_np();
+                compute_hists_kernel_many_blocks<1><<<grid, threads, smem, stream>>>(img_block_width, grad, qangle, scale, block_hists, cell_size_x, patch_size, block_patch_size, threads_cell, threads_block, half_cell_size);
 
             cudaSafeCall( cudaGetLastError() );
-
-            if (true || should_sync)
-            {
-                cudaSafeCall(cudaStreamSynchronize(0));
-            }
-
-            lt_t fz_len = litmus_clock() - fz_start;
-
-            fprintf(stdout, "[%d | %d] Computation %d took %llu microseconds.\n",
-                    gettid(), getpid(), NODE_C, fz_len / 1000);
-
-            if (should_lock)
-                unlock_fzlp(omlp_sem_od);
-            /*
-            * UNLOCK: compute hists
-            * ============= */
         }
 
 
@@ -497,10 +357,7 @@ namespace cv { namespace cuda { namespace device
                              float threshold,
                              int cell_size_x, int cell_size_y,
                              int ncells_block_x, int ncells_block_y,
-                             const cudaStream_t& stream,
-                             bool should_sync = true,
-                             int omlp_sem_od = -1,
-                             bool should_lock = true)
+                             const cudaStream_t& stream)
         {
             const int nblocks = 1;
 
@@ -512,138 +369,22 @@ namespace cv { namespace cuda { namespace device
             int img_block_height = (height - ncells_block_y * cell_size_y + block_stride_y) / block_stride_y;
             dim3 grid(divUp(img_block_width, nblocks), img_block_height);
 
-            /* =============
-             * LOCK: normalize hists
-             */
-            if (should_lock)
-                lock_fzlp(omlp_sem_od);
-            wait_forbidden_zone(omlp_sem_od, NODE_D);
-
-            lt_t fz_start = litmus_clock();
-
             if (nthreads == 32)
-                normalize_hists_kernel_many_blocks<32, nblocks><<<grid, threads>>>(block_hist_size, img_block_width, block_hists, threshold);
+                normalize_hists_kernel_many_blocks<32, nblocks><<<grid, threads, 0, stream>>>(block_hist_size, img_block_width, block_hists, threshold);
             else if (nthreads == 64)
-                normalize_hists_kernel_many_blocks<64, nblocks><<<grid, threads>>>(block_hist_size, img_block_width, block_hists, threshold);
+                normalize_hists_kernel_many_blocks<64, nblocks><<<grid, threads, 0, stream>>>(block_hist_size, img_block_width, block_hists, threshold);
             else if (nthreads == 128)
-                normalize_hists_kernel_many_blocks<128, nblocks><<<grid, threads>>>(block_hist_size, img_block_width, block_hists, threshold);
+                normalize_hists_kernel_many_blocks<128, nblocks><<<grid, threads, 0, stream>>>(block_hist_size, img_block_width, block_hists, threshold);
             else if (nthreads == 256)
-                normalize_hists_kernel_many_blocks<256, nblocks><<<grid, threads>>>(block_hist_size, img_block_width, block_hists, threshold);
+                normalize_hists_kernel_many_blocks<256, nblocks><<<grid, threads, 0, stream>>>(block_hist_size, img_block_width, block_hists, threshold);
             else if (nthreads == 512)
-                normalize_hists_kernel_many_blocks<512, nblocks><<<grid, threads>>>(block_hist_size, img_block_width, block_hists, threshold);
+                normalize_hists_kernel_many_blocks<512, nblocks><<<grid, threads, 0, stream>>>(block_hist_size, img_block_width, block_hists, threshold);
             else
                 CV_Error(cv::Error::StsBadArg, "normalize_hists: histogram's size is too big, try to decrease number of bins");
 
-            exit_np();
-
             cudaSafeCall( cudaGetLastError() );
-
-            if (true || should_sync)
-            {
-                cudaSafeCall(cudaStreamSynchronize(0));
-            }
-
-            lt_t fz_len = litmus_clock() - fz_start;
-
-            fprintf(stdout, "[%d | %d] Computation %d took %llu microseconds.\n",
-                    gettid(), getpid(), NODE_D, fz_len / 1000);
-
-            if (should_lock)
-                unlock_fzlp(omlp_sem_od);
-            /*
-            * UNLOCK: normalize hists
-            * ============= */
         }
 
-        template <int nthreads, // Number of threads per one histogram block
-                  int nblocks>  // Number of histogram block processed by single GPU thread block
-        __global__ void classify_hists_kernel_many_blocks(const int img_win_width, const int img_block_width,
-                                                          const int win_block_stride_x, const int win_block_stride_y,
-                                                          const float* block_hists, const float* coefs,
-                                                          float free_coef, float threshold, unsigned char* labels)
-        {
-            const int win_x = threadIdx.z;
-            if (blockIdx.x * blockDim.z + win_x >= img_win_width)
-                return;
-
-            const float* hist = block_hists + (blockIdx.y * win_block_stride_y * img_block_width +
-                                               blockIdx.x * win_block_stride_x * blockDim.z + win_x) *
-                                              cblock_hist_size;
-
-            float product = 0.f;
-            for (int i = threadIdx.x; i < cdescr_size; i += nthreads)
-            {
-                int offset_y = i / cdescr_width;
-                int offset_x = i - offset_y * cdescr_width;
-                product += coefs[i] * hist[offset_y * img_block_width * cblock_hist_size + offset_x];
-            }
-
-            __shared__ float products[nthreads * nblocks];
-
-            const int tid = threadIdx.z * nthreads + threadIdx.x;
-
-            reduce<nthreads>(products, product, tid, plus<float>());
-
-            if (threadIdx.x == 0)
-                labels[blockIdx.y * img_win_width + blockIdx.x * blockDim.z + win_x] = (product + free_coef >= threshold);
-        }
-
-
-        void classify_hists(int win_height, int win_width, int block_stride_y, int block_stride_x,
-                            int win_stride_y, int win_stride_x, int height, int width, float* block_hists,
-                            float* coefs, float free_coef, float threshold, int cell_size_x, int ncells_block_x, unsigned char* labels,
-                            int omlp_sem_od = -1,
-                            bool should_lock = true)
-        {
-            const int nthreads = 256;
-            const int nblocks = 1;
-
-            int win_block_stride_x = win_stride_x / block_stride_x;
-            int win_block_stride_y = win_stride_y / block_stride_y;
-            int img_win_width = (width - win_width + win_stride_x) / win_stride_x;
-            int img_win_height = (height - win_height + win_stride_y) / win_stride_y;
-
-            dim3 threads(nthreads, 1, nblocks);
-            dim3 grid(divUp(img_win_width, nblocks), img_win_height);
-
-            int img_block_width = (width - ncells_block_x * cell_size_x + block_stride_x) / block_stride_x;
-            /* =============
-             * LOCK: classify hists
-             */
-            if (should_lock)
-                lock_fzlp(omlp_sem_od);
-            wait_forbidden_zone(omlp_sem_od, NODE_E);
-
-            lt_t fz_start = litmus_clock();
-
-            cudaSafeCall(cudaFuncSetCacheConfig(classify_hists_kernel_many_blocks<nthreads, nblocks>, cudaFuncCachePreferL1));
-
-            cudaStream_t stream;
-            cudaSafeCall(cudaStreamCreate(&stream));
-
-            classify_hists_kernel_many_blocks<nthreads, nblocks><<<grid,
-                threads>>>(
-                img_win_width, img_block_width, win_block_stride_x, win_block_stride_y,
-                block_hists, coefs, free_coef, threshold, labels);
-
-            exit_np();
-
-            cudaSafeCall( cudaGetLastError() );
-
-            cudaSafeCall(cudaStreamSynchronize(0));
-            cudaSafeCall(cudaStreamDestroy(stream));
-
-            lt_t fz_len = litmus_clock() - fz_start;
-
-            fprintf(stdout, "[%d | %d] Computation %d took %llu microseconds.\n",
-                    gettid(), getpid(), NODE_E, fz_len / 1000);
-
-            if (should_lock)
-                unlock_fzlp(omlp_sem_od);
-            /*
-            * UNLOCK: classify hists
-            * ============= */
-        }
 
         //---------------------------------------------------------------------
         //  Linear SVM based classification
@@ -686,9 +427,7 @@ namespace cv { namespace cuda { namespace device
 
        void compute_confidence_hists(int win_height, int win_width, int block_stride_y, int block_stride_x,
                                                int win_stride_y, int win_stride_x, int height, int width, float* block_hists,
-                                               float* coefs, float free_coef, float threshold, int cell_size_x, int ncells_block_x, float *confidences,
-                                               int omlp_sem_od = -1,
-                                               bool should_lock = true)
+                                               float* coefs, float free_coef, float threshold, int cell_size_x, int ncells_block_x, float *confidences)
        {
            const int nthreads = 256;
            const int nblocks = 1;
@@ -701,45 +440,78 @@ namespace cv { namespace cuda { namespace device
            dim3 threads(nthreads, 1, nblocks);
            dim3 grid(divUp(img_win_width, nblocks), img_win_height);
 
-           int img_block_width = (width - ncells_block_x * cell_size_x + block_stride_x) /
-                                                       block_stride_x;
-
-           /* =============
-            * LOCK: classify hists
-            */
-           if (should_lock)
-               lock_fzlp(omlp_sem_od);
-           wait_forbidden_zone(omlp_sem_od, NODE_E);
-
-           lt_t fz_start = litmus_clock();
-
            cudaSafeCall(cudaFuncSetCacheConfig(compute_confidence_hists_kernel_many_blocks<nthreads, nblocks>,
                                                                                    cudaFuncCachePreferL1));
-           //cudaStream_t stream;
-           //cudaSafeCall(cudaStreamCreate(&stream));
 
-           compute_confidence_hists_kernel_many_blocks<nthreads,
-               nblocks><<<grid, threads>>>(
+           int img_block_width = (width - ncells_block_x * cell_size_x + block_stride_x) /
+                                                       block_stride_x;
+           compute_confidence_hists_kernel_many_blocks<nthreads, nblocks><<<grid, threads>>>(
                    img_win_width, img_block_width, win_block_stride_x, win_block_stride_y,
                    block_hists, coefs, free_coef, threshold, confidences);
-
-           exit_np();
-
-           cudaSafeCall(cudaStreamSynchronize(0));
-           //cudaSafeCall(cudaStreamDestroy(stream));
-
-           lt_t fz_len = litmus_clock() - fz_start;
-
-           fprintf(stdout, "[%d | %d] Computation %d took %llu microseconds.\n",
-                   gettid(), getpid(), NODE_E, fz_len / 1000);
-
-           if (should_lock)
-               unlock_fzlp(omlp_sem_od);
-           /*
-           * UNLOCK: classify hists
-           * ============= */
+           cudaSafeCall(cudaDeviceSynchronize());
        }
 
+
+
+        template <int nthreads, // Number of threads per one histogram block
+                  int nblocks>  // Number of histogram block processed by single GPU thread block
+        __global__ void classify_hists_kernel_many_blocks(const int img_win_width, const int img_block_width,
+                                                          const int win_block_stride_x, const int win_block_stride_y,
+                                                          const float* block_hists, const float* coefs,
+                                                          float free_coef, float threshold, unsigned char* labels)
+        {
+            const int win_x = threadIdx.z;
+            if (blockIdx.x * blockDim.z + win_x >= img_win_width)
+                return;
+
+            const float* hist = block_hists + (blockIdx.y * win_block_stride_y * img_block_width +
+                                               blockIdx.x * win_block_stride_x * blockDim.z + win_x) *
+                                              cblock_hist_size;
+
+            float product = 0.f;
+            for (int i = threadIdx.x; i < cdescr_size; i += nthreads)
+            {
+                int offset_y = i / cdescr_width;
+                int offset_x = i - offset_y * cdescr_width;
+                product += coefs[i] * hist[offset_y * img_block_width * cblock_hist_size + offset_x];
+            }
+
+            __shared__ float products[nthreads * nblocks];
+
+            const int tid = threadIdx.z * nthreads + threadIdx.x;
+
+            reduce<nthreads>(products, product, tid, plus<float>());
+
+            if (threadIdx.x == 0)
+                labels[blockIdx.y * img_win_width + blockIdx.x * blockDim.z + win_x] = (product + free_coef >= threshold);
+        }
+
+
+        void classify_hists(int win_height, int win_width, int block_stride_y, int block_stride_x,
+                            int win_stride_y, int win_stride_x, int height, int width, float* block_hists,
+                            float* coefs, float free_coef, float threshold, int cell_size_x, int ncells_block_x, unsigned char* labels)
+        {
+            const int nthreads = 256;
+            const int nblocks = 1;
+
+            int win_block_stride_x = win_stride_x / block_stride_x;
+            int win_block_stride_y = win_stride_y / block_stride_y;
+            int img_win_width = (width - win_width + win_stride_x) / win_stride_x;
+            int img_win_height = (height - win_height + win_stride_y) / win_stride_y;
+
+            dim3 threads(nthreads, 1, nblocks);
+            dim3 grid(divUp(img_win_width, nblocks), img_win_height);
+
+            cudaSafeCall(cudaFuncSetCacheConfig(classify_hists_kernel_many_blocks<nthreads, nblocks>, cudaFuncCachePreferL1));
+
+            int img_block_width = (width - ncells_block_x * cell_size_x + block_stride_x) / block_stride_x;
+            classify_hists_kernel_many_blocks<nthreads, nblocks><<<grid, threads>>>(
+                img_win_width, img_block_width, win_block_stride_x, win_block_stride_y,
+                block_hists, coefs, free_coef, threshold, labels);
+            cudaSafeCall( cudaGetLastError() );
+
+            cudaSafeCall( cudaDeviceSynchronize() );
+        }
 
         //----------------------------------------------------------------------------
         // Extract descriptors
@@ -787,10 +559,9 @@ namespace cv { namespace cuda { namespace device
             dim3 grid(img_win_width, img_win_height);
 
             int img_block_width = (width - ncells_block_x * cell_size_x + block_stride_x) / block_stride_x;
-            extract_descrs_by_rows_kernel<nthreads><<<grid, threads>>>(img_block_width, win_block_stride_x, win_block_stride_y, block_hists, descriptors);
+            extract_descrs_by_rows_kernel<nthreads><<<grid, threads, 0, stream>>>(img_block_width, win_block_stride_x, win_block_stride_y, block_hists, descriptors);
 
             cudaSafeCall( cudaGetLastError() );
-            cudaSafeCall( cudaStreamSynchronize(0) );
         }
 
 
@@ -841,10 +612,9 @@ namespace cv { namespace cuda { namespace device
             dim3 grid(img_win_width, img_win_height);
 
             int img_block_width = (width - ncells_block_x * cell_size_x + block_stride_x) / block_stride_x;
-            extract_descrs_by_cols_kernel<nthreads><<<grid, threads>>>(img_block_width, win_block_stride_x, win_block_stride_y, block_hists, descriptors);
+            extract_descrs_by_cols_kernel<nthreads><<<grid, threads, 0, stream>>>(img_block_width, win_block_stride_x, win_block_stride_y, block_hists, descriptors);
 
             cudaSafeCall( cudaGetLastError() );
-            cudaSafeCall( cudaStreamSynchronize(0) );
         }
 
         //----------------------------------------------------------------------------
@@ -959,50 +729,20 @@ namespace cv { namespace cuda { namespace device
                                     float angle_scale,
                                     PtrStepSzf grad, PtrStepSzb qangle,
                                     bool correct_gamma,
-                                    const cudaStream_t& stream,
-                                    bool should_sync = true,
-                                    int omlp_sem_od = -1,
-                                    bool should_lock = true)
+                                    const cudaStream_t& stream)
         {
-            (void)nbins;
+            CV_UNUSED(nbins);
             const int nthreads = 256;
 
             dim3 bdim(nthreads, 1);
             dim3 gdim(divUp(width, bdim.x), divUp(height, bdim.y));
 
-            /* =============
-             * LOCK: compute gradients
-             */
-            if (should_lock)
-                lock_fzlp(omlp_sem_od);
-            wait_forbidden_zone(omlp_sem_od, NODE_B);
-
-            lt_t fz_start = litmus_clock();
-
             if (correct_gamma)
-                compute_gradients_8UC4_kernel<nthreads, 1><<<gdim, bdim>>>(height, width, img, angle_scale, grad, qangle);
+                compute_gradients_8UC4_kernel<nthreads, 1><<<gdim, bdim, 0, stream>>>(height, width, img, angle_scale, grad, qangle);
             else
-                compute_gradients_8UC4_kernel<nthreads, 0><<<gdim, bdim>>>(height, width, img, angle_scale, grad, qangle);
-
-            exit_np();
+                compute_gradients_8UC4_kernel<nthreads, 0><<<gdim, bdim, 0, stream>>>(height, width, img, angle_scale, grad, qangle);
 
             cudaSafeCall( cudaGetLastError() );
-
-            if (true || should_sync)
-            {
-                cudaSafeCall(cudaStreamSynchronize(0));
-            }
-
-            lt_t fz_len = litmus_clock() - fz_start;
-
-            fprintf(stdout, "[%d | %d] Computation %d took %llu microseconds.\n",
-                    gettid(), getpid(), NODE_B, fz_len / 1000);
-
-            if (should_lock)
-                unlock_fzlp(omlp_sem_od);
-            /*
-                * UNLOCK: compute gradients
-                * ============= */
         }
 
         template <int nthreads, int correct_gamma>
@@ -1064,50 +804,20 @@ namespace cv { namespace cuda { namespace device
                                     float angle_scale,
                                     PtrStepSzf grad, PtrStepSzb qangle,
                                     bool correct_gamma,
-                                    const cudaStream_t& stream,
-                                    bool should_sync = true,
-                                    int omlp_sem_od = -1,
-                                    bool should_lock = true)
+                                    const cudaStream_t& stream)
         {
-            (void)nbins;
+            CV_UNUSED(nbins);
             const int nthreads = 256;
 
             dim3 bdim(nthreads, 1);
             dim3 gdim(divUp(width, bdim.x), divUp(height, bdim.y));
 
-            /* =============
-             * LOCK: compute gradients
-             */
-            if (should_lock)
-                lock_fzlp(omlp_sem_od);
-            wait_forbidden_zone(omlp_sem_od, NODE_B);
-
-            lt_t fz_start = litmus_clock();
-
             if (correct_gamma)
-                compute_gradients_8UC1_kernel<nthreads, 1><<<gdim, bdim>>>(height, width, img, angle_scale, grad, qangle);
+                compute_gradients_8UC1_kernel<nthreads, 1><<<gdim, bdim, 0, stream>>>(height, width, img, angle_scale, grad, qangle);
             else
-                compute_gradients_8UC1_kernel<nthreads, 0><<<gdim, bdim>>>(height, width, img, angle_scale, grad, qangle);
-
-            exit_np();
+                compute_gradients_8UC1_kernel<nthreads, 0><<<gdim, bdim, 0, stream>>>(height, width, img, angle_scale, grad, qangle);
 
             cudaSafeCall( cudaGetLastError() );
-
-            if (true || should_sync)
-            {
-                cudaSafeCall(cudaStreamSynchronize(0));
-            }
-
-            lt_t fz_len = litmus_clock() - fz_start;
-
-            fprintf(stdout, "[%d | %d] Computation %d took %llu microseconds.\n",
-                    gettid(), getpid(), NODE_B, fz_len / 1000);
-
-            if (should_lock)
-                unlock_fzlp(omlp_sem_od);
-            /*
-             * UNLOCK: compute gradients
-             * ============= */
         }
 
 
@@ -1115,130 +825,37 @@ namespace cv { namespace cuda { namespace device
         //-------------------------------------------------------------------
         // Resize
 
-#define TEX_NUM 8
         texture<uchar4, 2, cudaReadModeNormalizedFloat> resize8UC4_tex;
         texture<uchar,  2, cudaReadModeNormalizedFloat> resize8UC1_tex;
-        texture<uchar, 2, cudaReadModeNormalizedFloat> resize8UC1_tex_local0;
-        texture<uchar, 2, cudaReadModeNormalizedFloat> resize8UC1_tex_local1;
-        texture<uchar, 2, cudaReadModeNormalizedFloat> resize8UC1_tex_local2;
-        texture<uchar, 2, cudaReadModeNormalizedFloat> resize8UC1_tex_local3;
-        texture<uchar, 2, cudaReadModeNormalizedFloat> resize8UC1_tex_local4;
-        texture<uchar, 2, cudaReadModeNormalizedFloat> resize8UC1_tex_local5;
-        texture<uchar, 2, cudaReadModeNormalizedFloat> resize8UC1_tex_local6;
-        texture<uchar, 2, cudaReadModeNormalizedFloat> resize8UC1_tex_local7;
-        texture<uchar4, 2, cudaReadModeNormalizedFloat> resize8UC4_tex_local0;
-        texture<uchar4, 2, cudaReadModeNormalizedFloat> resize8UC4_tex_local1;
-        texture<uchar4, 2, cudaReadModeNormalizedFloat> resize8UC4_tex_local2;
-        texture<uchar4, 2, cudaReadModeNormalizedFloat> resize8UC4_tex_local3;
-        texture<uchar4, 2, cudaReadModeNormalizedFloat> resize8UC4_tex_local4;
-        texture<uchar4, 2, cudaReadModeNormalizedFloat> resize8UC4_tex_local5;
-        texture<uchar4, 2, cudaReadModeNormalizedFloat> resize8UC4_tex_local6;
-        texture<uchar4, 2, cudaReadModeNormalizedFloat> resize8UC4_tex_local7;
 
-        __global__ void resize_for_hog_kernel(float sx, float sy,
-                PtrStepSz<uchar> dst, int colOfs, int tex_index)
+        __global__ void resize_for_hog_kernel(float sx, float sy, PtrStepSz<uchar> dst, int colOfs)
         {
             unsigned int x = blockIdx.x * blockDim.x + threadIdx.x;
             unsigned int y = blockIdx.y * blockDim.y + threadIdx.y;
 
             if (x < dst.cols && y < dst.rows)
-                switch(tex_index)
-                {
-                    case 0:
-                        dst.ptr(y)[x] = tex2D(resize8UC1_tex_local0, x * sx + colOfs, y * sy) * 255;
-                        break;
-                    case 1:
-                        dst.ptr(y)[x] = tex2D(resize8UC1_tex_local1, x * sx + colOfs, y * sy) * 255;
-                        break;
-                    case 2:
-                        dst.ptr(y)[x] = tex2D(resize8UC1_tex_local2, x * sx + colOfs, y * sy) * 255;
-                        break;
-                    case 3:
-                        dst.ptr(y)[x] = tex2D(resize8UC1_tex_local3, x * sx + colOfs, y * sy) * 255;
-                        break;
-                    case 4:
-                        dst.ptr(y)[x] = tex2D(resize8UC1_tex_local4, x * sx + colOfs, y * sy) * 255;
-                        break;
-                    case 5:
-                        dst.ptr(y)[x] = tex2D(resize8UC1_tex_local5, x * sx + colOfs, y * sy) * 255;
-                        break;
-                    case 6:
-                        dst.ptr(y)[x] = tex2D(resize8UC1_tex_local6, x * sx + colOfs, y * sy) * 255;
-                        break;
-                    case 7:
-                        dst.ptr(y)[x] = tex2D(resize8UC1_tex_local7, x * sx + colOfs, y * sy) * 255;
-                        break;
-                    default:
-                        return;
-                }
+                dst.ptr(y)[x] = tex2D(resize8UC1_tex, x * sx + colOfs, y * sy) * 255;
         }
 
-        __global__ void resize_for_hog_kernel(float sx, float sy,
-                PtrStepSz<uchar4> dst, int colOfs, int tex_index)
+        __global__ void resize_for_hog_kernel(float sx, float sy, PtrStepSz<uchar4> dst, int colOfs)
         {
             unsigned int x = blockIdx.x * blockDim.x + threadIdx.x;
             unsigned int y = blockIdx.y * blockDim.y + threadIdx.y;
 
             if (x < dst.cols && y < dst.rows)
             {
-                float4 val;
-                switch(tex_index)
-                {
-                    case 0:
-                        val = tex2D(resize8UC4_tex_local0, x * sx + colOfs, y * sy);
-                        break;
-                    case 1:
-                        val = tex2D(resize8UC4_tex_local1, x * sx + colOfs, y * sy);
-                        break;
-                    case 2:
-                        val = tex2D(resize8UC4_tex_local2, x * sx + colOfs, y * sy);
-                        break;
-                    case 3:
-                        val = tex2D(resize8UC4_tex_local3, x * sx + colOfs, y * sy);
-                        break;
-                    case 4:
-                        val = tex2D(resize8UC4_tex_local4, x * sx + colOfs, y * sy);
-                        break;
-                    case 5:
-                        val = tex2D(resize8UC4_tex_local5, x * sx + colOfs, y * sy);
-                        break;
-                    case 6:
-                        val = tex2D(resize8UC4_tex_local6, x * sx + colOfs, y * sy);
-                        break;
-                    case 7:
-                        val = tex2D(resize8UC4_tex_local7, x * sx + colOfs, y * sy);
-                        break;
-                    default:
-                        return;
-                }
+                float4 val = tex2D(resize8UC4_tex, x * sx + colOfs, y * sy);
                 dst.ptr(y)[x] = make_uchar4(val.x * 255, val.y * 255, val.z * 255, val.w * 255);
             }
         }
 
         template<class T, class TEX>
-        static void resize_for_hog(const PtrStepSzb& src, PtrStepSzb dst, TEX& tex,
-                                   const cudaStream_t& stream, int tex_index, bool should_sync, int omlp_sem_od,
-                                   bool should_lock = true)
+        static void resize_for_hog(const PtrStepSzb& src, PtrStepSzb dst, TEX& tex)
         {
             tex.filterMode = cudaFilterModeLinear;
 
             size_t texOfs = 0;
             int colOfs = 0;
-
-            dim3 threads(32, 8);
-            dim3 grid(divUp(dst.cols, threads.x), divUp(dst.rows, threads.y));
-
-            float sx = static_cast<float>(src.cols) / dst.cols;
-            float sy = static_cast<float>(src.rows) / dst.rows;
-
-            /* =============
-             * LOCK: resize
-             */
-            if (should_lock)
-                lock_fzlp(omlp_sem_od);
-            wait_forbidden_zone(omlp_sem_od, NODE_A);
-
-            lt_t fz_start = litmus_clock();
 
             cudaChannelFormatDesc desc = cudaCreateChannelDesc<T>();
             cudaSafeCall( cudaBindTexture2D(&texOfs, tex, src.data, desc, src.cols, src.rows, src.step) );
@@ -1250,116 +867,23 @@ namespace cv { namespace cuda { namespace device
                 cudaSafeCall( cudaBindTexture2D(&texOfs, tex, src.data, desc, src.cols, src.rows, src.step) );
             }
 
-            resize_for_hog_kernel<<<grid, threads>>>(sx, sy, (PtrStepSz<T>)dst, colOfs, tex_index);
+            dim3 threads(32, 8);
+            dim3 grid(divUp(dst.cols, threads.x), divUp(dst.rows, threads.y));
 
-            exit_np();
+            float sx = static_cast<float>(src.cols) / dst.cols;
+            float sy = static_cast<float>(src.rows) / dst.rows;
 
+            resize_for_hog_kernel<<<grid, threads>>>(sx, sy, (PtrStepSz<T>)dst, colOfs);
             cudaSafeCall( cudaGetLastError() );
 
-            if (true || should_sync)
-            {
-                cudaSafeCall(cudaStreamSynchronize(0));
-            }
+            cudaSafeCall( cudaDeviceSynchronize() );
 
-            lt_t fz_len = litmus_clock() - fz_start;
-
-            fprintf(stdout, "[%d | %d] Computation %d took %llu microseconds.\n",
-                    gettid(), getpid(), NODE_A, fz_len / 1000);
-
-            if (should_lock)
-                unlock_fzlp(omlp_sem_od);
-            /*
-             * UNLOCK: resize
-             * ============= */
+            cudaSafeCall( cudaUnbindTexture(tex) );
         }
 
-        void resize_8UC1(const PtrStepSzb& src, PtrStepSzb dst,
-                         const cudaStream_t& stream, bool should_sync = true, int omlp_sem_od = -1,
-                         bool should_lock = true)
-        {
-            resize_for_hog<uchar> (src, dst, resize8UC1_tex_local0, stream, 0, should_sync, omlp_sem_od, should_lock);
-        }
-        void resize_8UC4(const PtrStepSzb& src, PtrStepSzb dst,
-                         const cudaStream_t& stream, bool should_sync = true, int omlp_sem_od = -1,
-                         bool should_lock = true)
-        {
-            resize_for_hog<uchar4>(src, dst, resize8UC4_tex_local0, stream, 0, should_sync, omlp_sem_od, should_lock);
-        }
-
-        void resize_8UC1_thread_safe(const PtrStepSzb& src, PtrStepSzb dst,
-                                     const cudaStream_t& stream, int index,
-                                     bool should_sync = true, int omlp_sem_od = -1,
-                                     bool should_lock = true)
-        {
-            int tex_index = index % TEX_NUM;
-            switch(tex_index)
-            {
-                case 0:
-                    resize_for_hog<uchar>(src, dst, resize8UC1_tex_local0, stream, tex_index, should_sync, omlp_sem_od, should_lock);
-                    break;
-                case 1:
-                    resize_for_hog<uchar>(src, dst, resize8UC1_tex_local1, stream, tex_index, should_sync, omlp_sem_od, should_lock);
-                    break;
-                case 2:
-                    resize_for_hog<uchar>(src, dst, resize8UC1_tex_local2, stream, tex_index, should_sync, omlp_sem_od, should_lock);
-                    break;
-                case 3:
-                    resize_for_hog<uchar>(src, dst, resize8UC1_tex_local3, stream, tex_index, should_sync, omlp_sem_od, should_lock);
-                    break;
-                case 4:
-                    resize_for_hog<uchar>(src, dst, resize8UC1_tex_local4, stream, tex_index, should_sync, omlp_sem_od, should_lock);
-                    break;
-                case 5:
-                    resize_for_hog<uchar>(src, dst, resize8UC1_tex_local5, stream, tex_index, should_sync, omlp_sem_od, should_lock);
-                    break;
-                case 6:
-                    resize_for_hog<uchar>(src, dst, resize8UC1_tex_local6, stream, tex_index, should_sync, omlp_sem_od, should_lock);
-                    break;
-                case 7:
-                    resize_for_hog<uchar>(src, dst, resize8UC1_tex_local7, stream, tex_index, should_sync, omlp_sem_od, should_lock);
-                    break;
-                default:
-                    return;
-            }
-        }
-
-        void resize_8UC4_thread_safe(const PtrStepSzb& src, PtrStepSzb dst,
-                                     const cudaStream_t& stream, int index,
-                                     bool should_sync = true, int omlp_sem_od = -1,
-                                     bool should_lock = true)
-        {
-            int tex_index = index % TEX_NUM;
-            switch(tex_index)
-            {
-                case 0:
-                    resize_for_hog<uchar4>(src, dst, resize8UC4_tex_local0, stream, tex_index, should_sync, omlp_sem_od, should_lock);
-                    break;
-                case 1:
-                    resize_for_hog<uchar4>(src, dst, resize8UC4_tex_local1, stream, tex_index, should_sync, omlp_sem_od, should_lock);
-                    break;
-                case 2:
-                    resize_for_hog<uchar4>(src, dst, resize8UC4_tex_local2, stream, tex_index, should_sync, omlp_sem_od, should_lock);
-                    break;
-                case 3:
-                    resize_for_hog<uchar4>(src, dst, resize8UC4_tex_local3, stream, tex_index, should_sync, omlp_sem_od, should_lock);
-                    break;
-                case 4:
-                    resize_for_hog<uchar4>(src, dst, resize8UC4_tex_local4, stream, tex_index, should_sync, omlp_sem_od, should_lock);
-                    break;
-                case 5:
-                    resize_for_hog<uchar4>(src, dst, resize8UC4_tex_local5, stream, tex_index, should_sync, omlp_sem_od, should_lock);
-                    break;
-                case 6:
-                    resize_for_hog<uchar4>(src, dst, resize8UC4_tex_local6, stream, tex_index, should_sync, omlp_sem_od, should_lock);
-                    break;
-                case 7:
-                    resize_for_hog<uchar4>(src, dst, resize8UC4_tex_local7, stream, tex_index, should_sync, omlp_sem_od, should_lock);
-                    break;
-                default:
-                    return;
-            }
-        }
-    } // namespace hog_rt
+        void resize_8UC1(const PtrStepSzb& src, PtrStepSzb dst) { resize_for_hog<uchar> (src, dst, resize8UC1_tex); }
+        void resize_8UC4(const PtrStepSzb& src, PtrStepSzb dst) { resize_for_hog<uchar4>(src, dst, resize8UC4_tex); }
+    } // namespace hog
 }}} // namespace cv { namespace cuda { namespace cudev
 
 

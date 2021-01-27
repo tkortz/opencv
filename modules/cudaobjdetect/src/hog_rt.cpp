@@ -92,7 +92,7 @@ if(__ret < 0) { \
 
 #if !defined (HAVE_CUDA) || defined (CUDA_DISABLER)
 
-Ptr<cuda::HOG> cv::cuda::HOG::create(Size, Size, Size, Size, int) { throw_no_cuda(); return Ptr<cuda::HOG>(); }
+Ptr<cuda::HOG_RT> cv::cuda::HOG_RT::create(Size, Size, Size, Size, int) { throw_no_cuda(); return Ptr<cuda::HOG_RT>(); }
 
 #else
 
@@ -107,7 +107,7 @@ Ptr<cuda::HOG> cv::cuda::HOG::create(Size, Size, Size, Size, int) { throw_no_cud
 
 namespace cv { namespace cuda { namespace device
 {
-    namespace hog
+    namespace hog_rt
     {
         void set_up_constants(int nbins,
                               int block_stride_x, int block_stride_y,
@@ -214,7 +214,7 @@ using namespace cv::cuda::device;
 
 namespace
 {
-    class HOG_Impl : public cv::cuda::HOG
+    class HOG_Impl : public cv::cuda::HOG_RT
     {
     public:
         HOG_Impl(Size win_size,
@@ -534,8 +534,8 @@ namespace
 
     lt_t module_start_lock(int omlp_sem_od, node_config t)
     {
-        hog::lock_fzlp(omlp_sem_od);
-        hog::wait_forbidden_zone(omlp_sem_od, t);
+        hog_rt::lock_fzlp(omlp_sem_od);
+        hog_rt::wait_forbidden_zone(omlp_sem_od, t);
         return litmus_clock();
     }
 
@@ -544,7 +544,7 @@ namespace
         lt_t fz_len = litmus_clock() - fz_start;
         fprintf(stdout, "[%d | %d] Computation %d took %llu microseconds.\n", \
                 gettid(), getpid(), t, fz_len / 1000);
-        hog::unlock_fzlp(omlp_sem_od);
+        hog_rt::unlock_fzlp(omlp_sem_od);
     }
 
     void* HOG_Impl::thread_fine_compute_scales(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info)
@@ -585,7 +585,7 @@ namespace
         double scale = 1.0;
         int levels = 0;
 
-        hog::set_up_constants(nbins_,
+        hog_rt::set_up_constants(nbins_,
                 block_stride_.width, block_stride_.height,
                 blocks_per_win.width, blocks_per_win.height,
                 cells_per_block_.width, cells_per_block_.height,
@@ -816,8 +816,8 @@ namespace
                     {
                         switch (gpu_img->type())
                         {
-                            case CV_8UC1: hog::resize_8UC1_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index, !change_deadline, omlp_sem_od); break;
-                            case CV_8UC4: hog::resize_8UC4_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index, !change_deadline, omlp_sem_od); break;
+                            case CV_8UC1: hog_rt::resize_8UC1_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index, !change_deadline, omlp_sem_od); break;
+                            case CV_8UC4: hog_rt::resize_8UC4_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index, !change_deadline, omlp_sem_od); break;
                         }
                     }
                     // if (change_deadline) {
@@ -946,7 +946,7 @@ namespace
                     switch (smaller_img->type())
                     {
                         case CV_8UC1:
-                            hog::compute_gradients_8UC1(nbins_,
+                            hog_rt::compute_gradients_8UC1(nbins_,
                                     smaller_img->rows, smaller_img->cols, *smaller_img,
                                     angleScale,
                                     *grad, *qangle,
@@ -955,7 +955,7 @@ namespace
                                     !change_deadline, omlp_sem_od);
                             break;
                         case CV_8UC4:
-                            hog::compute_gradients_8UC4(nbins_,
+                            hog_rt::compute_gradients_8UC4(nbins_,
                                     smaller_img->rows, smaller_img->cols, *smaller_img,
                                     angleScale,
                                     *grad, *qangle,
@@ -1089,7 +1089,7 @@ namespace
 
                     bool change_deadline = t_info.realtime && t_info.sched == FINE_GRAINED;
 
-                    hog::compute_hists(nbins_,
+                    hog_rt::compute_hists(nbins_,
                             block_stride_.width, block_stride_.height,
                             smaller_img->rows, smaller_img->cols,
                             *grad, *qangle,
@@ -1216,7 +1216,7 @@ namespace
                      */
                     bool change_deadline = t_info.realtime && t_info.sched == FINE_GRAINED;
 
-                    hog::normalize_hists(nbins_,
+                    hog_rt::normalize_hists(nbins_,
                             block_stride_.width, block_stride_.height,
                             smaller_img->rows, smaller_img->cols,
                             block_hists->ptr<float>(),
@@ -1355,7 +1355,7 @@ namespace
                         //     CALL(set_current_deadline(curr_deadline + param.period));
                         // }
 
-                        hog::classify_hists(win_size_.height, win_size_.width,
+                        hog_rt::classify_hists(win_size_.height, win_size_.width,
                                 block_stride_.height, block_stride_.width,
                                 win_stride_.height, win_stride_.width,
                                 smaller_img->rows, smaller_img->cols,
@@ -1373,7 +1373,7 @@ namespace
                         //     CALL(set_current_deadline(curr_deadline + param.period));
                         // }
 
-                        hog::compute_confidence_hists(win_size_.height, win_size_.width,
+                        hog_rt::compute_confidence_hists(win_size_.height, win_size_.width,
                                 block_stride_.height, block_stride_.width,
                                 win_stride_.height, win_stride_.width,
                                 smaller_img->rows, smaller_img->cols,
@@ -1524,8 +1524,8 @@ namespace
                             /* =============
                             * LOCK: download labels from GPU
                             */
-                            hog::lock_fzlp(omlp_sem_od);
-                            hog::wait_forbidden_zone(omlp_sem_od, NODE_DE);
+                            hog_rt::lock_fzlp(omlp_sem_od);
+                            hog_rt::wait_forbidden_zone(omlp_sem_od, NODE_DE);
 
                             lt_t fz_start = litmus_clock();
 
@@ -1538,7 +1538,7 @@ namespace
                             fprintf(stdout, "[%d | %d] Computation %d took %llu microseconds.\n",
                                     gettid(), getpid(), NODE_DE, fz_len / 1000);
 
-                            hog::unlock_fzlp(omlp_sem_od);
+                            hog_rt::unlock_fzlp(omlp_sem_od);
                             /*
                             * UNLOCK: download labels from GPU
                             * ============= */
@@ -1559,8 +1559,8 @@ namespace
                             /* =============
                             * LOCK: download labels from GPU
                             */
-                            hog::lock_fzlp(omlp_sem_od);
-                            hog::wait_forbidden_zone(omlp_sem_od, NODE_DE);
+                            hog_rt::lock_fzlp(omlp_sem_od);
+                            hog_rt::wait_forbidden_zone(omlp_sem_od, NODE_DE);
 
                             lt_t fz_start = litmus_clock();
 
@@ -1573,7 +1573,7 @@ namespace
                             fprintf(stdout, "[%d | %d] Computation %d took %llu microseconds.\n",
                                     gettid(), getpid(), NODE_DE, fz_len / 1000);
 
-                            hog::unlock_fzlp(omlp_sem_od);
+                            hog_rt::unlock_fzlp(omlp_sem_od);
                             /*
                             * UNLOCK: download labels from GPU
                             * ============= */
@@ -1718,8 +1718,8 @@ namespace
                     {
                         switch (gpu_img->type())
                         {
-                            case CV_8UC1: hog::resize_8UC1_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index); break;
-                            case CV_8UC4: hog::resize_8UC4_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index); break;
+                            case CV_8UC1: hog_rt::resize_8UC1_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index); break;
+                            case CV_8UC4: hog_rt::resize_8UC4_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index); break;
                         }
                     }
 
@@ -1740,7 +1740,7 @@ namespace
                     switch (smaller_img->type())
                     {
                         case CV_8UC1:
-                            hog::compute_gradients_8UC1(nbins_,
+                            hog_rt::compute_gradients_8UC1(nbins_,
                                     smaller_img->rows, smaller_img->cols, *smaller_img,
                                     angleScale,
                                     *grad, *qangle,
@@ -1748,7 +1748,7 @@ namespace
                                     StreamAccessor::getStream(stream));
                             break;
                         case CV_8UC4:
-                            hog::compute_gradients_8UC4(nbins_,
+                            hog_rt::compute_gradients_8UC4(nbins_,
                                     smaller_img->rows, smaller_img->cols, *smaller_img,
                                     angleScale,
                                     *grad, *qangle,
@@ -1765,7 +1765,7 @@ namespace
                      */
                     block_hists = in_buf->block_hists;
 
-                    hog::compute_hists(nbins_,
+                    hog_rt::compute_hists(nbins_,
                             block_stride_.width, block_stride_.height,
                             smaller_img->rows, smaller_img->cols,
                             *grad, *qangle,
@@ -1857,22 +1857,22 @@ namespace
 
     int HOG_Impl::open_lock()
     {
-        return hog::open_fzlp_lock();
+        return hog_rt::open_fzlp_lock();
     }
 
     int HOG_Impl::lock_fzlp(int sem_od)
     {
-        return hog::lock_fzlp(sem_od);
+        return hog_rt::lock_fzlp(sem_od);
     }
 
     int HOG_Impl::wait_forbidden_zone(int sem_od, node_config computation)
     {
-        return hog::wait_forbidden_zone(sem_od, computation);
+        return hog_rt::wait_forbidden_zone(sem_od, computation);
     }
 
     int HOG_Impl::unlock_fzlp(int sem_od)
     {
-        return hog::unlock_fzlp(sem_od);
+        return hog_rt::unlock_fzlp(sem_od);
     }
 
     int HOG_Impl::numPartsWithin(int size, int part_size, int stride) const
@@ -1969,7 +1969,7 @@ namespace
         {
             GpuMat labels = pool.getBuffer(1, wins_per_img.area(), CV_8UC1);
 
-            hog::classify_hists(win_size_.height, win_size_.width,
+            hog_rt::classify_hists(win_size_.height, win_size_.width,
                                 block_stride_.height, block_stride_.width,
                                 win_stride_.height, win_stride_.width,
                                 img.rows, img.cols,
@@ -1996,7 +1996,7 @@ namespace
         {
             GpuMat labels = pool.getBuffer(1, wins_per_img.area(), CV_32FC1);
 
-            hog::compute_confidence_hists(win_size_.height, win_size_.width,
+            hog_rt::compute_confidence_hists(win_size_.height, win_size_.width,
                                           block_stride_.height, block_stride_.width,
                                           win_stride_.height, win_stride_.width,
                                           img.rows, img.cols,
@@ -2076,8 +2076,8 @@ namespace
                 smaller_img = pool.getBuffer(sz, img.type());
                 switch (img.type())
                 {
-                    case CV_8UC1: hog::resize_8UC1(img, smaller_img, StreamAccessor::getStream(Stream::Null())); break;
-                    case CV_8UC4: hog::resize_8UC4(img, smaller_img, StreamAccessor::getStream(Stream::Null())); break;
+                    case CV_8UC1: hog_rt::resize_8UC1(img, smaller_img, StreamAccessor::getStream(Stream::Null())); break;
+                    case CV_8UC4: hog_rt::resize_8UC4(img, smaller_img, StreamAccessor::getStream(Stream::Null())); break;
                 }
             }
 
@@ -2123,7 +2123,7 @@ namespace
         switch (descr_format_)
         {
         case DESCR_FORMAT_ROW_BY_ROW:
-            hog::extract_descrs_by_rows(win_size_.height, win_size_.width,
+            hog_rt::extract_descrs_by_rows(win_size_.height, win_size_.width,
                                         block_stride_.height, block_stride_.width,
                                         win_stride_.height, win_stride_.width,
                                         img.rows, img.cols,
@@ -2133,7 +2133,7 @@ namespace
                                         StreamAccessor::getStream(stream));
             break;
         case DESCR_FORMAT_COL_BY_COL:
-            hog::extract_descrs_by_cols(win_size_.height, win_size_.width,
+            hog_rt::extract_descrs_by_cols(win_size_.height, win_size_.width,
                                         block_stride_.height, block_stride_.width,
                                         win_stride_.height, win_stride_.width,
                                         img.rows, img.cols,
@@ -2162,7 +2162,7 @@ namespace
         GpuMat grad       = pool.getBuffer(img.size(), CV_32FC2);
         GpuMat qangle     = pool.getBuffer(img.size(), CV_8UC2);
 
-        hog::set_up_constants(nbins_,
+        hog_rt::set_up_constants(nbins_,
                               block_stride_.width, block_stride_.height,
                               blocks_per_win.width, blocks_per_win.height,
                               cells_per_block_.width, cells_per_block_.height,
@@ -2171,7 +2171,7 @@ namespace
         switch (img.type())
         {
             case CV_8UC1:
-                hog::compute_gradients_8UC1(nbins_,
+                hog_rt::compute_gradients_8UC1(nbins_,
                                             img.rows, img.cols, img,
                                             angleScale,
                                             grad, qangle,
@@ -2179,7 +2179,7 @@ namespace
                                             StreamAccessor::getStream(stream));
                 break;
             case CV_8UC4:
-                hog::compute_gradients_8UC4(nbins_,
+                hog_rt::compute_gradients_8UC4(nbins_,
                                             img.rows, img.cols, img,
                                             angleScale,
                                             grad, qangle,
@@ -2188,7 +2188,7 @@ namespace
                 break;
         }
 
-        hog::compute_hists(nbins_,
+        hog_rt::compute_hists(nbins_,
                            block_stride_.width, block_stride_.height,
                            img.rows, img.cols,
                            grad, qangle,
@@ -2198,7 +2198,7 @@ namespace
                            cells_per_block_.width, cells_per_block_.height,
                            StreamAccessor::getStream(stream));
 
-        hog::normalize_hists(nbins_,
+        hog_rt::normalize_hists(nbins_,
                              block_stride_.width, block_stride_.height,
                              img.rows, img.cols,
                              block_hists.ptr<float>(),
@@ -2274,8 +2274,8 @@ namespace
                     {
                         switch (gpu_img->type())
                         {
-                            case CV_8UC1: hog::resize_8UC1_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index, true, omlp_sem_od); break;
-                            case CV_8UC4: hog::resize_8UC4_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index, true, omlp_sem_od); break;
+                            case CV_8UC1: hog_rt::resize_8UC1_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index, true, omlp_sem_od); break;
+                            case CV_8UC4: hog_rt::resize_8UC4_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index, true, omlp_sem_od); break;
                         }
                     }
 
@@ -2295,7 +2295,7 @@ namespace
                     switch (smaller_img->type())
                     {
                         case CV_8UC1:
-                            hog::compute_gradients_8UC1(nbins_,
+                            hog_rt::compute_gradients_8UC1(nbins_,
                                     smaller_img->rows, smaller_img->cols, *smaller_img,
                                     angleScale,
                                     *grad, *qangle,
@@ -2304,7 +2304,7 @@ namespace
                                     true, omlp_sem_od);
                             break;
                         case CV_8UC4:
-                            hog::compute_gradients_8UC4(nbins_,
+                            hog_rt::compute_gradients_8UC4(nbins_,
                                     smaller_img->rows, smaller_img->cols, *smaller_img,
                                     angleScale,
                                     *grad, *qangle,
@@ -2428,7 +2428,7 @@ namespace
                     switch (smaller_img->type())
                     {
                         case CV_8UC1:
-                            hog::compute_gradients_8UC1(nbins_,
+                            hog_rt::compute_gradients_8UC1(nbins_,
                                     smaller_img->rows, smaller_img->cols, *smaller_img,
                                     angleScale,
                                     *grad, *qangle,
@@ -2437,7 +2437,7 @@ namespace
                                     true, omlp_sem_od);
                             break;
                         case CV_8UC4:
-                            hog::compute_gradients_8UC4(nbins_,
+                            hog_rt::compute_gradients_8UC4(nbins_,
                                     smaller_img->rows, smaller_img->cols, *smaller_img,
                                     angleScale,
                                     *grad, *qangle,
@@ -2455,7 +2455,7 @@ namespace
                      */
                     block_hists = in_buf->block_hists;
 
-                    hog::compute_hists(nbins_,
+                    hog_rt::compute_hists(nbins_,
                             block_stride_.width, block_stride_.height,
                             smaller_img->rows, smaller_img->cols,
                             *grad, *qangle,
@@ -2578,7 +2578,7 @@ namespace
                      */
                     block_hists = in_buf->block_hists;
 
-                    hog::compute_hists(nbins_,
+                    hog_rt::compute_hists(nbins_,
                             block_stride_.width, block_stride_.height,
                             smaller_img->rows, smaller_img->cols,
                             *grad, *qangle,
@@ -2595,7 +2595,7 @@ namespace
                     /* ===========================
                      * normalize histograms
                      */
-                    hog::normalize_hists(nbins_,
+                    hog_rt::normalize_hists(nbins_,
                             block_stride_.width, block_stride_.height,
                             smaller_img->rows, smaller_img->cols,
                             block_hists->ptr<float>(),
@@ -2714,7 +2714,7 @@ namespace
                     /* ===========================
                      * normalize histograms
                      */
-                    hog::normalize_hists(nbins_,
+                    hog_rt::normalize_hists(nbins_,
                             block_stride_.width, block_stride_.height,
                             smaller_img->rows, smaller_img->cols,
                             block_hists->ptr<float>(),
@@ -2735,7 +2735,7 @@ namespace
                      */
                     if (confidences == NULL)
                     {
-                        hog::classify_hists(win_size_.height, win_size_.width,
+                        hog_rt::classify_hists(win_size_.height, win_size_.width,
                                 block_stride_.height, block_stride_.width,
                                 win_stride_.height, win_stride_.width,
                                 smaller_img->rows, smaller_img->cols,
@@ -2749,7 +2749,7 @@ namespace
                     }
                     else
                     {
-                        hog::compute_confidence_hists(win_size_.height, win_size_.width,
+                        hog_rt::compute_confidence_hists(win_size_.height, win_size_.width,
                                 block_stride_.height, block_stride_.width,
                                 win_stride_.height, win_stride_.width,
                                 smaller_img->rows, smaller_img->cols,
@@ -2875,8 +2875,8 @@ namespace
                     {
                         switch (gpu_img->type())
                         {
-                            case CV_8UC1: hog::resize_8UC1_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index, true, omlp_sem_od); break;
-                            case CV_8UC4: hog::resize_8UC4_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index, true, omlp_sem_od); break;
+                            case CV_8UC1: hog_rt::resize_8UC1_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index, true, omlp_sem_od); break;
+                            case CV_8UC4: hog_rt::resize_8UC4_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index, true, omlp_sem_od); break;
                         }
                     }
 
@@ -2896,7 +2896,7 @@ namespace
                     switch (smaller_img->type())
                     {
                         case CV_8UC1:
-                            hog::compute_gradients_8UC1(nbins_,
+                            hog_rt::compute_gradients_8UC1(nbins_,
                                     smaller_img->rows, smaller_img->cols, *smaller_img,
                                     angleScale,
                                     *grad, *qangle,
@@ -2905,7 +2905,7 @@ namespace
                                     true, omlp_sem_od);
                             break;
                         case CV_8UC4:
-                            hog::compute_gradients_8UC4(nbins_,
+                            hog_rt::compute_gradients_8UC4(nbins_,
                                     smaller_img->rows, smaller_img->cols, *smaller_img,
                                     angleScale,
                                     *grad, *qangle,
@@ -2923,7 +2923,7 @@ namespace
                      */
                     block_hists = in_buf->block_hists;
 
-                    hog::compute_hists(nbins_,
+                    hog_rt::compute_hists(nbins_,
                             block_stride_.width, block_stride_.height,
                             smaller_img->rows, smaller_img->cols,
                             *grad, *qangle,
@@ -3049,7 +3049,7 @@ namespace
                     switch (smaller_img->type())
                     {
                         case CV_8UC1:
-                            hog::compute_gradients_8UC1(nbins_,
+                            hog_rt::compute_gradients_8UC1(nbins_,
                                     smaller_img->rows, smaller_img->cols, *smaller_img,
                                     angleScale,
                                     *grad, *qangle,
@@ -3058,7 +3058,7 @@ namespace
                                     true, omlp_sem_od);
                             break;
                         case CV_8UC4:
-                            hog::compute_gradients_8UC4(nbins_,
+                            hog_rt::compute_gradients_8UC4(nbins_,
                                     smaller_img->rows, smaller_img->cols, *smaller_img,
                                     angleScale,
                                     *grad, *qangle,
@@ -3076,7 +3076,7 @@ namespace
                      */
                     block_hists = in_buf->block_hists;
 
-                    hog::compute_hists(nbins_,
+                    hog_rt::compute_hists(nbins_,
                             block_stride_.width, block_stride_.height,
                             smaller_img->rows, smaller_img->cols,
                             *grad, *qangle,
@@ -3093,7 +3093,7 @@ namespace
                     /* ===========================
                      * normalize histograms
                      */
-                    hog::normalize_hists(nbins_,
+                    hog_rt::normalize_hists(nbins_,
                             block_stride_.width, block_stride_.height,
                             smaller_img->rows, smaller_img->cols,
                             block_hists->ptr<float>(),
@@ -3219,7 +3219,7 @@ namespace
                      */
                     block_hists = in_buf->block_hists;
 
-                    hog::compute_hists(nbins_,
+                    hog_rt::compute_hists(nbins_,
                             block_stride_.width, block_stride_.height,
                             smaller_img->rows, smaller_img->cols,
                             *grad, *qangle,
@@ -3236,7 +3236,7 @@ namespace
                     /* ===========================
                      * normalize histograms
                      */
-                    hog::normalize_hists(nbins_,
+                    hog_rt::normalize_hists(nbins_,
                             block_stride_.width, block_stride_.height,
                             smaller_img->rows, smaller_img->cols,
                             block_hists->ptr<float>(),
@@ -3257,7 +3257,7 @@ namespace
                      */
                     if (confidences == NULL)
                     {
-                        hog::classify_hists(win_size_.height, win_size_.width,
+                        hog_rt::classify_hists(win_size_.height, win_size_.width,
                                 block_stride_.height, block_stride_.width,
                                 win_stride_.height, win_stride_.width,
                                 smaller_img->rows, smaller_img->cols,
@@ -3271,7 +3271,7 @@ namespace
                     }
                     else
                     {
-                        hog::compute_confidence_hists(win_size_.height, win_size_.width,
+                        hog_rt::compute_confidence_hists(win_size_.height, win_size_.width,
                                 block_stride_.height, block_stride_.width,
                                 win_stride_.height, win_stride_.width,
                                 smaller_img->rows, smaller_img->cols,
@@ -3398,8 +3398,8 @@ namespace
                     {
                         switch (gpu_img->type())
                         {
-                            case CV_8UC1: hog::resize_8UC1_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index, true, omlp_sem_od); break;
-                            case CV_8UC4: hog::resize_8UC4_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index, true, omlp_sem_od); break;
+                            case CV_8UC1: hog_rt::resize_8UC1_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index, true, omlp_sem_od); break;
+                            case CV_8UC4: hog_rt::resize_8UC4_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index, true, omlp_sem_od); break;
                         }
                     }
 
@@ -3419,7 +3419,7 @@ namespace
                     switch (smaller_img->type())
                     {
                         case CV_8UC1:
-                            hog::compute_gradients_8UC1(nbins_,
+                            hog_rt::compute_gradients_8UC1(nbins_,
                                     smaller_img->rows, smaller_img->cols, *smaller_img,
                                     angleScale,
                                     *grad, *qangle,
@@ -3428,7 +3428,7 @@ namespace
                                     true, omlp_sem_od);
                             break;
                         case CV_8UC4:
-                            hog::compute_gradients_8UC4(nbins_,
+                            hog_rt::compute_gradients_8UC4(nbins_,
                                     smaller_img->rows, smaller_img->cols, *smaller_img,
                                     angleScale,
                                     *grad, *qangle,
@@ -3446,7 +3446,7 @@ namespace
                      */
                     block_hists = in_buf->block_hists;
 
-                    hog::compute_hists(nbins_,
+                    hog_rt::compute_hists(nbins_,
                             block_stride_.width, block_stride_.height,
                             smaller_img->rows, smaller_img->cols,
                             *grad, *qangle,
@@ -3463,7 +3463,7 @@ namespace
                     /* ===========================
                      * normalize histograms
                      */
-                    hog::normalize_hists(nbins_,
+                    hog_rt::normalize_hists(nbins_,
                             block_stride_.width, block_stride_.height,
                             smaller_img->rows, smaller_img->cols,
                             block_hists->ptr<float>(),
@@ -3592,7 +3592,7 @@ namespace
                     switch (smaller_img->type())
                     {
                         case CV_8UC1:
-                            hog::compute_gradients_8UC1(nbins_,
+                            hog_rt::compute_gradients_8UC1(nbins_,
                                     smaller_img->rows, smaller_img->cols, *smaller_img,
                                     angleScale,
                                     *grad, *qangle,
@@ -3601,7 +3601,7 @@ namespace
                                     true, omlp_sem_od);
                             break;
                         case CV_8UC4:
-                            hog::compute_gradients_8UC4(nbins_,
+                            hog_rt::compute_gradients_8UC4(nbins_,
                                     smaller_img->rows, smaller_img->cols, *smaller_img,
                                     angleScale,
                                     *grad, *qangle,
@@ -3619,7 +3619,7 @@ namespace
                      */
                     block_hists = in_buf->block_hists;
 
-                    hog::compute_hists(nbins_,
+                    hog_rt::compute_hists(nbins_,
                             block_stride_.width, block_stride_.height,
                             smaller_img->rows, smaller_img->cols,
                             *grad, *qangle,
@@ -3636,7 +3636,7 @@ namespace
                     /* ===========================
                      * normalize histograms
                      */
-                    hog::normalize_hists(nbins_,
+                    hog_rt::normalize_hists(nbins_,
                             block_stride_.width, block_stride_.height,
                             smaller_img->rows, smaller_img->cols,
                             block_hists->ptr<float>(),
@@ -3657,7 +3657,7 @@ namespace
                      */
                     if (confidences == NULL)
                     {
-                        hog::classify_hists(win_size_.height, win_size_.width,
+                        hog_rt::classify_hists(win_size_.height, win_size_.width,
                                 block_stride_.height, block_stride_.width,
                                 win_stride_.height, win_stride_.width,
                                 smaller_img->rows, smaller_img->cols,
@@ -3671,7 +3671,7 @@ namespace
                     }
                     else
                     {
-                        hog::compute_confidence_hists(win_size_.height, win_size_.width,
+                        hog_rt::compute_confidence_hists(win_size_.height, win_size_.width,
                                 block_stride_.height, block_stride_.width,
                                 win_stride_.height, win_stride_.width,
                                 smaller_img->rows, smaller_img->cols,
@@ -3802,8 +3802,8 @@ namespace
                     {
                         switch (gpu_img->type())
                         {
-                            case CV_8UC1: hog::resize_8UC1_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index, true, omlp_sem_od); break;
-                            case CV_8UC4: hog::resize_8UC4_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index, true, omlp_sem_od); break;
+                            case CV_8UC1: hog_rt::resize_8UC1_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index, true, omlp_sem_od); break;
+                            case CV_8UC4: hog_rt::resize_8UC4_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index, true, omlp_sem_od); break;
                         }
                     }
 
@@ -3823,7 +3823,7 @@ namespace
                     switch (smaller_img->type())
                     {
                         case CV_8UC1:
-                            hog::compute_gradients_8UC1(nbins_,
+                            hog_rt::compute_gradients_8UC1(nbins_,
                                     smaller_img->rows, smaller_img->cols, *smaller_img,
                                     angleScale,
                                     *grad, *qangle,
@@ -3832,7 +3832,7 @@ namespace
                                     true, omlp_sem_od);
                             break;
                         case CV_8UC4:
-                            hog::compute_gradients_8UC4(nbins_,
+                            hog_rt::compute_gradients_8UC4(nbins_,
                                     smaller_img->rows, smaller_img->cols, *smaller_img,
                                     angleScale,
                                     *grad, *qangle,
@@ -3850,7 +3850,7 @@ namespace
                      */
                     block_hists = in_buf->block_hists;
 
-                    hog::compute_hists(nbins_,
+                    hog_rt::compute_hists(nbins_,
                             block_stride_.width, block_stride_.height,
                             smaller_img->rows, smaller_img->cols,
                             *grad, *qangle,
@@ -3867,7 +3867,7 @@ namespace
                     /* ===========================
                      * normalize histograms
                      */
-                    hog::normalize_hists(nbins_,
+                    hog_rt::normalize_hists(nbins_,
                             block_stride_.width, block_stride_.height,
                             smaller_img->rows, smaller_img->cols,
                             block_hists->ptr<float>(),
@@ -3888,7 +3888,7 @@ namespace
                      */
                     if (confidences == NULL)
                     {
-                        hog::classify_hists(win_size_.height, win_size_.width,
+                        hog_rt::classify_hists(win_size_.height, win_size_.width,
                                 block_stride_.height, block_stride_.width,
                                 win_stride_.height, win_stride_.width,
                                 smaller_img->rows, smaller_img->cols,
@@ -3902,7 +3902,7 @@ namespace
                     }
                     else
                     {
-                        hog::compute_confidence_hists(win_size_.height, win_size_.width,
+                        hog_rt::compute_confidence_hists(win_size_.height, win_size_.width,
                                 block_stride_.height, block_stride_.width,
                                 win_stride_.height, win_stride_.width,
                                 smaller_img->rows, smaller_img->cols,
@@ -3999,7 +3999,7 @@ namespace
 
         BufferPool pool(stream);
 
-        hog::set_up_constants(nbins_,
+        hog_rt::set_up_constants(nbins_,
                               block_stride_.width, block_stride_.height,
                               blocks_per_win.width, blocks_per_win.height,
                               cells_per_block_.width, cells_per_block_.height,
@@ -4119,8 +4119,8 @@ namespace
                             {
                                 switch (gpu_img->type())
                                 {
-                                    case CV_8UC1: hog::resize_8UC1_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index, true, omlp_sem_od); break;
-                                    case CV_8UC4: hog::resize_8UC4_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index, true, omlp_sem_od); break;
+                                    case CV_8UC1: hog_rt::resize_8UC1_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index, true, omlp_sem_od); break;
+                                    case CV_8UC4: hog_rt::resize_8UC4_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index, true, omlp_sem_od); break;
                                 }
                             }
 
@@ -4221,7 +4221,7 @@ namespace
 
         BufferPool pool(stream);
 
-        hog::set_up_constants(nbins_,
+        hog_rt::set_up_constants(nbins_,
                               block_stride_.width, block_stride_.height,
                               blocks_per_win.width, blocks_per_win.height,
                               cells_per_block_.width, cells_per_block_.height,
@@ -4345,8 +4345,8 @@ namespace
                             {
                                 switch (gpu_img->type())
                                 {
-                                    case CV_8UC1: hog::resize_8UC1_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index, true, omlp_sem_od); break;
-                                    case CV_8UC4: hog::resize_8UC4_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index, true, omlp_sem_od); break;
+                                    case CV_8UC1: hog_rt::resize_8UC1_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index, true, omlp_sem_od); break;
+                                    case CV_8UC4: hog_rt::resize_8UC4_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index, true, omlp_sem_od); break;
                                 }
                             }
 
@@ -4393,7 +4393,7 @@ namespace
                             switch (smaller_img->type())
                             {
                                 case CV_8UC1:
-                                    hog::compute_gradients_8UC1(nbins_,
+                                    hog_rt::compute_gradients_8UC1(nbins_,
                                             smaller_img->rows, smaller_img->cols, *smaller_img,
                                             angleScale,
                                             *grad, *qangle,
@@ -4402,7 +4402,7 @@ namespace
                                             true, omlp_sem_od);
                                     break;
                                 case CV_8UC4:
-                                    hog::compute_gradients_8UC4(nbins_,
+                                    hog_rt::compute_gradients_8UC4(nbins_,
                                             smaller_img->rows, smaller_img->cols, *smaller_img,
                                             angleScale,
                                             *grad, *qangle,
@@ -4506,7 +4506,7 @@ namespace
 
         BufferPool pool(stream);
 
-        hog::set_up_constants(nbins_,
+        hog_rt::set_up_constants(nbins_,
                               block_stride_.width, block_stride_.height,
                               blocks_per_win.width, blocks_per_win.height,
                               cells_per_block_.width, cells_per_block_.height,
@@ -4637,8 +4637,8 @@ namespace
                             {
                                 switch (gpu_img->type())
                                 {
-                                    case CV_8UC1: hog::resize_8UC1_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index, true, omlp_sem_od); break;
-                                    case CV_8UC4: hog::resize_8UC4_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index, true, omlp_sem_od); break;
+                                    case CV_8UC1: hog_rt::resize_8UC1_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index, true, omlp_sem_od); break;
+                                    case CV_8UC4: hog_rt::resize_8UC4_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index, true, omlp_sem_od); break;
                                 }
                             }
 
@@ -4685,7 +4685,7 @@ namespace
                             switch (smaller_img->type())
                             {
                                 case CV_8UC1:
-                                    hog::compute_gradients_8UC1(nbins_,
+                                    hog_rt::compute_gradients_8UC1(nbins_,
                                             smaller_img->rows, smaller_img->cols, *smaller_img,
                                             angleScale,
                                             *grad, *qangle,
@@ -4694,7 +4694,7 @@ namespace
                                             true, omlp_sem_od);
                                     break;
                                 case CV_8UC4:
-                                    hog::compute_gradients_8UC4(nbins_,
+                                    hog_rt::compute_gradients_8UC4(nbins_,
                                             smaller_img->rows, smaller_img->cols, *smaller_img,
                                             angleScale,
                                             *grad, *qangle,
@@ -4740,7 +4740,7 @@ namespace
                             */
                             block_hists = in_buf->block_hists_array[level_idx];
 
-                            hog::compute_hists(nbins_,
+                            hog_rt::compute_hists(nbins_,
                                     block_stride_.width, block_stride_.height,
                                     smaller_img->rows, smaller_img->cols,
                                     *grad, *qangle,
@@ -4843,7 +4843,7 @@ namespace
 
         BufferPool pool(stream);
 
-        hog::set_up_constants(nbins_,
+        hog_rt::set_up_constants(nbins_,
                               block_stride_.width, block_stride_.height,
                               blocks_per_win.width, blocks_per_win.height,
                               cells_per_block_.width, cells_per_block_.height,
@@ -4981,8 +4981,8 @@ namespace
                             {
                                 switch (gpu_img->type())
                                 {
-                                    case CV_8UC1: hog::resize_8UC1_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index, true, omlp_sem_od); break;
-                                    case CV_8UC4: hog::resize_8UC4_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index, true, omlp_sem_od); break;
+                                    case CV_8UC1: hog_rt::resize_8UC1_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index, true, omlp_sem_od); break;
+                                    case CV_8UC4: hog_rt::resize_8UC4_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index, true, omlp_sem_od); break;
                                 }
                             }
 
@@ -5029,7 +5029,7 @@ namespace
                             switch (smaller_img->type())
                             {
                                 case CV_8UC1:
-                                    hog::compute_gradients_8UC1(nbins_,
+                                    hog_rt::compute_gradients_8UC1(nbins_,
                                             smaller_img->rows, smaller_img->cols, *smaller_img,
                                             angleScale,
                                             *grad, *qangle,
@@ -5038,7 +5038,7 @@ namespace
                                             true, omlp_sem_od);
                                     break;
                                 case CV_8UC4:
-                                    hog::compute_gradients_8UC4(nbins_,
+                                    hog_rt::compute_gradients_8UC4(nbins_,
                                             smaller_img->rows, smaller_img->cols, *smaller_img,
                                             angleScale,
                                             *grad, *qangle,
@@ -5084,7 +5084,7 @@ namespace
                             */
                             block_hists = in_buf->block_hists_array[level_idx];
 
-                            hog::compute_hists(nbins_,
+                            hog_rt::compute_hists(nbins_,
                                     block_stride_.width, block_stride_.height,
                                     smaller_img->rows, smaller_img->cols,
                                     *grad, *qangle,
@@ -5125,7 +5125,7 @@ namespace
                             /* ===========================
                             * normalize histograms
                             */
-                            hog::normalize_hists(nbins_,
+                            hog_rt::normalize_hists(nbins_,
                                     block_stride_.width, block_stride_.height,
                                     smaller_img->rows, smaller_img->cols,
                                     block_hists->ptr<float>(),
@@ -5227,7 +5227,7 @@ namespace
 
         BufferPool pool(stream);
 
-        hog::set_up_constants(nbins_,
+        hog_rt::set_up_constants(nbins_,
                               block_stride_.width, block_stride_.height,
                               blocks_per_win.width, blocks_per_win.height,
                               cells_per_block_.width, cells_per_block_.height,
@@ -5373,8 +5373,8 @@ namespace
                             {
                                 switch (gpu_img->type())
                                 {
-                                    case CV_8UC1: hog::resize_8UC1_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index, true, omlp_sem_od); break;
-                                    case CV_8UC4: hog::resize_8UC4_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index, true, omlp_sem_od); break;
+                                    case CV_8UC1: hog_rt::resize_8UC1_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index, true, omlp_sem_od); break;
+                                    case CV_8UC4: hog_rt::resize_8UC4_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index, true, omlp_sem_od); break;
                                 }
                             }
 
@@ -5421,7 +5421,7 @@ namespace
                             switch (smaller_img->type())
                             {
                                 case CV_8UC1:
-                                    hog::compute_gradients_8UC1(nbins_,
+                                    hog_rt::compute_gradients_8UC1(nbins_,
                                             smaller_img->rows, smaller_img->cols, *smaller_img,
                                             angleScale,
                                             *grad, *qangle,
@@ -5430,7 +5430,7 @@ namespace
                                             true, omlp_sem_od);
                                     break;
                                 case CV_8UC4:
-                                    hog::compute_gradients_8UC4(nbins_,
+                                    hog_rt::compute_gradients_8UC4(nbins_,
                                             smaller_img->rows, smaller_img->cols, *smaller_img,
                                             angleScale,
                                             *grad, *qangle,
@@ -5476,7 +5476,7 @@ namespace
                             */
                             block_hists = in_buf->block_hists_array[level_idx];
 
-                            hog::compute_hists(nbins_,
+                            hog_rt::compute_hists(nbins_,
                                     block_stride_.width, block_stride_.height,
                                     smaller_img->rows, smaller_img->cols,
                                     *grad, *qangle,
@@ -5517,7 +5517,7 @@ namespace
                             /* ===========================
                             * normalize histograms
                             */
-                            hog::normalize_hists(nbins_,
+                            hog_rt::normalize_hists(nbins_,
                                     block_stride_.width, block_stride_.height,
                                     smaller_img->rows, smaller_img->cols,
                                     block_hists->ptr<float>(),
@@ -5559,7 +5559,7 @@ namespace
                             */
                             if (confidences == NULL)
                             {
-                                hog::classify_hists(win_size_.height, win_size_.width,
+                                hog_rt::classify_hists(win_size_.height, win_size_.width,
                                         block_stride_.height, block_stride_.width,
                                         win_stride_.height, win_stride_.width,
                                         smaller_img->rows, smaller_img->cols,
@@ -5573,7 +5573,7 @@ namespace
                             }
                             else
                             {
-                                hog::compute_confidence_hists(win_size_.height, win_size_.width,
+                                hog_rt::compute_confidence_hists(win_size_.height, win_size_.width,
                                         block_stride_.height, block_stride_.width,
                                         win_stride_.height, win_stride_.width,
                                         smaller_img->rows, smaller_img->cols,
@@ -5642,7 +5642,7 @@ namespace
     void HOG_Impl::set_up_constants(Stream stream)
     {
         cv::Size blocks_per_win = numPartsWithin(win_size_, block_size_, block_stride_);
-        hog::set_up_constants(nbins_,
+        hog_rt::set_up_constants(nbins_,
                               block_stride_.width, block_stride_.height,
                               blocks_per_win.width, blocks_per_win.height,
                               cells_per_block_.width, cells_per_block_.height,
@@ -5663,7 +5663,7 @@ namespace
 
         if (hog_errors)
         {
-            fprintf(stderr, "HOG ERROR!!!\n");
+            fprintf(stderr, "HOG_RT ERROR!!!\n");
         }
 
         /* ===========================
@@ -5782,14 +5782,14 @@ namespace
                  * LOCK: coalesce all kernels for this level
                  * (based on config, any from this level in this node)
                  */
-                hog::lock_fzlp(omlp_sem_od);
+                hog_rt::lock_fzlp(omlp_sem_od);
 
                 if (smaller_img->size() != gpu_img->size())
                 {
                     switch (gpu_img->type())
                     {
-                        case CV_8UC1: hog::resize_8UC1_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), frame_idx, true, omlp_sem_od, false); break;
-                        case CV_8UC4: hog::resize_8UC4_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), frame_idx, true, omlp_sem_od, false); break;
+                        case CV_8UC1: hog_rt::resize_8UC1_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), frame_idx, true, omlp_sem_od, false); break;
+                        case CV_8UC4: hog_rt::resize_8UC4_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), frame_idx, true, omlp_sem_od, false); break;
                     }
                 }
 
@@ -5838,7 +5838,7 @@ namespace
                 switch (smaller_img->type())
                 {
                     case CV_8UC1:
-                        hog::compute_gradients_8UC1(nbins_,
+                        hog_rt::compute_gradients_8UC1(nbins_,
                                 smaller_img->rows, smaller_img->cols, *smaller_img,
                                 angleScale,
                                 *grad, *qangle,
@@ -5847,7 +5847,7 @@ namespace
                                 true, omlp_sem_od, false);
                         break;
                     case CV_8UC4:
-                        hog::compute_gradients_8UC4(nbins_,
+                        hog_rt::compute_gradients_8UC4(nbins_,
                                 smaller_img->rows, smaller_img->cols, *smaller_img,
                                 angleScale,
                                 *grad, *qangle,
@@ -5893,7 +5893,7 @@ namespace
                  */
                 block_hists = block_hists_array[level_idx];
 
-                hog::compute_hists(nbins_,
+                hog_rt::compute_hists(nbins_,
                         block_stride_.width, block_stride_.height,
                         smaller_img->rows, smaller_img->cols,
                         *grad, *qangle,
@@ -5934,7 +5934,7 @@ namespace
                 /* ===========================
                  * normalize histograms
                  */
-                hog::normalize_hists(nbins_,
+                hog_rt::normalize_hists(nbins_,
                         block_stride_.width, block_stride_.height,
                         smaller_img->rows, smaller_img->cols,
                         block_hists->ptr<float>(),
@@ -5976,7 +5976,7 @@ namespace
                  */
                 if (confidences == NULL)
                 {
-                    hog::classify_hists(win_size_.height, win_size_.width,
+                    hog_rt::classify_hists(win_size_.height, win_size_.width,
                             block_stride_.height, block_stride_.width,
                             win_stride_.height, win_stride_.width,
                             smaller_img->rows, smaller_img->cols,
@@ -5990,7 +5990,7 @@ namespace
                 }
                 else
                 {
-                    hog::compute_confidence_hists(win_size_.height, win_size_.width,
+                    hog_rt::compute_confidence_hists(win_size_.height, win_size_.width,
                             block_stride_.height, block_stride_.width,
                             win_stride_.height, win_stride_.width,
                             smaller_img->rows, smaller_img->cols,
@@ -6022,7 +6022,7 @@ namespace
 
             if (do_resize)
             {
-                hog::unlock_fzlp(omlp_sem_od);
+                hog_rt::unlock_fzlp(omlp_sem_od);
                 /*
                 * UNLOCK: coalesce all kernels for this level
                 * ============= */
@@ -6100,7 +6100,7 @@ namespace
                     /* =============
                      * LOCK: classify (coalesce all levels together)
                      */
-                    hog::lock_fzlp(omlp_sem_od);
+                    hog_rt::lock_fzlp(omlp_sem_od);
 
                     int a_level_to_process = -1;
                     for (unsigned level_idx = 0; level_idx < sink_config.size(); level_idx++)
@@ -6144,7 +6144,7 @@ namespace
                         */
                         if (confidences == NULL)
                         {
-                            hog::classify_hists(win_size_.height, win_size_.width,
+                            hog_rt::classify_hists(win_size_.height, win_size_.width,
                                     block_stride_.height, block_stride_.width,
                                     win_stride_.height, win_stride_.width,
                                     smaller_img->rows, smaller_img->cols,
@@ -6158,7 +6158,7 @@ namespace
                         }
                         else
                         {
-                            hog::compute_confidence_hists(win_size_.height, win_size_.width,
+                            hog_rt::compute_confidence_hists(win_size_.height, win_size_.width,
                                     block_stride_.height, block_stride_.width,
                                     win_stride_.height, win_stride_.width,
                                     smaller_img->rows, smaller_img->cols,
@@ -6178,7 +6178,7 @@ namespace
                         labels_array[level_idx] = labels;
                     }
 
-                    hog::unlock_fzlp(omlp_sem_od);
+                    hog_rt::unlock_fzlp(omlp_sem_od);
                     /*
                      * UNLOCK: classify (coalesce all levels together)
                      * ============= */
@@ -6196,7 +6196,7 @@ namespace
                     /* =============
                      * LOCK: coalesce all downloads of labels from GPU
                      */
-                    hog::lock_fzlp(omlp_sem_od);
+                    hog_rt::lock_fzlp(omlp_sem_od);
 
                     for (size_t i = 0; i < level_scale->size(); i++)
                     {
@@ -6217,7 +6217,7 @@ namespace
                             /* =============
                             * CHECK FZ: download labels from GPU
                             */
-                            hog::wait_forbidden_zone(omlp_sem_od, NODE_DE);
+                            hog_rt::wait_forbidden_zone(omlp_sem_od, NODE_DE);
 
                             lt_t fz_start = litmus_clock();
 
@@ -6271,7 +6271,7 @@ namespace
                         }
                     }
 
-                    hog::unlock_fzlp(omlp_sem_od);
+                    hog_rt::unlock_fzlp(omlp_sem_od);
                     /*
                      * UNLOCK: coalesce all downloads of labels from GPU
                      * ============= */
@@ -6434,7 +6434,7 @@ namespace
                             /* ===========================
                             * normalize histograms
                             */
-                            hog::normalize_hists(nbins_,
+                            hog_rt::normalize_hists(nbins_,
                                     block_stride_.width, block_stride_.height,
                                     smaller_img->rows, smaller_img->cols,
                                     block_hists->ptr<float>(),
@@ -6476,7 +6476,7 @@ namespace
                         */
                         if (confidences == NULL)
                         {
-                            hog::classify_hists(win_size_.height, win_size_.width,
+                            hog_rt::classify_hists(win_size_.height, win_size_.width,
                                     block_stride_.height, block_stride_.width,
                                     win_stride_.height, win_stride_.width,
                                     smaller_img->rows, smaller_img->cols,
@@ -6490,7 +6490,7 @@ namespace
                         }
                         else
                         {
-                            hog::compute_confidence_hists(win_size_.height, win_size_.width,
+                            hog_rt::compute_confidence_hists(win_size_.height, win_size_.width,
                                     block_stride_.height, block_stride_.width,
                                     win_stride_.height, win_stride_.width,
                                     smaller_img->rows, smaller_img->cols,
@@ -6538,8 +6538,8 @@ namespace
                             /* =============
                             * LOCK: download labels from GPU
                             */
-                            hog::lock_fzlp(omlp_sem_od);
-                            hog::wait_forbidden_zone(omlp_sem_od, NODE_DE);
+                            hog_rt::lock_fzlp(omlp_sem_od);
+                            hog_rt::wait_forbidden_zone(omlp_sem_od, NODE_DE);
 
                             lt_t fz_start = litmus_clock();
 
@@ -6552,7 +6552,7 @@ namespace
                             fprintf(stdout, "[%d | %d] Computation %d took %llu microseconds.\n",
                                     gettid(), getpid(), NODE_DE, fz_len / 1000);
 
-                            hog::unlock_fzlp(omlp_sem_od);
+                            hog_rt::unlock_fzlp(omlp_sem_od);
                             /*
                             * UNLOCK: download labels from GPU
                             * ============= */
@@ -6770,7 +6770,7 @@ namespace
                             */
                             block_hists = in_buf->block_hists;
 
-                            hog::compute_hists(nbins_,
+                            hog_rt::compute_hists(nbins_,
                                     block_stride_.width, block_stride_.height,
                                     smaller_img->rows, smaller_img->cols,
                                     *grad, *qangle,
@@ -6807,7 +6807,7 @@ namespace
                             /* ===========================
                             * normalize histograms
                             */
-                            hog::normalize_hists(nbins_,
+                            hog_rt::normalize_hists(nbins_,
                                     block_stride_.width, block_stride_.height,
                                     smaller_img->rows, smaller_img->cols,
                                     block_hists->ptr<float>(),
@@ -6852,7 +6852,7 @@ namespace
                         */
                         if (confidences == NULL)
                         {
-                            hog::classify_hists(win_size_.height, win_size_.width,
+                            hog_rt::classify_hists(win_size_.height, win_size_.width,
                                     block_stride_.height, block_stride_.width,
                                     win_stride_.height, win_stride_.width,
                                     smaller_img->rows, smaller_img->cols,
@@ -6866,7 +6866,7 @@ namespace
                         }
                         else
                         {
-                            hog::compute_confidence_hists(win_size_.height, win_size_.width,
+                            hog_rt::compute_confidence_hists(win_size_.height, win_size_.width,
                                     block_stride_.height, block_stride_.width,
                                     win_stride_.height, win_stride_.width,
                                     smaller_img->rows, smaller_img->cols,
@@ -6914,8 +6914,8 @@ namespace
                             /* =============
                             * LOCK: download labels from GPU
                             */
-                            hog::lock_fzlp(omlp_sem_od);
-                            hog::wait_forbidden_zone(omlp_sem_od, NODE_DE);
+                            hog_rt::lock_fzlp(omlp_sem_od);
+                            hog_rt::wait_forbidden_zone(omlp_sem_od, NODE_DE);
 
                             lt_t fz_start = litmus_clock();
 
@@ -6928,7 +6928,7 @@ namespace
                             fprintf(stdout, "[%d | %d] Computation %d took %llu microseconds.\n",
                                     gettid(), getpid(), NODE_DE, fz_len / 1000);
 
-                            hog::unlock_fzlp(omlp_sem_od);
+                            hog_rt::unlock_fzlp(omlp_sem_od);
                             /*
                             * UNLOCK: download labels from GPU
                             * ============= */
@@ -7154,7 +7154,7 @@ namespace
                             switch (smaller_img->type())
                             {
                                 case CV_8UC1:
-                                    hog::compute_gradients_8UC1(nbins_,
+                                    hog_rt::compute_gradients_8UC1(nbins_,
                                             smaller_img->rows, smaller_img->cols, *smaller_img,
                                             angleScale,
                                             *grad, *qangle,
@@ -7163,7 +7163,7 @@ namespace
                                             true, omlp_sem_od);
                                     break;
                                 case CV_8UC4:
-                                    hog::compute_gradients_8UC4(nbins_,
+                                    hog_rt::compute_gradients_8UC4(nbins_,
                                             smaller_img->rows, smaller_img->cols, *smaller_img,
                                             angleScale,
                                             *grad, *qangle,
@@ -7203,7 +7203,7 @@ namespace
                             /* ===========================
                             * compute histograms
                             */
-                            hog::compute_hists(nbins_,
+                            hog_rt::compute_hists(nbins_,
                                     block_stride_.width, block_stride_.height,
                                     smaller_img->rows, smaller_img->cols,
                                     *grad, *qangle,
@@ -7243,7 +7243,7 @@ namespace
                             /* ===========================
                             * normalize histograms
                             */
-                            hog::normalize_hists(nbins_,
+                            hog_rt::normalize_hists(nbins_,
                                     block_stride_.width, block_stride_.height,
                                     smaller_img->rows, smaller_img->cols,
                                     block_hists->ptr<float>(),
@@ -7288,7 +7288,7 @@ namespace
                         */
                         if (confidences == NULL)
                         {
-                            hog::classify_hists(win_size_.height, win_size_.width,
+                            hog_rt::classify_hists(win_size_.height, win_size_.width,
                                     block_stride_.height, block_stride_.width,
                                     win_stride_.height, win_stride_.width,
                                     smaller_img->rows, smaller_img->cols,
@@ -7302,7 +7302,7 @@ namespace
                         }
                         else
                         {
-                            hog::compute_confidence_hists(win_size_.height, win_size_.width,
+                            hog_rt::compute_confidence_hists(win_size_.height, win_size_.width,
                                     block_stride_.height, block_stride_.width,
                                     win_stride_.height, win_stride_.width,
                                     smaller_img->rows, smaller_img->cols,
@@ -7350,8 +7350,8 @@ namespace
                             /* =============
                             * LOCK: download labels from GPU
                             */
-                            hog::lock_fzlp(omlp_sem_od);
-                            hog::wait_forbidden_zone(omlp_sem_od, NODE_DE);
+                            hog_rt::lock_fzlp(omlp_sem_od);
+                            hog_rt::wait_forbidden_zone(omlp_sem_od, NODE_DE);
 
                             lt_t fz_start = litmus_clock();
 
@@ -7364,7 +7364,7 @@ namespace
                             fprintf(stdout, "[%d | %d] Computation %d took %llu microseconds.\n",
                                     gettid(), getpid(), NODE_DE, fz_len / 1000);
 
-                            hog::unlock_fzlp(omlp_sem_od);
+                            hog_rt::unlock_fzlp(omlp_sem_od);
                             /*
                             * UNLOCK: download labels from GPU
                             * ============= */
@@ -7600,8 +7600,8 @@ namespace
                             {
                                 switch (gpu_img->type())
                                 {
-                                    case CV_8UC1: hog::resize_8UC1_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index, true, omlp_sem_od); break;
-                                    case CV_8UC4: hog::resize_8UC4_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index, true, omlp_sem_od); break;
+                                    case CV_8UC1: hog_rt::resize_8UC1_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index, true, omlp_sem_od); break;
+                                    case CV_8UC4: hog_rt::resize_8UC4_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), in_buf->frame_index, true, omlp_sem_od); break;
                                 }
                             }
 
@@ -7645,7 +7645,7 @@ namespace
                             switch (smaller_img->type())
                             {
                                 case CV_8UC1:
-                                    hog::compute_gradients_8UC1(nbins_,
+                                    hog_rt::compute_gradients_8UC1(nbins_,
                                             smaller_img->rows, smaller_img->cols, *smaller_img,
                                             angleScale,
                                             *grad, *qangle,
@@ -7654,7 +7654,7 @@ namespace
                                             true, omlp_sem_od);
                                     break;
                                 case CV_8UC4:
-                                    hog::compute_gradients_8UC4(nbins_,
+                                    hog_rt::compute_gradients_8UC4(nbins_,
                                             smaller_img->rows, smaller_img->cols, *smaller_img,
                                             angleScale,
                                             *grad, *qangle,
@@ -7697,7 +7697,7 @@ namespace
                             /* ===========================
                             * compute histograms
                             */
-                            hog::compute_hists(nbins_,
+                            hog_rt::compute_hists(nbins_,
                                     block_stride_.width, block_stride_.height,
                                     smaller_img->rows, smaller_img->cols,
                                     *grad, *qangle,
@@ -7737,7 +7737,7 @@ namespace
                             /* ===========================
                             * normalize histograms
                             */
-                            hog::normalize_hists(nbins_,
+                            hog_rt::normalize_hists(nbins_,
                                     block_stride_.width, block_stride_.height,
                                     smaller_img->rows, smaller_img->cols,
                                     block_hists->ptr<float>(),
@@ -7782,7 +7782,7 @@ namespace
                         */
                         if (confidences == NULL)
                         {
-                            hog::classify_hists(win_size_.height, win_size_.width,
+                            hog_rt::classify_hists(win_size_.height, win_size_.width,
                                     block_stride_.height, block_stride_.width,
                                     win_stride_.height, win_stride_.width,
                                     smaller_img->rows, smaller_img->cols,
@@ -7796,7 +7796,7 @@ namespace
                         }
                         else
                         {
-                            hog::compute_confidence_hists(win_size_.height, win_size_.width,
+                            hog_rt::compute_confidence_hists(win_size_.height, win_size_.width,
                                     block_stride_.height, block_stride_.width,
                                     win_stride_.height, win_stride_.width,
                                     smaller_img->rows, smaller_img->cols,
@@ -7844,8 +7844,8 @@ namespace
                             /* =============
                             * LOCK: download labels from GPU
                             */
-                            hog::lock_fzlp(omlp_sem_od);
-                            hog::wait_forbidden_zone(omlp_sem_od, NODE_DE);
+                            hog_rt::lock_fzlp(omlp_sem_od);
+                            hog_rt::wait_forbidden_zone(omlp_sem_od, NODE_DE);
 
                             lt_t fz_start = litmus_clock();
 
@@ -7858,7 +7858,7 @@ namespace
                             fprintf(stdout, "[%d | %d] Computation %d took %llu microseconds.\n",
                                     gettid(), getpid(), NODE_DE, fz_len / 1000);
 
-                            hog::unlock_fzlp(omlp_sem_od);
+                            hog_rt::unlock_fzlp(omlp_sem_od);
                             /*
                             * UNLOCK: download labels from GPU
                             * ============= */
@@ -7993,16 +7993,16 @@ namespace
         CALL( wait_for_ts_release() );
 
         fprintf(stdout, "[%d | %d] Calling litmus_open_lock for OMLP_SEM.\n", gettid(), getpid());
-        *sem_od = hog::open_fzlp_lock();
+        *sem_od = hog_rt::open_fzlp_lock();
         fprintf(stdout, "[%d | %d] Got OMLP_SEM=%d.\n", gettid(), getpid(), *sem_od);
     }
 }
 
-Ptr<cuda::HOG> cv::cuda::HOG::create(Size win_size,
-                                     Size block_size,
-                                     Size block_stride,
-                                     Size cell_size,
-                                     int nbins)
+Ptr<cuda::HOG_RT> cv::cuda::HOG_RT::create(Size win_size,
+                                           Size block_size,
+                                           Size block_stride,
+                                           Size cell_size,
+                                           int nbins)
 {
     return makePtr<HOG_Impl>(win_size, block_size, block_stride, cell_size, nbins);
 }

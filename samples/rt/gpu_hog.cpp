@@ -326,19 +326,19 @@ public:
     App(const Args& s);
     void run();
 
-    void sched_etoe_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog);
-    void sched_etoe_hog_preload(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog, Mat* frames);
-    void sched_coarse_grained_unrolled_for_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog, Mat* frames);
-    void sched_fine_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog, Mat* frames);
+    void sched_etoe_hog(cv::Ptr<cv::cuda::HOG_RT> gpu_hog, cv::HOGDescriptor cpu_hog);
+    void sched_etoe_hog_preload(cv::Ptr<cv::cuda::HOG_RT> gpu_hog, cv::HOGDescriptor cpu_hog, Mat* frames);
+    void sched_coarse_grained_unrolled_for_hog(cv::Ptr<cv::cuda::HOG_RT> gpu_hog, cv::HOGDescriptor cpu_hog, Mat* frames);
+    void sched_fine_grained_hog(cv::Ptr<cv::cuda::HOG_RT> gpu_hog, cv::HOGDescriptor cpu_hog, Mat* frames);
 
-    void sched_configurable_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog, Mat* frames);
+    void sched_configurable_hog(cv::Ptr<cv::cuda::HOG_RT> gpu_hog, cv::HOGDescriptor cpu_hog, Mat* frames);
 
     void thread_fine_CC_S_ABCDE(node_t* _node, pthread_barrier_t* init_barrier,
-                                cv::Ptr<cv::cuda::HOG> gpu_hog,
+                                cv::Ptr<cv::cuda::HOG_RT> gpu_hog,
                                 Mat* frames, struct task_info t_info, int graph_idx);
 
     void thread_color_convert(node_t *_node, pthread_barrier_t* init_barrier,
-                              cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog,
+                              cv::Ptr<cv::cuda::HOG_RT> gpu_hog, cv::HOGDescriptor cpu_hog,
                               Mat* frames, struct task_info t_info, int graph_idx);
 
     void* thread_display(node_t* node, pthread_barrier_t* init_barrier, bool shouldDisplay);
@@ -912,7 +912,7 @@ static int loop(int count, int *nums, int numCount)
     return j;
 }
 
-void App::sched_coarse_grained_unrolled_for_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog, Mat* frames)
+void App::sched_coarse_grained_unrolled_for_hog(cv::Ptr<cv::cuda::HOG_RT> gpu_hog, cv::HOGDescriptor cpu_hog, Mat* frames)
 {
     fprintf(stdout, "node name: color_convert(source), task id: 0, node tid: %d\n", gettid());
     /* graph construction */
@@ -1021,27 +1021,27 @@ void App::sched_coarse_grained_unrolled_for_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, 
     t_info.phase = bound_color_convert;
     t_info.cluster = args.cluster;
     t_info.id = 1;
-    thread t1(&cv::cuda::HOG::thread_fine_compute_scales, gpu_hog, &compute_scales_node, &init_barrier, t_info);
+    thread t1(&cv::cuda::HOG_RT::thread_fine_compute_scales, gpu_hog, &compute_scales_node, &init_barrier, t_info);
     for (int i=0; i<NUM_SCALE_LEVELS; i++) {
         t_info.relative_deadline = PERIOD; //FAIR_LATENESS_PP(m_cpus, t_info.period, costs_vxHOGCells[i]);
         t_info.id = 0 * NUM_SCALE_LEVELS + i + 2;
         t_info.phase = bound_color_convert + bound_compute_scales;
-        t2[i] = new thread(&cv::cuda::HOG::thread_unrolled_vxHOGCells, gpu_hog, &unrolled_vxHOGCells_node[i], &init_barrier, t_info);
+        t2[i] = new thread(&cv::cuda::HOG_RT::thread_unrolled_vxHOGCells, gpu_hog, &unrolled_vxHOGCells_node[i], &init_barrier, t_info);
 
         t_info.relative_deadline = PERIOD; //FAIR_LATENESS_PP(m_cpus, t_info.period, costs_normalize[i]);
         t_info.id = 1 * NUM_SCALE_LEVELS + i + 2;
         t_info.phase = t_info.phase + bounds_vxHOGCells[i];
-        t3[i] = new thread(&cv::cuda::HOG::thread_fine_normalize_histograms, gpu_hog, &normalize_node[i], &init_barrier, t_info);
+        t3[i] = new thread(&cv::cuda::HOG_RT::thread_fine_normalize_histograms, gpu_hog, &normalize_node[i], &init_barrier, t_info);
 
         t_info.relative_deadline = PERIOD; //FAIR_LATENESS_PP(m_cpus, t_info.period, costs_classify[i]);
         t_info.id = 2 * NUM_SCALE_LEVELS + i + 2;
         t_info.phase = t_info.phase + bounds_normalize[i];
-        t4[i] = new thread(&cv::cuda::HOG::thread_fine_classify, gpu_hog, &classify_node[i], &init_barrier, t_info);
+        t4[i] = new thread(&cv::cuda::HOG_RT::thread_fine_classify, gpu_hog, &classify_node[i], &init_barrier, t_info);
     }
     t_info.relative_deadline = PERIOD; //FAIR_LATENESS_PP(m_cpus, t_info.period, cost_collect_locations);
     t_info.phase = t_info.phase + *std::max_element(bounds_classify, bounds_classify + NUM_SCALE_LEVELS);
     t_info.id = 3 * NUM_SCALE_LEVELS +  2;
-    thread t5(&cv::cuda::HOG::thread_fine_collect_locations, gpu_hog, &collect_locations_node, &init_barrier, t_info);
+    thread t5(&cv::cuda::HOG_RT::thread_fine_collect_locations, gpu_hog, &collect_locations_node, &init_barrier, t_info);
     thread t6(&App::thread_display, this, &display_node, &init_barrier, args.display);
 
     pgm_claim_node(color_convert_node);
@@ -1209,7 +1209,7 @@ void App::sched_coarse_grained_unrolled_for_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, 
 }
 
 void App::thread_color_convert(node_t *_node, pthread_barrier_t* init_barrier,
-                               cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog,
+                               cv::Ptr<cv::cuda::HOG_RT> gpu_hog, cv::HOGDescriptor cpu_hog,
                                Mat* frames, struct task_info t_info, int graph_idx)
 {
     fprintf(stdout, "node name: color_convert(source), task id: %d, node tid: %d\n", t_info.id, gettid());
@@ -1475,7 +1475,7 @@ static void sync_info_init(struct sync_info *s)
 }
 
 
-void App::sched_fine_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog, Mat* frames)
+void App::sched_fine_grained_hog(cv::Ptr<cv::cuda::HOG_RT> gpu_hog, cv::HOGDescriptor cpu_hog, Mat* frames)
 {
     pthread_barrier_t arr_fine_init_barrier[args.num_fine_graphs];
     /* graph construction */
@@ -1716,7 +1716,7 @@ void App::sched_fine_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
         t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, cost_compute_scales);
         t_info.id = 1;
         t_info.phase = t_info.phase + bound_color_convert;
-        *t1 = new thread(&cv::cuda::HOG::thread_fine_compute_scales, gpu_hog,
+        *t1 = new thread(&cv::cuda::HOG_RT::thread_fine_compute_scales, gpu_hog,
                 &compute_scales_node, fine_init_barrier, t_info);
 
         for (int i=0; i<NUM_SCALE_LEVELS; i++) {
@@ -1725,7 +1725,7 @@ void App::sched_fine_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
             t_info.phase = PERIOD * g_idx + bound_color_convert + bound_compute_scales;
             t_info.s_info_in = in_sync_info_resize + i;
             t_info.s_info_out = out_sync_info_resize + i;
-            t2[i] = new thread(&cv::cuda::HOG::thread_fine_resize, gpu_hog,
+            t2[i] = new thread(&cv::cuda::HOG_RT::thread_fine_resize, gpu_hog,
                     resize_node + i, fine_init_barrier, t_info);
 
             t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_compute_grad[i]);
@@ -1733,7 +1733,7 @@ void App::sched_fine_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
             t_info.phase = t_info.phase + bounds_resize[i];
             t_info.s_info_in = in_sync_info_compute_gradients + i;
             t_info.s_info_out = out_sync_info_compute_gradients + i;
-            t3[i] = new thread(&cv::cuda::HOG::thread_fine_compute_gradients,
+            t3[i] = new thread(&cv::cuda::HOG_RT::thread_fine_compute_gradients,
                     gpu_hog, compute_gradients_node + i, fine_init_barrier, t_info);
 
             t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_compute_hist[i]);
@@ -1741,7 +1741,7 @@ void App::sched_fine_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
             t_info.phase = t_info.phase + bounds_compute_grad[i];
             t_info.s_info_in = in_sync_info_compute_histograms + i;
             t_info.s_info_out = out_sync_info_compute_histograms + i;
-            t4[i] = new thread(&cv::cuda::HOG::thread_fine_compute_histograms,
+            t4[i] = new thread(&cv::cuda::HOG_RT::thread_fine_compute_histograms,
                     gpu_hog, compute_histograms_node + i, fine_init_barrier,
                     t_info);
 
@@ -1750,7 +1750,7 @@ void App::sched_fine_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
             t_info.phase = t_info.phase + bounds_compute_hist[i];
             t_info.s_info_in = in_sync_info_normalize + i;
             t_info.s_info_out = out_sync_info_normalize + i;
-            t5[i] = new thread(&cv::cuda::HOG::thread_fine_normalize_histograms,
+            t5[i] = new thread(&cv::cuda::HOG_RT::thread_fine_normalize_histograms,
                     gpu_hog, normalize_node + i, fine_init_barrier, t_info);
 
             t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, costs_classify[i]);
@@ -1758,14 +1758,14 @@ void App::sched_fine_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
             t_info.phase = t_info.phase + bounds_normalize[i];
             t_info.s_info_in = in_sync_info_classify + i;
             t_info.s_info_out = out_sync_info_classify + i;
-            t6[i] = new thread(&cv::cuda::HOG::thread_fine_classify, gpu_hog,
+            t6[i] = new thread(&cv::cuda::HOG_RT::thread_fine_classify, gpu_hog,
                     classify_node + i, fine_init_barrier, t_info);
         }
 
         t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, cost_collect_locations);
         t_info.id = 5 * NUM_SCALE_LEVELS + 2;
         t_info.phase = t_info.phase + *std::max_element(bounds_classify, bounds_classify+NUM_SCALE_LEVELS);
-        *t7 = new thread(&cv::cuda::HOG::thread_fine_collect_locations, gpu_hog,
+        *t7 = new thread(&cv::cuda::HOG_RT::thread_fine_collect_locations, gpu_hog,
                 &collect_locations_node, fine_init_barrier, t_info);
         //t_info.relative_deadline = FAIR_LATENESS_PP(m_cpus, t_info.period, cost_display);
         //t_info.phase;
@@ -1825,7 +1825,7 @@ void App::sched_fine_grained_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
     fprintf(stdout, "cleaned up ...");
 }
 
-void App::sched_etoe_hog_preload(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog, Mat* frames)
+void App::sched_etoe_hog_preload(cv::Ptr<cv::cuda::HOG_RT> gpu_hog, cv::HOGDescriptor cpu_hog, Mat* frames)
 {
     fprintf(stdout, "node name: color_convert(source), task id: 0, node tid: %d\n", gettid());
     fprintf(stdout, "node name: collect_locations(sink), task id: 1, node tid: %d\n", gettid());
@@ -1984,7 +1984,7 @@ void App::sched_etoe_hog_preload(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
         CALL( task_mode(BACKGROUND_TASK) );
 }
 
-void App::sched_etoe_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog)
+void App::sched_etoe_hog(cv::Ptr<cv::cuda::HOG_RT> gpu_hog, cv::HOGDescriptor cpu_hog)
 {
     Size win_stride(args.win_stride_width, args.win_stride_height);
     Size win_size(args.win_width, args.win_width * 2);
@@ -2143,7 +2143,7 @@ void App::run()
     Size block_stride(args.block_stride_width, args.block_stride_height);
     Size cell_size(args.cell_width, args.cell_width);
 
-    cv::Ptr<cv::cuda::HOG> gpu_hog = cv::cuda::HOG::create(win_size, block_size, block_stride, cell_size, args.nbins);
+    cv::Ptr<cv::cuda::HOG_RT> gpu_hog = cv::cuda::HOG_RT::create(win_size, block_size, block_stride, cell_size, args.nbins);
     cv::HOGDescriptor cpu_hog(win_size, block_size, block_stride, cell_size, args.nbins);
 
     if(args.svm_load) {
@@ -2321,7 +2321,7 @@ inline string App::workFps() const
     return ss.str();
 }
 
-void App::sched_configurable_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescriptor cpu_hog, Mat* frames)
+void App::sched_configurable_hog(cv::Ptr<cv::cuda::HOG_RT> gpu_hog, cv::HOGDescriptor cpu_hog, Mat* frames)
 {
     const std::vector< std::vector<node_config> > &level_configs = args.level_configurations;
     const std::vector<node_config> &source_config = args.source_configuration;
@@ -2642,30 +2642,30 @@ void App::sched_configurable_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
                                         &color_convert_node, fine_init_barrier, gpu_hog, cpu_hog, frames, t_info, g_idx);
                 graph_threads.push_back(t0);
             
-                void* (cv::cuda::HOG::* compute_scales_func)(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info);
+                void* (cv::cuda::HOG_RT::* compute_scales_func)(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info);
                 if (is_source_E)
                 {
-                    compute_scales_func = &cv::cuda::HOG::thread_fine_S_ABCDE;
+                    compute_scales_func = &cv::cuda::HOG_RT::thread_fine_S_ABCDE;
                 }
                 else if (is_source_D)
                 {
-                    compute_scales_func = &cv::cuda::HOG::thread_fine_S_ABCD;
+                    compute_scales_func = &cv::cuda::HOG_RT::thread_fine_S_ABCD;
                 }
                 else if (is_source_C)
                 {
-                    compute_scales_func = &cv::cuda::HOG::thread_fine_S_ABC;
+                    compute_scales_func = &cv::cuda::HOG_RT::thread_fine_S_ABC;
                 }
                 else if (is_source_B)
                 {
-                    compute_scales_func = &cv::cuda::HOG::thread_fine_S_AB;
+                    compute_scales_func = &cv::cuda::HOG_RT::thread_fine_S_AB;
                 }
                 else if (is_source_A)
                 {
-                    compute_scales_func = &cv::cuda::HOG::thread_fine_S_A;
+                    compute_scales_func = &cv::cuda::HOG_RT::thread_fine_S_A;
                 }
                 else
                 {
-                    compute_scales_func = &cv::cuda::HOG::thread_fine_compute_scales;
+                    compute_scales_func = &cv::cuda::HOG_RT::thread_fine_compute_scales;
                 }
                 t_info.id = task_id++;
                 t_info.phase = t_info.phase + bound_color_convert;
@@ -2708,55 +2708,55 @@ void App::sched_configurable_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
                     continue;
                 }
 
-                void* (cv::cuda::HOG::* level_funcs[num_nodes])(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info);
+                void* (cv::cuda::HOG_RT::* level_funcs[num_nodes])(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info);
 
                 for (unsigned node_idx = 0; node_idx < num_nodes; node_idx++)
                 {
                     switch (level_configs[i][node_idx]) {
                         case NODE_A:
-                            level_funcs[node_idx] = &cv::cuda::HOG::thread_fine_resize;
+                            level_funcs[node_idx] = &cv::cuda::HOG_RT::thread_fine_resize;
                             break;
                         case NODE_B:
-                            level_funcs[node_idx] = &cv::cuda::HOG::thread_fine_compute_gradients;
+                            level_funcs[node_idx] = &cv::cuda::HOG_RT::thread_fine_compute_gradients;
                             break;
                         case NODE_C:
-                            level_funcs[node_idx] = &cv::cuda::HOG::thread_fine_compute_histograms;
+                            level_funcs[node_idx] = &cv::cuda::HOG_RT::thread_fine_compute_histograms;
                             break;
                         case NODE_D:
-                            level_funcs[node_idx] = &cv::cuda::HOG::thread_fine_normalize_histograms;
+                            level_funcs[node_idx] = &cv::cuda::HOG_RT::thread_fine_normalize_histograms;
                             break;
                         case NODE_E:
-                            level_funcs[node_idx] = &cv::cuda::HOG::thread_fine_classify;
+                            level_funcs[node_idx] = &cv::cuda::HOG_RT::thread_fine_classify;
                             break;
                         case NODE_AB:
-                            level_funcs[node_idx] = &cv::cuda::HOG::thread_fine_AB;
+                            level_funcs[node_idx] = &cv::cuda::HOG_RT::thread_fine_AB;
                             break;
                         case NODE_BC:
-                            level_funcs[node_idx] = &cv::cuda::HOG::thread_fine_BC;
+                            level_funcs[node_idx] = &cv::cuda::HOG_RT::thread_fine_BC;
                             break;
                         case NODE_CD:
-                            level_funcs[node_idx] = &cv::cuda::HOG::thread_fine_CD;
+                            level_funcs[node_idx] = &cv::cuda::HOG_RT::thread_fine_CD;
                             break;
                         case NODE_DE:
-                            level_funcs[node_idx] = &cv::cuda::HOG::thread_fine_DE;
+                            level_funcs[node_idx] = &cv::cuda::HOG_RT::thread_fine_DE;
                             break;
                         case NODE_ABC:
-                            level_funcs[node_idx] = &cv::cuda::HOG::thread_fine_ABC;
+                            level_funcs[node_idx] = &cv::cuda::HOG_RT::thread_fine_ABC;
                             break;
                         case NODE_BCD:
-                            level_funcs[node_idx] = &cv::cuda::HOG::thread_fine_BCD;
+                            level_funcs[node_idx] = &cv::cuda::HOG_RT::thread_fine_BCD;
                             break;
                         case NODE_CDE:
-                            level_funcs[node_idx] = &cv::cuda::HOG::thread_fine_CDE;
+                            level_funcs[node_idx] = &cv::cuda::HOG_RT::thread_fine_CDE;
                             break;
                         case NODE_ABCD:
-                            level_funcs[node_idx] = &cv::cuda::HOG::thread_fine_ABCD;
+                            level_funcs[node_idx] = &cv::cuda::HOG_RT::thread_fine_ABCD;
                             break;
                         case NODE_BCDE:
-                            level_funcs[node_idx] = &cv::cuda::HOG::thread_fine_BCDE;
+                            level_funcs[node_idx] = &cv::cuda::HOG_RT::thread_fine_BCDE;
                             break;
                         case NODE_ABCDE:
-                            level_funcs[node_idx] = &cv::cuda::HOG::thread_fine_ABCDE;
+                            level_funcs[node_idx] = &cv::cuda::HOG_RT::thread_fine_ABCDE;
                             break;
                         default:
                             break;
@@ -2783,30 +2783,30 @@ void App::sched_configurable_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
                 }
             }
 
-            void* (cv::cuda::HOG::* collect_locations_func)(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info);
+            void* (cv::cuda::HOG_RT::* collect_locations_func)(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info);
             if (is_sink_A)
             {
-                collect_locations_func = &cv::cuda::HOG::thread_fine_ABCDE_T;
+                collect_locations_func = &cv::cuda::HOG_RT::thread_fine_ABCDE_T;
             }
             else if (is_sink_B)
             {
-                collect_locations_func = &cv::cuda::HOG::thread_fine_BCDE_T;
+                collect_locations_func = &cv::cuda::HOG_RT::thread_fine_BCDE_T;
             }
             else if (is_sink_C)
             {
-                collect_locations_func = &cv::cuda::HOG::thread_fine_CDE_T;
+                collect_locations_func = &cv::cuda::HOG_RT::thread_fine_CDE_T;
             }
             else if (is_sink_D)
             {
-                collect_locations_func = &cv::cuda::HOG::thread_fine_DE_T;
+                collect_locations_func = &cv::cuda::HOG_RT::thread_fine_DE_T;
             }
             else if (is_sink_E)
             {
-                collect_locations_func = &cv::cuda::HOG::thread_fine_E_T;
+                collect_locations_func = &cv::cuda::HOG_RT::thread_fine_E_T;
             }
             else
             {
-                collect_locations_func = &cv::cuda::HOG::thread_fine_collect_locations;
+                collect_locations_func = &cv::cuda::HOG_RT::thread_fine_collect_locations;
             }
             t_info.id = task_id++;
             t_info.phase = max_level_end_phase;
@@ -2868,7 +2868,7 @@ void App::sched_configurable_hog(cv::Ptr<cv::cuda::HOG> gpu_hog, cv::HOGDescript
 }
 
 void App::thread_fine_CC_S_ABCDE(node_t* _node, pthread_barrier_t* init_barrier,
-                                 cv::Ptr<cv::cuda::HOG> gpu_hog, Mat* frames,
+                                 cv::Ptr<cv::cuda::HOG_RT> gpu_hog, Mat* frames,
                                  struct task_info t_info, int graph_idx)
 {
     fprintf(stdout, "node name: color_convert->classify_hists(source), task id: %d, node tid: %d\n", t_info.id, gettid());
