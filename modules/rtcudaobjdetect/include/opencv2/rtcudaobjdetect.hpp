@@ -229,42 +229,7 @@ public:
      */
     virtual Mat getDefaultPeopleDetector() const = 0;
 
-    /** @brief Performs object detection without a multi-scale window.
-
-    @param img Source image. CV_8UC1 and CV_8UC4 types are supported for now.
-    @param found_locations Left-top corner points of detected objects boundaries.
-    @param confidences Optional output array for confidences.
-     */
-    virtual void detect(InputArray img,
-                        std::vector<Point>& found_locations,
-                        std::vector<double>* confidences = NULL) = 0;
-
-    /** @brief Performs object detection with a multi-scale window.
-
-    @param img Source image. See cuda::HOGDescriptor::detect for type limitations.
-    @param found_locations Detected objects boundaries.
-    @param confidences Optional output array for confidences.
-     */
-    virtual void detectMultiScale(InputArray img,
-                                  std::vector<Rect>& found_locations,
-                                  std::vector<double>* confidences = NULL) = 0;
-
-    /** @brief Returns block descriptors computed for the whole image.
-
-    @param img Source image. See cuda::HOGDescriptor::detect for type limitations.
-    @param descriptors 2D array of descriptors.
-    @param stream CUDA stream.
-     */
-    virtual void compute(InputArray img,
-                         OutputArray descriptors,
-                         Stream& stream = Stream::Null()) = 0;
-
-
-    /* coarse-grained */
-    /* vxHOGCellsNode node function */
-    virtual void* thread_unrolled_vxHOGCells(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0;
-
-    /* fine-grained */
+    /* fine-grained nodes */
     virtual void* thread_fine_compute_scales(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0;
     virtual void* thread_fine_resize(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0;
     virtual void* thread_fine_compute_gradients(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0;
