@@ -1385,7 +1385,7 @@ void App::sched_configurable_hog(cv::Ptr<cv::cuda::HOG_RT> gpu_hog, cv::HOGDescr
 
     // Create the graphs
     char buf[30];
-    sprintf(buf, "/tmp/graph_t%d", args.task_id);
+    sprintf(buf, "/tmp/graph_c%d_t%d", args.cluster, args.task_id);
     CheckError(pgm_init(buf, 1));
 
     /* graph construction */
@@ -1438,7 +1438,7 @@ void App::sched_configurable_hog(cv::Ptr<cv::cuda::HOG_RT> gpu_hog, cv::HOGDescr
             edge_t e7_8;
 
             // Initialize the graph
-            sprintf(buf, "hog_%d", g_idx);
+            sprintf(buf, "hog_%d_%d", args.cluster, g_idx);
             CheckError(pgm_init_graph(g_ptr, buf));
             graph_t g = *g_ptr;
 
