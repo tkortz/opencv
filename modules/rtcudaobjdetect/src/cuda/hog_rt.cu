@@ -70,7 +70,8 @@ namespace cv { namespace cuda { namespace device
 
         int use_locks = 1;
 
-        int open_fzlp_lock()
+        /* resource_id must be a non-negative int */
+        int open_fzlp_lock(int resource_id)
         {
             if (!use_locks) return -3;
 
@@ -78,7 +79,6 @@ namespace cv { namespace cuda { namespace device
 
             int lock_od = -1;
             obj_type_t protocol = OMLP_SEM;
-            int resource_id = 4; // non-negative integer
             const char *lock_namespace = "./rtspin-locks";
             int cluster = 0;
             if (protocol >= 0) {

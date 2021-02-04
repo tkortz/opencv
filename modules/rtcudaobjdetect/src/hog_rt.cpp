@@ -203,7 +203,7 @@ namespace cv { namespace cuda { namespace device
                                      const cudaStream_t& stream, int index,
                                      bool should_sync = true, int omlp_sem_od = -1, bool should_lock = true);
 
-        int open_fzlp_lock();
+        int open_fzlp_lock(int resource_id);
         int lock_fzlp(int sem_od);
         int wait_forbidden_zone(int sem_od, node_config computation);
         int unlock_fzlp(int sem_od);
@@ -311,7 +311,7 @@ namespace
 
         void set_up_constants(Stream stream);
 
-        int open_lock();
+        int open_lock(int resource_id);
         int lock_fzlp(int sem_od);
         int wait_forbidden_zone(int sem_od, node_config computation);
         int unlock_fzlp(int sem_od);
@@ -1637,9 +1637,9 @@ namespace
         CV_Assert(cell_size.width == cell_size.height);
     }
 
-    int HOG_Impl::open_lock()
+    int HOG_Impl::open_lock(int resource_id)
     {
-        return hog_rt::open_fzlp_lock();
+        return hog_rt::open_fzlp_lock(resource_id);
     }
 
     int HOG_Impl::lock_fzlp(int sem_od)
@@ -7572,7 +7572,7 @@ namespace
         CALL( wait_for_ts_release() );
 
         fprintf(stdout, "[%d | %d] Calling litmus_open_lock for OMLP_SEM.\n", gettid(), getpid());
-        *sem_od = hog_rt::open_fzlp_lock();
+        *sem_od = hog_rt::open_fzlp_lock(t_info.cluster); // use the cluster ID as the resource ID
         fprintf(stdout, "[%d | %d] Got OMLP_SEM=%d.\n", gettid(), getpid(), *sem_od);
     }
 }
