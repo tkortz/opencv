@@ -340,9 +340,6 @@ namespace
         Size cells_per_block_;
 
     private:
-        void computeBlockHistograms(const GpuMat& img, GpuMat& block_hists, Stream& stream);
-//        void computeGradient(const GpuMat& img, GpuMat& grad, GpuMat& qangle, Stream& stream);
-
         // Coefficients of the separating plane
         float free_coef_;
         GpuMat detector_;
@@ -1731,60 +1728,6 @@ namespace
         size_t block_hist_size = getBlockHistogramSize();
         Size blocks_per_img = numPartsWithin(img_size, block_size_, block_stride_);
         return static_cast<int>(block_hist_size * blocks_per_img.area());
-    }
-
-    void HOG_Impl::computeBlockHistograms(const GpuMat& img, GpuMat& block_hists, Stream& stream)
-    {
-        BufferPool pool(stream);
-        cv::Size blocks_per_win = numPartsWithin(win_size_, block_size_, block_stride_);
-        float  angleScale = static_cast<float>(nbins_ / CV_PI);
-        GpuMat grad       = pool.getBuffer(img.size(), CV_32FC2);
-        GpuMat qangle     = pool.getBuffer(img.size(), CV_8UC2);
-
-        hog_rt::set_up_constants(nbins_,
-                              block_stride_.width, block_stride_.height,
-                              blocks_per_win.width, blocks_per_win.height,
-                              cells_per_block_.width, cells_per_block_.height,
-                              StreamAccessor::getStream(stream));
-
-        switch (img.type())
-        {
-            case CV_8UC1:
-                hog_rt::compute_gradients_8UC1(nbins_,
-                                            img.rows, img.cols, img,
-                                            angleScale,
-                                            grad, qangle,
-                                            gamma_correction_,
-                                            StreamAccessor::getStream(stream));
-                break;
-            case CV_8UC4:
-                hog_rt::compute_gradients_8UC4(nbins_,
-                                            img.rows, img.cols, img,
-                                            angleScale,
-                                            grad, qangle,
-                                            gamma_correction_,
-                                            StreamAccessor::getStream(stream));
-                break;
-        }
-
-        hog_rt::compute_hists(nbins_,
-                           block_stride_.width, block_stride_.height,
-                           img.rows, img.cols,
-                           grad, qangle,
-                           (float)getWinSigma(),
-                           block_hists.ptr<float>(),
-                           cell_size_.width, cell_size_.height,
-                           cells_per_block_.width, cells_per_block_.height,
-                           StreamAccessor::getStream(stream));
-
-        hog_rt::normalize_hists(nbins_,
-                             block_stride_.width, block_stride_.height,
-                             img.rows, img.cols,
-                             block_hists.ptr<float>(),
-                             (float)threshold_L2hys_,
-                             cell_size_.width, cell_size_.height,
-                             cells_per_block_.width, cells_per_block_.height,
-                             StreamAccessor::getStream(stream));
     }
 
     void* HOG_Impl::thread_fine_AB(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info)
