@@ -2083,8 +2083,6 @@ void App::thread_fine_CC_S_ABCDE(node_t* _node, pthread_barrier_t* init_barrier,
     /* end is finished */
     pthread_barrier_wait(init_barrier);
 
-    pthread_exit(0);
-
     for (unsigned i = 0; i < cons_copies; i++)
     {
         gpu_img_array[i]->release();
@@ -2098,4 +2096,6 @@ void App::thread_fine_CC_S_ABCDE(node_t* _node, pthread_barrier_t* init_barrier,
             labels_array[i][j]->release();
         }
     }
+
+    pthread_exit(0);
 }
