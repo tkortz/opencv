@@ -48,6 +48,8 @@
 #  error cuda.hpp header must be compiled as C++
 #endif
 
+#include <cuda_runtime.h>
+
 #include "opencv2/core.hpp"
 #include "opencv2/core/cuda_types.hpp"
 
@@ -176,6 +178,7 @@ public:
     not the default stream and \p dst is HostMem allocated with HostMem::PAGE_LOCKED option.
     */
     void upload(InputArray arr, Stream& stream);
+    void upload(InputArray arr, const cudaStream_t& stream);
 
     /** @brief Performs data download from GpuMat (Blocking call)
 
@@ -193,6 +196,7 @@ public:
     not the default stream and \p dst is HostMem allocated with HostMem::PAGE_LOCKED option.
     */
     void download(OutputArray dst, Stream& stream) const;
+    void download(OutputArray dst, const cudaStream_t& stream) const;
 
     //! returns deep copy of the GpuMat, i.e. the data is copied
     GpuMat clone() const;

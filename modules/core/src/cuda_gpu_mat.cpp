@@ -449,6 +449,13 @@ void cv::cuda::GpuMat::upload(InputArray arr, Stream& _stream)
     throw_no_cuda();
 }
 
+void cv::cuda::GpuMat::upload(InputArray arr, const cudaStream_t& stream)
+{
+    (void) arr;
+    (void) stream;
+    throw_no_cuda();
+}
+
 void cv::cuda::GpuMat::download(OutputArray _dst) const
 {
     (void) _dst;
@@ -459,6 +466,13 @@ void cv::cuda::GpuMat::download(OutputArray _dst, Stream& _stream) const
 {
     (void) _dst;
     (void) _stream;
+    throw_no_cuda();
+}
+
+void cv::cuda::GpuMat::download(OutputArray _dst, const cudaStream_t& stream) const
+{
+    (void) _dst;
+    (void) stream;
     throw_no_cuda();
 }
 
