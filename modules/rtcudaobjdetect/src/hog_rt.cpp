@@ -332,7 +332,7 @@ namespace
                                    const cudaStream_t& stream,
                                    int omlp_sem_od, bool should_lock = true);
 
-        void set_up_constants(Stream stream);
+        void set_up_constants(const cudaStream_t& stream);
 
         int open_lock(int resource_id);
         int lock_fzlp(int sem_od);
@@ -659,20 +659,12 @@ namespace
                 fprintf(stderr, "compute scales node out buffer is NULL\n");
         }
 
-        Stream stream;
         cv::Size blocks_per_win = numPartsWithin(win_size_, block_size_, block_stride_);
         GpuMat * gpu_img;
         std::vector<double>* confidences;
         std::vector<double> * level_scale;
         double scale = 1.0;
         int levels = 0;
-
-        hog_rt::set_up_constants(nbins_,
-                block_stride_.width, block_stride_.height,
-                blocks_per_win.width, blocks_per_win.height,
-                cells_per_block_.width, cells_per_block_.height,
-                StreamAccessor::getStream(stream));
-        cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
 
         pthread_barrier_wait(init_barrier);
 
@@ -720,8 +712,6 @@ namespace
                     }
                     levels = std::max(levels, 1);
                     level_scale->resize(levels);
-
-                    BufferPool pool(stream);
 
                     for (size_t i = 0; i < level_scale->size(); i++)
                     {
@@ -2896,16 +2886,6 @@ namespace
         double scale = 1.0;
         int levels = 0;
 
-        Stream managed_stream;
-        BufferPool pool(managed_stream);
-
-        hog_rt::set_up_constants(nbins_,
-                              block_stride_.width, block_stride_.height,
-                              blocks_per_win.width, blocks_per_win.height,
-                              cells_per_block_.width, cells_per_block_.height,
-                              StreamAccessor::getStream(managed_stream));
-        cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(managed_stream));
-
         const std::vector<node_config> &source_config = *t_info.source_config;
 
         pthread_barrier_wait(init_barrier);
@@ -3106,16 +3086,6 @@ namespace
         std::vector<double> * level_scale;
         double scale = 1.0;
         int levels = 0;
-
-        Stream managed_stream;
-        BufferPool pool(managed_stream);
-
-        hog_rt::set_up_constants(nbins_,
-                              block_stride_.width, block_stride_.height,
-                              blocks_per_win.width, blocks_per_win.height,
-                              cells_per_block_.width, cells_per_block_.height,
-                              StreamAccessor::getStream(managed_stream));
-        cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(managed_stream));
 
         const std::vector<node_config> &source_config = *t_info.source_config;
 
@@ -3353,16 +3323,6 @@ namespace
         std::vector<double> * level_scale;
         double scale = 1.0;
         int levels = 0;
-
-        Stream managed_stream;
-        BufferPool pool(managed_stream);
-
-        hog_rt::set_up_constants(nbins_,
-                              block_stride_.width, block_stride_.height,
-                              blocks_per_win.width, blocks_per_win.height,
-                              cells_per_block_.width, cells_per_block_.height,
-                              StreamAccessor::getStream(managed_stream));
-        cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(managed_stream));
 
         const std::vector<node_config> &source_config = *t_info.source_config;
 
@@ -3634,16 +3594,6 @@ namespace
         std::vector<double> * level_scale;
         double scale = 1.0;
         int levels = 0;
-
-        Stream managed_stream;
-        BufferPool pool(managed_stream);
-
-        hog_rt::set_up_constants(nbins_,
-                              block_stride_.width, block_stride_.height,
-                              blocks_per_win.width, blocks_per_win.height,
-                              cells_per_block_.width, cells_per_block_.height,
-                              StreamAccessor::getStream(managed_stream));
-        cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(managed_stream));
 
         const std::vector<node_config> &source_config = *t_info.source_config;
 
@@ -3950,16 +3900,6 @@ namespace
         double scale = 1.0;
         int levels = 0;
 
-        Stream managed_stream;
-        BufferPool pool(managed_stream);
-
-        hog_rt::set_up_constants(nbins_,
-                              block_stride_.width, block_stride_.height,
-                              blocks_per_win.width, blocks_per_win.height,
-                              cells_per_block_.width, cells_per_block_.height,
-                              StreamAccessor::getStream(managed_stream));
-        cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(managed_stream));
-
         const std::vector<node_config> &source_config = *t_info.source_config;
 
         pthread_barrier_wait(init_barrier);
@@ -4263,15 +4203,15 @@ namespace
         pthread_exit(0);
     }
 
-    void HOG_Impl::set_up_constants(Stream stream)
+    void HOG_Impl::set_up_constants(const cudaStream_t& stream)
     {
         cv::Size blocks_per_win = numPartsWithin(win_size_, block_size_, block_stride_);
         hog_rt::set_up_constants(nbins_,
                               block_stride_.width, block_stride_.height,
                               blocks_per_win.width, blocks_per_win.height,
                               cells_per_block_.width, cells_per_block_.height,
-                              StreamAccessor::getStream(stream));
-        cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
+                              stream);
+        cudaStreamSynchronize(stream);
     }
 
     void HOG_Impl::fine_CC_S_ABCDE(struct task_info &t_info, void** out_buf_ptrs,

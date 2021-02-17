@@ -213,25 +213,25 @@ namespace cv { namespace cuda { namespace device
                               int ncells_block_x, int ncells_block_y,
                               const cudaStream_t& stream)
         {
-            cudaSafeCall(cudaMemcpyToSymbolAsync(cnbins,               &nbins,               sizeof(nbins),               0, cudaMemcpyHostToDevice));
-            cudaSafeCall(cudaMemcpyToSymbolAsync(cblock_stride_x,      &block_stride_x,      sizeof(block_stride_x),      0, cudaMemcpyHostToDevice));
-            cudaSafeCall(cudaMemcpyToSymbolAsync(cblock_stride_y,      &block_stride_y,      sizeof(block_stride_y),      0, cudaMemcpyHostToDevice));
-            cudaSafeCall(cudaMemcpyToSymbolAsync(cnblocks_win_x,       &nblocks_win_x,       sizeof(nblocks_win_x),       0, cudaMemcpyHostToDevice));
-            cudaSafeCall(cudaMemcpyToSymbolAsync(cnblocks_win_y,       &nblocks_win_y,       sizeof(nblocks_win_y),       0, cudaMemcpyHostToDevice));
-            cudaSafeCall(cudaMemcpyToSymbolAsync(cncells_block_x,      &ncells_block_x,      sizeof(ncells_block_x),      0, cudaMemcpyHostToDevice));
-            cudaSafeCall(cudaMemcpyToSymbolAsync(cncells_block_y,      &ncells_block_y,      sizeof(ncells_block_y),      0, cudaMemcpyHostToDevice));
+            cudaSafeCall(cudaMemcpyToSymbolAsync(cnbins,               &nbins,               sizeof(nbins),               0, cudaMemcpyHostToDevice, stream));
+            cudaSafeCall(cudaMemcpyToSymbolAsync(cblock_stride_x,      &block_stride_x,      sizeof(block_stride_x),      0, cudaMemcpyHostToDevice, stream));
+            cudaSafeCall(cudaMemcpyToSymbolAsync(cblock_stride_y,      &block_stride_y,      sizeof(block_stride_y),      0, cudaMemcpyHostToDevice, stream));
+            cudaSafeCall(cudaMemcpyToSymbolAsync(cnblocks_win_x,       &nblocks_win_x,       sizeof(nblocks_win_x),       0, cudaMemcpyHostToDevice, stream));
+            cudaSafeCall(cudaMemcpyToSymbolAsync(cnblocks_win_y,       &nblocks_win_y,       sizeof(nblocks_win_y),       0, cudaMemcpyHostToDevice, stream));
+            cudaSafeCall(cudaMemcpyToSymbolAsync(cncells_block_x,      &ncells_block_x,      sizeof(ncells_block_x),      0, cudaMemcpyHostToDevice, stream));
+            cudaSafeCall(cudaMemcpyToSymbolAsync(cncells_block_y,      &ncells_block_y,      sizeof(ncells_block_y),      0, cudaMemcpyHostToDevice, stream));
 
             int block_hist_size = nbins * ncells_block_x * ncells_block_y;
-            cudaSafeCall(cudaMemcpyToSymbolAsync(cblock_hist_size,     &block_hist_size,     sizeof(block_hist_size),     0, cudaMemcpyHostToDevice));
+            cudaSafeCall(cudaMemcpyToSymbolAsync(cblock_hist_size,     &block_hist_size,     sizeof(block_hist_size),     0, cudaMemcpyHostToDevice, stream));
 
             int block_hist_size_2up = power_2up(block_hist_size);
-            cudaSafeCall(cudaMemcpyToSymbolAsync(cblock_hist_size_2up, &block_hist_size_2up, sizeof(block_hist_size_2up), 0, cudaMemcpyHostToDevice));
+            cudaSafeCall(cudaMemcpyToSymbolAsync(cblock_hist_size_2up, &block_hist_size_2up, sizeof(block_hist_size_2up), 0, cudaMemcpyHostToDevice, stream));
 
             int descr_width = nblocks_win_x * block_hist_size;
-            cudaSafeCall(cudaMemcpyToSymbolAsync(cdescr_width,         &descr_width,         sizeof(descr_width),         0, cudaMemcpyHostToDevice));
+            cudaSafeCall(cudaMemcpyToSymbolAsync(cdescr_width,         &descr_width,         sizeof(descr_width),         0, cudaMemcpyHostToDevice, stream));
 
             int descr_size = descr_width * nblocks_win_y;
-            cudaSafeCall(cudaMemcpyToSymbolAsync(cdescr_size,          &descr_size,          sizeof(descr_size),          0, cudaMemcpyHostToDevice));
+            cudaSafeCall(cudaMemcpyToSymbolAsync(cdescr_size,          &descr_size,          sizeof(descr_size),          0, cudaMemcpyHostToDevice, stream));
         }
 
 
