@@ -1898,9 +1898,6 @@ void App::thread_fine_CC_S_ABCDE(node_t* _node, pthread_barrier_t* init_barrier,
     Mat frame;
 
     // Source (compute scale levels)
-    cudaStream_t stream;
-    cudaStreamCreate(&stream);
-    gpu_hog->set_up_constants(stream);
 
     // Pre-allocate all gpu_img instances we will need (one per frame)
     unsigned cons_copies = 5; // be conservative so we don't overwrite anything
@@ -1996,6 +1993,10 @@ void App::thread_fine_CC_S_ABCDE(node_t* _node, pthread_barrier_t* init_barrier,
     fprintf(stdout, "[%d | %d] Calling litmus_open_lock for OMLP_SEM.\n", gettid(), getpid());
     int omlp_sem_od = gpu_hog->open_lock(args.cluster); // use the cluster ID as the resource ID
     fprintf(stdout, "[%d | %d] Got OMLP_SEM=%d.\n", gettid(), getpid(), omlp_sem_od);
+
+    cudaStream_t stream;
+    cudaStreamCreate(&stream);
+    gpu_hog->set_up_constants(stream);
 
     int count_frame = 0;
     while (count_frame < args.count / args.num_fine_graphs && running)
