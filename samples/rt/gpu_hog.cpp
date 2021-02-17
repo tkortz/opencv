@@ -912,8 +912,8 @@ void App::thread_color_convert(node_t *_node, pthread_barrier_t* init_barrier,
         scale_val *= scale;
     }
 
-    cv::cuda::Stream stream;
-    cuda::BufferPool pool(stream);
+    cv::cuda::Stream managed_stream;
+    cuda::BufferPool pool(managed_stream);
     cuda::GpuMat* grad_array[cons_copies][13];
     cuda::GpuMat* qangle_array[cons_copies][13];
     cuda::GpuMat* block_hists_array[cons_copies][13];
@@ -988,6 +988,9 @@ void App::thread_color_convert(node_t *_node, pthread_barrier_t* init_barrier,
     int omlp_sem_od = gpu_hog->open_lock(args.cluster); // use the cluster ID as the resource ID
     fprintf(stdout, "[%d | %d] Got OMLP_SEM=%d.\n", gettid(), getpid(), omlp_sem_od);
 
+    cudaStream_t stream;
+    cudaStreamCreate(&stream);
+
     int count_frame = 0;
     while (count_frame < args.count / args.num_fine_graphs && running) {
         for (int j = graph_idx; j < 100; j += args.num_fine_graphs) {
@@ -1016,7 +1019,6 @@ void App::thread_color_convert(node_t *_node, pthread_barrier_t* init_barrier,
             // Which of the (conservatively duplicated) data should we use?
             unsigned data_idx = (j / args.num_fine_graphs) % cons_copies;
 
-            cv::cuda::Stream stream;
             if (use_gpu) {
                 /* =============
                 * LOCK: upload image to GPU
@@ -1027,7 +1029,7 @@ void App::thread_color_convert(node_t *_node, pthread_barrier_t* init_barrier,
 
                 gpu_img->upload(*img, stream);
                 exit_np();
-                cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
+                cudaStreamSynchronize(stream);
 
                 SAMPLE_STOP_LOCK(lt_t fz_len, NODE_AB);
                 /*
@@ -1098,6 +1100,8 @@ void App::thread_color_convert(node_t *_node, pthread_barrier_t* init_barrier,
                 sleep_next_period();
         }
     }
+
+    cudaStreamDestroy(stream);
 
     free(out_edge);
     CheckError(pgm_terminate(node));
@@ -2034,9 +2038,9 @@ void App::thread_fine_CC_S_ABCDE(node_t* _node, pthread_barrier_t* init_barrier,
 
             SAMPLE_START_LOCK(lt_t fz_start, NODE_AB);
 
-            gpu_img->upload(*img, managed_stream);
+            gpu_img->upload(*img, stream);
             exit_np();
-            cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(managed_stream));
+            cudaStreamSynchronize(stream);
 
             SAMPLE_STOP_LOCK(lt_t fz_len, NODE_AB);
             /*
@@ -2070,6 +2074,8 @@ void App::thread_fine_CC_S_ABCDE(node_t* _node, pthread_barrier_t* init_barrier,
                 sleep_next_period();
         }
     }
+
+    cudaStreamDestroy(stream);
 
     free(out_edges);
     free(out_buf_ptrs);

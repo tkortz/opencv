@@ -921,6 +921,8 @@ namespace
                 }
 
             } while(ret != PGM_TERMINATE);
+
+            cudaStreamDestroy(stream);
         }
 
         pthread_barrier_wait(init_barrier);
@@ -1024,6 +1026,8 @@ namespace
                 }
 
             } while(ret != PGM_TERMINATE);
+
+            cudaStreamDestroy(stream);
         }
 
         pthread_barrier_wait(init_barrier);
@@ -1129,6 +1133,8 @@ namespace
                 }
 
             } while(ret != PGM_TERMINATE);
+
+            cudaStreamDestroy(stream);
         }
 
         pthread_barrier_wait(init_barrier);
@@ -1228,6 +1234,8 @@ namespace
                 }
 
             } while(ret != PGM_TERMINATE);
+
+            cudaStreamDestroy(stream);
         }
 
         pthread_barrier_wait(init_barrier);
@@ -1331,6 +1339,8 @@ namespace
                 }
 
             } while(ret != PGM_TERMINATE);
+
+            cudaStreamDestroy(stream);
         }
 
 
@@ -1382,7 +1392,6 @@ namespace
         std::vector<Rect>* found;
         std::vector<double> * level_scale;
         std::vector<double> * confidences;
-        Stream stream;
         double scale;
 
         GpuMat * smaller_img;
@@ -1398,6 +1407,9 @@ namespace
 
         if(!hog_errors)
         {
+            cudaStream_t stream;
+            cudaStreamCreate(&stream);
+
             do {
                 ret = pgm_wait(node);
 
@@ -1443,7 +1455,7 @@ namespace
 
                             labels->download(labels_host, stream);
                             exit_np();
-                            cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
+                            cudaStreamSynchronize(stream);
 
                             lt_t fz_len = litmus_clock() - fz_start;
 
@@ -1478,7 +1490,7 @@ namespace
 
                             labels->download(labels_host, stream);
                             exit_np();
-                            cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
+                            cudaStreamSynchronize(stream);
 
                             lt_t fz_len = litmus_clock() - fz_start;
 
@@ -1548,6 +1560,8 @@ namespace
                 }
 
             } while(ret != PGM_TERMINATE);
+
+            cudaStreamDestroy(stream);
         }
 
 
@@ -1793,6 +1807,8 @@ namespace
                 }
 
             } while(ret != PGM_TERMINATE);
+
+            cudaStreamDestroy(stream);
         }
 
         pthread_barrier_wait(init_barrier);
@@ -1900,6 +1916,8 @@ namespace
                 }
 
             } while(ret != PGM_TERMINATE);
+
+            cudaStreamDestroy(stream);
         }
 
         pthread_barrier_wait(init_barrier);
@@ -2008,6 +2026,8 @@ namespace
                 }
 
             } while(ret != PGM_TERMINATE);
+
+            cudaStreamDestroy(stream);
         }
 
         pthread_barrier_wait(init_barrier);
@@ -2115,6 +2135,8 @@ namespace
                 }
 
             } while(ret != PGM_TERMINATE);
+
+            cudaStreamDestroy(stream);
         }
 
         pthread_barrier_wait(init_barrier);
@@ -2229,6 +2251,8 @@ namespace
                 }
 
             } while(ret != PGM_TERMINATE);
+
+            cudaStreamDestroy(stream);
         }
 
         pthread_barrier_wait(init_barrier);
@@ -2339,6 +2363,8 @@ namespace
                 }
 
             } while(ret != PGM_TERMINATE);
+
+            cudaStreamDestroy(stream);
         }
 
         pthread_barrier_wait(init_barrier);
@@ -2453,6 +2479,8 @@ namespace
                 }
 
             } while(ret != PGM_TERMINATE);
+
+            cudaStreamDestroy(stream);
         }
 
         pthread_barrier_wait(init_barrier);
@@ -2570,6 +2598,8 @@ namespace
                 }
 
             } while(ret != PGM_TERMINATE);
+
+            cudaStreamDestroy(stream);
         }
 
         pthread_barrier_wait(init_barrier);
@@ -2686,6 +2716,8 @@ namespace
                 }
 
             } while(ret != PGM_TERMINATE);
+
+            cudaStreamDestroy(stream);
         }
 
         pthread_barrier_wait(init_barrier);
@@ -2809,6 +2841,8 @@ namespace
                 }
 
             } while(ret != PGM_TERMINATE);
+
+            cudaStreamDestroy(stream);
         }
 
         pthread_barrier_wait(init_barrier);
@@ -3018,6 +3052,8 @@ namespace
                 }
 
             } while(ret != PGM_TERMINATE);
+
+            cudaStreamDestroy(stream);
         }
 
         pthread_barrier_wait(init_barrier);
@@ -3263,6 +3299,8 @@ namespace
                 }
 
             } while(ret != PGM_TERMINATE);
+
+            cudaStreamDestroy(stream);
         }
 
         pthread_barrier_wait(init_barrier);
@@ -3542,6 +3580,8 @@ namespace
                 }
 
             } while(ret != PGM_TERMINATE);
+
+            cudaStreamDestroy(stream);
         }
 
         pthread_barrier_wait(init_barrier);
@@ -3855,6 +3895,8 @@ namespace
                 }
 
             } while(ret != PGM_TERMINATE);
+
+            cudaStreamDestroy(stream);
         }
 
         pthread_barrier_wait(init_barrier);
@@ -4201,6 +4243,8 @@ namespace
                 }
 
             } while(ret != PGM_TERMINATE);
+
+            cudaStreamDestroy(stream);
         }
 
         pthread_barrier_wait(init_barrier);
@@ -4665,9 +4709,9 @@ namespace
 
                             lt_t fz_start = litmus_clock();
 
-                            labels->download(labels_host, managed_stream);
+                            labels->download(labels_host, stream);
                             exit_np();
-                            cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(managed_stream));
+                            cudaStreamSynchronize(stream);
 
                             lt_t fz_len = litmus_clock() - fz_start;
 
@@ -4686,8 +4730,8 @@ namespace
                         else
                         {
                             Mat labels_host;
-                            labels->download(labels_host, managed_stream);
-                            cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(managed_stream));
+                            labels->download(labels_host, stream);
+                            cudaStreamSynchronize(stream);
                             float* vec = labels_host.ptr<float>();
 
                             level_confidences_ptr->clear();
@@ -4753,6 +4797,8 @@ namespace
                 }
 
             } while(ret != PGM_TERMINATE);
+
+            cudaStreamDestroy(stream);
         }
 
         pthread_barrier_wait(init_barrier);
@@ -4943,9 +4989,9 @@ namespace
 
                             lt_t fz_start = litmus_clock();
 
-                            labels->download(labels_host, managed_stream);
+                            labels->download(labels_host, stream);
                             exit_np();
-                            cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(managed_stream));
+                            cudaStreamSynchronize(stream);
 
                             lt_t fz_len = litmus_clock() - fz_start;
 
@@ -4969,8 +5015,8 @@ namespace
                         else
                         {
                             Mat labels_host;
-                            labels->download(labels_host, managed_stream);
-                            cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(managed_stream));
+                            labels->download(labels_host, stream);
+                            cudaStreamSynchronize(stream);
                             float* vec = labels_host.ptr<float>();
 
                             level_confidences_ptr->clear();
@@ -5032,6 +5078,8 @@ namespace
                 }
 
             } while(ret != PGM_TERMINATE);
+
+            cudaStreamDestroy(stream);
         }
 
         pthread_barrier_wait(init_barrier);
@@ -5258,9 +5306,9 @@ namespace
 
                             lt_t fz_start = litmus_clock();
 
-                            labels->download(labels_host, managed_stream);
+                            labels->download(labels_host, stream);
                             exit_np();
-                            cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(managed_stream));
+                            cudaStreamSynchronize(stream);
 
                             lt_t fz_len = litmus_clock() - fz_start;
 
@@ -5284,8 +5332,8 @@ namespace
                         else
                         {
                             Mat labels_host;
-                            labels->download(labels_host, managed_stream);
-                            cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(managed_stream));
+                            labels->download(labels_host, stream);
+                            cudaStreamSynchronize(stream);
                             float* vec = labels_host.ptr<float>();
 
                             level_confidences_ptr->clear();
@@ -5346,6 +5394,8 @@ namespace
                 }
 
             } while(ret != PGM_TERMINATE);
+
+            cudaStreamDestroy(stream);
         }
 
         pthread_barrier_wait(init_barrier);
@@ -5608,9 +5658,9 @@ namespace
 
                             lt_t fz_start = litmus_clock();
 
-                            labels->download(labels_host, managed_stream);
+                            labels->download(labels_host, stream);
                             exit_np();
-                            cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(managed_stream));
+                            cudaStreamSynchronize(stream);
 
                             lt_t fz_len = litmus_clock() - fz_start;
 
@@ -5634,8 +5684,8 @@ namespace
                         else
                         {
                             Mat labels_host;
-                            labels->download(labels_host, managed_stream);
-                            cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(managed_stream));
+                            labels->download(labels_host, stream);
+                            cudaStreamSynchronize(stream);
                             float* vec = labels_host.ptr<float>();
 
                             level_confidences_ptr->clear();
@@ -5696,6 +5746,8 @@ namespace
                 }
 
             } while(ret != PGM_TERMINATE);
+
+            cudaStreamDestroy(stream);
         }
 
         pthread_barrier_wait(init_barrier);
@@ -6001,9 +6053,9 @@ namespace
 
                             lt_t fz_start = litmus_clock();
 
-                            labels->download(labels_host, managed_stream);
+                            labels->download(labels_host, stream);
                             exit_np();
-                            cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(managed_stream));
+                            cudaStreamSynchronize(stream);
 
                             lt_t fz_len = litmus_clock() - fz_start;
 
@@ -6027,8 +6079,8 @@ namespace
                         else
                         {
                             Mat labels_host;
-                            labels->download(labels_host, managed_stream);
-                            cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(managed_stream));
+                            labels->download(labels_host, stream);
+                            cudaStreamSynchronize(stream);
                             float* vec = labels_host.ptr<float>();
 
                             level_confidences_ptr->clear();
@@ -6089,6 +6141,8 @@ namespace
                 }
 
             } while(ret != PGM_TERMINATE);
+
+            cudaStreamDestroy(stream);
         }
 
         pthread_barrier_wait(init_barrier);
