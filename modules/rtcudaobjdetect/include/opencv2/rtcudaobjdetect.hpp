@@ -98,7 +98,8 @@ struct sync_info
 
 struct task_info
 {
-    int id;
+    int id;        // index of the node within the graph
+    int graph_idx; // index of graph (0 to parallelism-1)
     /* real-time parameters in milliseconds */
     float period;
     float phase;

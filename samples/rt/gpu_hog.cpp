@@ -1626,6 +1626,7 @@ void App::sched_configurable_hog(cv::Ptr<cv::cuda::HOG_RT> gpu_hog, cv::HOGDescr
 
             t_info.phase = PERIOD * g_idx;
             t_info.id = task_id++;
+            t_info.graph_idx = g_idx;
             if (!args.merge_color_convert)
             {
                 // If the color-convert node is not merged, spawn its thread and the
