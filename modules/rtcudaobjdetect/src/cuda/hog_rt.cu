@@ -389,13 +389,13 @@ namespace cv { namespace cuda { namespace device
             lt_t fz_start = litmus_clock();
 
             if (nblocks == 4)
-                compute_hists_kernel_many_blocks<4><<<grid, threads, smem>>>(img_block_width, grad, qangle, scale, block_hists, cell_size_x, patch_size, block_patch_size, threads_cell, threads_block, half_cell_size);
+                compute_hists_kernel_many_blocks<4><<<grid, threads, smem, stream>>>(img_block_width, grad, qangle, scale, block_hists, cell_size_x, patch_size, block_patch_size, threads_cell, threads_block, half_cell_size);
             else if (nblocks == 3)
-                compute_hists_kernel_many_blocks<3><<<grid, threads, smem>>>(img_block_width, grad, qangle, scale, block_hists, cell_size_x, patch_size, block_patch_size, threads_cell, threads_block, half_cell_size);
+                compute_hists_kernel_many_blocks<3><<<grid, threads, smem, stream>>>(img_block_width, grad, qangle, scale, block_hists, cell_size_x, patch_size, block_patch_size, threads_cell, threads_block, half_cell_size);
             else if (nblocks == 2)
-                compute_hists_kernel_many_blocks<2><<<grid, threads, smem>>>(img_block_width, grad, qangle, scale, block_hists, cell_size_x, patch_size, block_patch_size, threads_cell, threads_block, half_cell_size);
+                compute_hists_kernel_many_blocks<2><<<grid, threads, smem, stream>>>(img_block_width, grad, qangle, scale, block_hists, cell_size_x, patch_size, block_patch_size, threads_cell, threads_block, half_cell_size);
             else
-                compute_hists_kernel_many_blocks<1><<<grid, threads, smem>>>(img_block_width, grad, qangle, scale, block_hists, cell_size_x, patch_size, block_patch_size, threads_cell, threads_block, half_cell_size);
+                compute_hists_kernel_many_blocks<1><<<grid, threads, smem, stream>>>(img_block_width, grad, qangle, scale, block_hists, cell_size_x, patch_size, block_patch_size, threads_cell, threads_block, half_cell_size);
 
             exit_np();
 
@@ -403,7 +403,7 @@ namespace cv { namespace cuda { namespace device
 
             if (true || should_sync)
             {
-                cudaSafeCall(cudaStreamSynchronize(0));
+                cudaSafeCall(cudaStreamSynchronize(stream));
             }
 
             lt_t fz_len = litmus_clock() - fz_start;
@@ -522,15 +522,15 @@ namespace cv { namespace cuda { namespace device
             lt_t fz_start = litmus_clock();
 
             if (nthreads == 32)
-                normalize_hists_kernel_many_blocks<32, nblocks><<<grid, threads>>>(block_hist_size, img_block_width, block_hists, threshold);
+                normalize_hists_kernel_many_blocks<32, nblocks><<<grid, threads, 0, stream>>>(block_hist_size, img_block_width, block_hists, threshold);
             else if (nthreads == 64)
-                normalize_hists_kernel_many_blocks<64, nblocks><<<grid, threads>>>(block_hist_size, img_block_width, block_hists, threshold);
+                normalize_hists_kernel_many_blocks<64, nblocks><<<grid, threads, 0, stream>>>(block_hist_size, img_block_width, block_hists, threshold);
             else if (nthreads == 128)
-                normalize_hists_kernel_many_blocks<128, nblocks><<<grid, threads>>>(block_hist_size, img_block_width, block_hists, threshold);
+                normalize_hists_kernel_many_blocks<128, nblocks><<<grid, threads, 0, stream>>>(block_hist_size, img_block_width, block_hists, threshold);
             else if (nthreads == 256)
-                normalize_hists_kernel_many_blocks<256, nblocks><<<grid, threads>>>(block_hist_size, img_block_width, block_hists, threshold);
+                normalize_hists_kernel_many_blocks<256, nblocks><<<grid, threads, 0, stream>>>(block_hist_size, img_block_width, block_hists, threshold);
             else if (nthreads == 512)
-                normalize_hists_kernel_many_blocks<512, nblocks><<<grid, threads>>>(block_hist_size, img_block_width, block_hists, threshold);
+                normalize_hists_kernel_many_blocks<512, nblocks><<<grid, threads, 0, stream>>>(block_hist_size, img_block_width, block_hists, threshold);
             else
                 CV_Error(cv::Error::StsBadArg, "normalize_hists: histogram's size is too big, try to decrease number of bins");
 
@@ -540,7 +540,7 @@ namespace cv { namespace cuda { namespace device
 
             if (true || should_sync)
             {
-                cudaSafeCall(cudaStreamSynchronize(0));
+                cudaSafeCall(cudaStreamSynchronize(stream));
             }
 
             lt_t fz_len = litmus_clock() - fz_start;
@@ -592,6 +592,7 @@ namespace cv { namespace cuda { namespace device
         void classify_hists(int win_height, int win_width, int block_stride_y, int block_stride_x,
                             int win_stride_y, int win_stride_x, int height, int width, float* block_hists,
                             float* coefs, float free_coef, float threshold, int cell_size_x, int ncells_block_x, unsigned char* labels,
+                            const cudaStream_t& stream,
                             int omlp_sem_od = -1,
                             bool should_lock = true)
         {
@@ -618,11 +619,8 @@ namespace cv { namespace cuda { namespace device
 
             cudaSafeCall(cudaFuncSetCacheConfig(classify_hists_kernel_many_blocks<nthreads, nblocks>, cudaFuncCachePreferL1));
 
-            cudaStream_t stream;
-            cudaSafeCall(cudaStreamCreate(&stream));
-
             classify_hists_kernel_many_blocks<nthreads, nblocks><<<grid,
-                threads>>>(
+                threads, 0, stream>>>(
                 img_win_width, img_block_width, win_block_stride_x, win_block_stride_y,
                 block_hists, coefs, free_coef, threshold, labels);
 
@@ -630,8 +628,7 @@ namespace cv { namespace cuda { namespace device
 
             cudaSafeCall( cudaGetLastError() );
 
-            cudaSafeCall(cudaStreamSynchronize(0));
-            cudaSafeCall(cudaStreamDestroy(stream));
+            cudaSafeCall(cudaStreamSynchronize(stream));
 
             lt_t fz_len = litmus_clock() - fz_start;
 
@@ -687,6 +684,7 @@ namespace cv { namespace cuda { namespace device
        void compute_confidence_hists(int win_height, int win_width, int block_stride_y, int block_stride_x,
                                                int win_stride_y, int win_stride_x, int height, int width, float* block_hists,
                                                float* coefs, float free_coef, float threshold, int cell_size_x, int ncells_block_x, float *confidences,
+                                               const cudaStream_t& stream,
                                                int omlp_sem_od = -1,
                                                bool should_lock = true)
        {
@@ -715,18 +713,15 @@ namespace cv { namespace cuda { namespace device
 
            cudaSafeCall(cudaFuncSetCacheConfig(compute_confidence_hists_kernel_many_blocks<nthreads, nblocks>,
                                                                                    cudaFuncCachePreferL1));
-           //cudaStream_t stream;
-           //cudaSafeCall(cudaStreamCreate(&stream));
 
            compute_confidence_hists_kernel_many_blocks<nthreads,
-               nblocks><<<grid, threads>>>(
+               nblocks><<<grid, threads, 0, stream>>>(
                    img_win_width, img_block_width, win_block_stride_x, win_block_stride_y,
                    block_hists, coefs, free_coef, threshold, confidences);
 
            exit_np();
 
-           cudaSafeCall(cudaStreamSynchronize(0));
-           //cudaSafeCall(cudaStreamDestroy(stream));
+           cudaSafeCall(cudaStreamSynchronize(stream));
 
            lt_t fz_len = litmus_clock() - fz_start;
 
@@ -980,9 +975,9 @@ namespace cv { namespace cuda { namespace device
             lt_t fz_start = litmus_clock();
 
             if (correct_gamma)
-                compute_gradients_8UC4_kernel<nthreads, 1><<<gdim, bdim>>>(height, width, img, angle_scale, grad, qangle);
+                compute_gradients_8UC4_kernel<nthreads, 1><<<gdim, bdim, 0, stream>>>(height, width, img, angle_scale, grad, qangle);
             else
-                compute_gradients_8UC4_kernel<nthreads, 0><<<gdim, bdim>>>(height, width, img, angle_scale, grad, qangle);
+                compute_gradients_8UC4_kernel<nthreads, 0><<<gdim, bdim, 0, stream>>>(height, width, img, angle_scale, grad, qangle);
 
             exit_np();
 
@@ -990,7 +985,7 @@ namespace cv { namespace cuda { namespace device
 
             if (true || should_sync)
             {
-                cudaSafeCall(cudaStreamSynchronize(0));
+                cudaSafeCall(cudaStreamSynchronize(stream));
             }
 
             lt_t fz_len = litmus_clock() - fz_start;
@@ -1085,9 +1080,9 @@ namespace cv { namespace cuda { namespace device
             lt_t fz_start = litmus_clock();
 
             if (correct_gamma)
-                compute_gradients_8UC1_kernel<nthreads, 1><<<gdim, bdim>>>(height, width, img, angle_scale, grad, qangle);
+                compute_gradients_8UC1_kernel<nthreads, 1><<<gdim, bdim, 0, stream>>>(height, width, img, angle_scale, grad, qangle);
             else
-                compute_gradients_8UC1_kernel<nthreads, 0><<<gdim, bdim>>>(height, width, img, angle_scale, grad, qangle);
+                compute_gradients_8UC1_kernel<nthreads, 0><<<gdim, bdim, 0, stream>>>(height, width, img, angle_scale, grad, qangle);
 
             exit_np();
 
@@ -1095,7 +1090,7 @@ namespace cv { namespace cuda { namespace device
 
             if (true || should_sync)
             {
-                cudaSafeCall(cudaStreamSynchronize(0));
+                cudaSafeCall(cudaStreamSynchronize(stream));
             }
 
             lt_t fz_len = litmus_clock() - fz_start;
@@ -1250,7 +1245,7 @@ namespace cv { namespace cuda { namespace device
                 cudaSafeCall( cudaBindTexture2D(&texOfs, tex, src.data, desc, src.cols, src.rows, src.step) );
             }
 
-            resize_for_hog_kernel<<<grid, threads>>>(sx, sy, (PtrStepSz<T>)dst, colOfs, tex_index);
+            resize_for_hog_kernel<<<grid, threads, 0, stream>>>(sx, sy, (PtrStepSz<T>)dst, colOfs, tex_index);
 
             exit_np();
 
@@ -1258,7 +1253,7 @@ namespace cv { namespace cuda { namespace device
 
             if (true || should_sync)
             {
-                cudaSafeCall(cudaStreamSynchronize(0));
+                cudaSafeCall(cudaStreamSynchronize(stream));
             }
 
             lt_t fz_len = litmus_clock() - fz_start;

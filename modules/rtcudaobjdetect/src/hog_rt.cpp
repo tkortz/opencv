@@ -144,12 +144,14 @@ namespace cv { namespace cuda { namespace device
                             int block_stride_x, int win_stride_y, int win_stride_x, int height,
                             int width, float* block_hists, float* coefs, float free_coef,
                             float threshold, int cell_size_x, int ncells_block_x, unsigned char* labels,
+                            const cudaStream_t& stream,
                             int omlp_sem_od = -1,
                             bool should_lock = true);
 
         void compute_confidence_hists(int win_height, int win_width, int block_stride_y, int block_stride_x,
                                       int win_stride_y, int win_stride_x, int height, int width, float* block_hists,
                                       float* coefs, float free_coef, float threshold, int cell_size_x, int ncells_block_x, float *confidences,
+                                      const cudaStream_t& stream,
                                       int omlp_sem_od = -1,
                                       bool should_lock = true);
 
@@ -292,7 +294,7 @@ namespace
                              cuda::GpuMat** block_hists_array,
                              cuda::GpuMat** smaller_img_array, cuda::GpuMat** labels_array,
                              std::vector<Rect>* found,
-                             Mat *img, int frame_idx, Stream stream, lt_t frame_start_time,
+                             Mat *img, int frame_idx, const cudaStream_t& stream, lt_t frame_start_time,
                              int omlp_sem_od); // color-convert -> classify hists (maybe not all the way)
 
         /* source-node combinations */
@@ -311,23 +313,23 @@ namespace
 
         /* individual computations */
         inline void resize(GpuMat* gpu_img, GpuMat* smaller_img,
-                           Stream& stream,
+                           const cudaStream_t& stream,
                            int frame_index,
                            int omlp_sem_od, bool should_lock = true);
         inline void compute_gradients(GpuMat* smaller_img,
                                       GpuMat* grad, GpuMat* qangle,
-                                      Stream& stream,
+                                      const cudaStream_t& stream,
                                       int omlp_sem_od, bool should_lock = true);
         inline void compute_hists(GpuMat* smaller_img, GpuMat* grad, GpuMat* qangle,
                                   GpuMat* block_hists,
-                                  Stream& stream,
+                                  const cudaStream_t& stream,
                                   int omlp_sem_od, bool should_lock = true);
         inline void normalize_hists(GpuMat* smaller_img, GpuMat* block_hists,
-                                    Stream& stream,
+                                    const cudaStream_t& stream,
                                     int omlp_sem_od, bool should_lock = true);
         inline void classify_hists(GpuMat* smaller_img, GpuMat* block_hists,
                                    std::vector<double>* confidences, GpuMat* labels,
-                                   Stream& stream,
+                                   const cudaStream_t& stream,
                                    int omlp_sem_od, bool should_lock = true);
 
         void set_up_constants(Stream stream);
@@ -511,7 +513,7 @@ namespace
     }
 
     inline void HOG_Impl::resize(GpuMat* gpu_img, GpuMat* smaller_img,
-                                 Stream& stream,
+                                 const cudaStream_t& stream,
                                  int frame_index,
                                  int omlp_sem_od, bool should_lock)
     {
@@ -519,8 +521,8 @@ namespace
         {
             switch (gpu_img->type())
             {
-                case CV_8UC1: hog_rt::resize_8UC1_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), frame_index, true, omlp_sem_od, should_lock); break;
-                case CV_8UC4: hog_rt::resize_8UC4_thread_safe(*gpu_img, *smaller_img, StreamAccessor::getStream(stream), frame_index, true, omlp_sem_od, should_lock); break;
+                case CV_8UC1: hog_rt::resize_8UC1_thread_safe(*gpu_img, *smaller_img, stream, frame_index, true, omlp_sem_od, should_lock); break;
+                case CV_8UC4: hog_rt::resize_8UC4_thread_safe(*gpu_img, *smaller_img, stream, frame_index, true, omlp_sem_od, should_lock); break;
             }
         }
 
@@ -530,7 +532,7 @@ namespace
 
     inline void HOG_Impl::compute_gradients(GpuMat* smaller_img,
                                             GpuMat* grad, GpuMat* qangle,
-                                            Stream& stream,
+                                            const cudaStream_t& stream,
                                             int omlp_sem_od, bool should_lock)
     {
         float  angleScale = static_cast<float>(nbins_ / CV_PI);
@@ -543,7 +545,7 @@ namespace
                         angleScale,
                         *grad, *qangle,
                         gamma_correction_,
-                        StreamAccessor::getStream(stream),
+                        stream,
                         true, omlp_sem_od, should_lock);
                 break;
             case CV_8UC4:
@@ -552,7 +554,7 @@ namespace
                         angleScale,
                         *grad, *qangle,
                         gamma_correction_,
-                        StreamAccessor::getStream(stream),
+                        stream,
                         true, omlp_sem_od, should_lock);
                 break;
         }
@@ -560,7 +562,7 @@ namespace
 
     inline void HOG_Impl::compute_hists(GpuMat* smaller_img, GpuMat* grad, GpuMat* qangle,
                                         GpuMat* block_hists,
-                                        Stream& stream,
+                                        const cudaStream_t& stream,
                                         int omlp_sem_od, bool should_lock)
     {
         hog_rt::compute_hists(nbins_,
@@ -571,12 +573,12 @@ namespace
                 block_hists->ptr<float>(),
                 cell_size_.width, cell_size_.height,
                 cells_per_block_.width, cells_per_block_.height,
-                StreamAccessor::getStream(stream),
+                stream,
                 true, omlp_sem_od, should_lock);
     }
 
     inline void HOG_Impl::normalize_hists(GpuMat* smaller_img, GpuMat* block_hists,
-                                          Stream& stream,
+                                          const cudaStream_t& stream,
                                           int omlp_sem_od, bool should_lock)
     {
         hog_rt::normalize_hists(nbins_,
@@ -586,13 +588,13 @@ namespace
                 (float)threshold_L2hys_,
                 cell_size_.width, cell_size_.height,
                 cells_per_block_.width, cells_per_block_.height,
-                StreamAccessor::getStream(stream),
+                stream,
                 true, omlp_sem_od, should_lock);
     }
 
     inline void HOG_Impl::classify_hists(GpuMat* smaller_img, GpuMat* block_hists,
                                          std::vector<double>* confidences, GpuMat* labels,
-                                         Stream& stream,
+                                         const cudaStream_t& stream,
                                          int omlp_sem_od, bool should_lock)
     {
         if (confidences == NULL)
@@ -607,6 +609,7 @@ namespace
                     (float)hit_threshold_,
                     cell_size_.width, cells_per_block_.width,
                     labels->ptr(),
+                    stream,
                     omlp_sem_od, should_lock);
         }
         else
@@ -621,6 +624,7 @@ namespace
                     (float)hit_threshold_,
                     cell_size_.width, cells_per_block_.width,
                     labels->ptr<float>(),
+                    stream,
                     omlp_sem_od);
         }
     }
@@ -857,7 +861,6 @@ namespace
         if (out_buf == NULL)
             fprintf(stderr, "detect node out buffer is NULL\n");
 
-        Stream stream;
         GpuMat * smaller_img;
         GpuMat * gpu_img;
 
@@ -871,6 +874,9 @@ namespace
 
         if(!hog_errors)
         {
+            cudaStream_t stream;
+            cudaStreamCreate(&stream);
+
             do {
                 ret = pgm_wait(node);
 
@@ -956,8 +962,6 @@ namespace
         if (out_buf == NULL)
             fprintf(stderr, "compute gradients node out buffer is NULL\n");
 
-        Stream stream;
-        BufferPool pool(stream);
         GpuMat * smaller_img;
         GpuMat * grad;
         GpuMat * qangle;
@@ -972,6 +976,9 @@ namespace
 
         if(!hog_errors)
         {
+            cudaStream_t stream;
+            cudaStreamCreate(&stream);
+
             do {
                 ret = pgm_wait(node);
 
@@ -1062,9 +1069,6 @@ namespace
         GpuMat * grad;
         GpuMat * qangle;
 
-        Stream stream;
-        BufferPool pool(stream);
-
         GpuMat * block_hists;
 
         pthread_barrier_wait(init_barrier);
@@ -1077,6 +1081,9 @@ namespace
 
         if(!hog_errors)
         {
+            cudaStream_t stream;
+            cudaStreamCreate(&stream);
+
             do {
                 ret = pgm_wait(node);
 
@@ -1165,7 +1172,6 @@ namespace
 
         GpuMat * smaller_img;
         GpuMat * block_hists;
-        Stream stream;
 
         pthread_barrier_wait(init_barrier);
 
@@ -1177,6 +1183,9 @@ namespace
 
         if(!hog_errors)
         {
+            cudaStream_t stream;
+            cudaStreamCreate(&stream);
+
             do {
                 ret = pgm_wait(node);
 
@@ -1262,8 +1271,6 @@ namespace
         GpuMat * smaller_img;
         GpuMat * block_hists;
         std::vector<double> * confidences;
-        Stream stream;
-        BufferPool pool(stream);
         GpuMat * labels;
         Size wins_per_img;
 
@@ -1277,6 +1284,9 @@ namespace
 
         if(!hog_errors)
         {
+            cudaStream_t stream;
+            cudaStreamCreate(&stream);
+
             do {
                 ret = pgm_wait(node);
 
@@ -1715,11 +1725,9 @@ namespace
         if (out_buf == NULL)
             fprintf(stderr, "resize+compute_grads node out buffer is NULL\n");
 
-        Stream stream;
         GpuMat * smaller_img;
         GpuMat * gpu_img;
 
-        BufferPool pool(stream);
         GpuMat * grad;
         GpuMat * qangle;
 
@@ -1733,6 +1741,9 @@ namespace
 
         if(!hog_errors)
         {
+            cudaStream_t stream;
+            cudaStreamCreate(&stream);
+
             do {
                 ret = pgm_wait(node);
 
@@ -1823,8 +1834,6 @@ namespace
         if (out_buf == NULL)
             fprintf(stderr, "compute_grads+compute_hists node out buffer is NULL\n");
 
-        Stream stream;
-        BufferPool pool(stream);
         GpuMat * smaller_img;
         GpuMat * grad;
         GpuMat * qangle;
@@ -1840,6 +1849,9 @@ namespace
 
         if(!hog_errors)
         {
+            cudaStream_t stream;
+            cudaStreamCreate(&stream);
+
             do {
                 ret = pgm_wait(node);
 
@@ -1933,9 +1945,6 @@ namespace
         GpuMat * grad;
         GpuMat * qangle;
 
-        Stream stream;
-        BufferPool pool(stream);
-
         GpuMat * block_hists;
 
         pthread_barrier_wait(init_barrier);
@@ -1948,6 +1957,9 @@ namespace
 
         if(!hog_errors)
         {
+            cudaStream_t stream;
+            cudaStreamCreate(&stream);
+
             do {
                 ret = pgm_wait(node);
 
@@ -2039,10 +2051,8 @@ namespace
 
         GpuMat * smaller_img;
         GpuMat * block_hists;
-        Stream stream;
 
         std::vector<double> * confidences;
-        BufferPool pool(stream);
         GpuMat * labels;
         Size wins_per_img;
 
@@ -2056,6 +2066,9 @@ namespace
 
         if(!hog_errors)
         {
+            cudaStream_t stream;
+            cudaStreamCreate(&stream);
+
             do {
                 ret = pgm_wait(node);
 
@@ -2144,11 +2157,9 @@ namespace
         if (out_buf == NULL)
             fprintf(stderr, "resize->compute_hists node out buffer is NULL\n");
 
-        Stream stream;
         GpuMat * smaller_img;
         GpuMat * gpu_img;
 
-        BufferPool pool(stream);
         GpuMat * grad;
         GpuMat * qangle;
 
@@ -2164,6 +2175,9 @@ namespace
 
         if(!hog_errors)
         {
+            cudaStream_t stream;
+            cudaStreamCreate(&stream);
+
             do {
                 ret = pgm_wait(node);
 
@@ -2260,9 +2274,6 @@ namespace
         GpuMat * grad;
         GpuMat * qangle;
 
-        Stream stream;
-        BufferPool pool(stream);
-
         GpuMat * block_hists;
 
         pthread_barrier_wait(init_barrier);
@@ -2275,6 +2286,9 @@ namespace
 
         if(!hog_errors)
         {
+            cudaStream_t stream;
+            cudaStreamCreate(&stream);
+
             do {
                 ret = pgm_wait(node);
 
@@ -2370,9 +2384,6 @@ namespace
         GpuMat * grad;
         GpuMat * qangle;
 
-        Stream stream;
-        BufferPool pool(stream);
-
         GpuMat * block_hists;
 
         std::vector<double> * confidences;
@@ -2389,6 +2400,9 @@ namespace
 
         if(!hog_errors)
         {
+            cudaStream_t stream;
+            cudaStreamCreate(&stream);
+
             do {
                 ret = pgm_wait(node);
 
@@ -2482,11 +2496,9 @@ namespace
         if (out_buf == NULL)
             fprintf(stderr, "resize->normalize_hists node out buffer is NULL\n");
 
-        Stream stream;
         GpuMat * smaller_img;
         GpuMat * gpu_img;
 
-        BufferPool pool(stream);
         GpuMat * grad;
         GpuMat * qangle;
 
@@ -2502,6 +2514,9 @@ namespace
 
         if(!hog_errors)
         {
+            cudaStream_t stream;
+            cudaStreamCreate(&stream);
+
             do {
                 ret = pgm_wait(node);
 
@@ -2600,9 +2615,6 @@ namespace
         GpuMat * grad;
         GpuMat * qangle;
 
-        Stream stream;
-        BufferPool pool(stream);
-
         GpuMat * block_hists;
 
         std::vector<double> * confidences;
@@ -2619,6 +2631,9 @@ namespace
 
         if(!hog_errors)
         {
+            cudaStream_t stream;
+            cudaStreamCreate(&stream);
+
             do {
                 ret = pgm_wait(node);
 
@@ -2714,11 +2729,9 @@ namespace
         if (out_buf == NULL)
             fprintf(stderr, "resize->classify_hists node out buffer is NULL\n");
 
-        Stream stream;
         GpuMat * smaller_img;
         GpuMat * gpu_img;
 
-        BufferPool pool(stream);
         GpuMat * grad;
         GpuMat * qangle;
 
@@ -2738,6 +2751,9 @@ namespace
 
         if(!hog_errors)
         {
+            cudaStream_t stream;
+            cudaStreamCreate(&stream);
+
             do {
                 ret = pgm_wait(node);
 
@@ -2839,7 +2855,6 @@ namespace
                 fprintf(stderr, "compute_scales+resize node out buffer is NULL\n");
         }
 
-        Stream stream;
         cv::Size blocks_per_win = numPartsWithin(win_size_, block_size_, block_stride_);
         GpuMat * gpu_img;
         std::vector<double>* confidences;
@@ -2847,14 +2862,15 @@ namespace
         double scale = 1.0;
         int levels = 0;
 
-        BufferPool pool(stream);
+        Stream managed_stream;
+        BufferPool pool(managed_stream);
 
         hog_rt::set_up_constants(nbins_,
                               block_stride_.width, block_stride_.height,
                               blocks_per_win.width, blocks_per_win.height,
                               cells_per_block_.width, cells_per_block_.height,
-                              StreamAccessor::getStream(stream));
-        cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
+                              StreamAccessor::getStream(managed_stream));
+        cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(managed_stream));
 
         const std::vector<node_config> &source_config = *t_info.source_config;
 
@@ -2868,6 +2884,9 @@ namespace
 
         if(!hog_errors)
         {
+            cudaStream_t stream;
+            cudaStreamCreate(&stream);
+
             do {
                 ret = pgm_wait(node);
 
@@ -3045,7 +3064,6 @@ namespace
                 fprintf(stderr, "compute_scales->compute_grads node out buffer is NULL\n");
         }
 
-        Stream stream;
         cv::Size blocks_per_win = numPartsWithin(win_size_, block_size_, block_stride_);
         GpuMat * gpu_img;
         std::vector<double>* confidences;
@@ -3053,14 +3071,15 @@ namespace
         double scale = 1.0;
         int levels = 0;
 
-        BufferPool pool(stream);
+        Stream managed_stream;
+        BufferPool pool(managed_stream);
 
         hog_rt::set_up_constants(nbins_,
                               block_stride_.width, block_stride_.height,
                               blocks_per_win.width, blocks_per_win.height,
                               cells_per_block_.width, cells_per_block_.height,
-                              StreamAccessor::getStream(stream));
-        cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
+                              StreamAccessor::getStream(managed_stream));
+        cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(managed_stream));
 
         const std::vector<node_config> &source_config = *t_info.source_config;
 
@@ -3074,6 +3093,9 @@ namespace
 
         if(!hog_errors)
         {
+            cudaStream_t stream;
+            cudaStreamCreate(&stream);
+
             do {
                 ret = pgm_wait(node);
 
@@ -3287,7 +3309,6 @@ namespace
                 fprintf(stderr, "compute_scales->compute_hists node out buffer is NULL\n");
         }
 
-        Stream stream;
         cv::Size blocks_per_win = numPartsWithin(win_size_, block_size_, block_stride_);
         GpuMat * gpu_img;
         std::vector<double>* confidences;
@@ -3295,14 +3316,15 @@ namespace
         double scale = 1.0;
         int levels = 0;
 
-        BufferPool pool(stream);
+        Stream managed_stream;
+        BufferPool pool(managed_stream);
 
         hog_rt::set_up_constants(nbins_,
                               block_stride_.width, block_stride_.height,
                               blocks_per_win.width, blocks_per_win.height,
                               cells_per_block_.width, cells_per_block_.height,
-                              StreamAccessor::getStream(stream));
-        cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
+                              StreamAccessor::getStream(managed_stream));
+        cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(managed_stream));
 
         const std::vector<node_config> &source_config = *t_info.source_config;
 
@@ -3316,6 +3338,9 @@ namespace
 
         if(!hog_errors)
         {
+            cudaStream_t stream;
+            cudaStreamCreate(&stream);
+
             do {
                 ret = pgm_wait(node);
 
@@ -3563,7 +3588,6 @@ namespace
                 fprintf(stderr, "compute_scales->normalize_hists node out buffer is NULL\n");
         }
 
-        Stream stream;
         cv::Size blocks_per_win = numPartsWithin(win_size_, block_size_, block_stride_);
         GpuMat * gpu_img;
         std::vector<double>* confidences;
@@ -3571,14 +3595,15 @@ namespace
         double scale = 1.0;
         int levels = 0;
 
-        BufferPool pool(stream);
+        Stream managed_stream;
+        BufferPool pool(managed_stream);
 
         hog_rt::set_up_constants(nbins_,
                               block_stride_.width, block_stride_.height,
                               blocks_per_win.width, blocks_per_win.height,
                               cells_per_block_.width, cells_per_block_.height,
-                              StreamAccessor::getStream(stream));
-        cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
+                              StreamAccessor::getStream(managed_stream));
+        cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(managed_stream));
 
         const std::vector<node_config> &source_config = *t_info.source_config;
 
@@ -3592,6 +3617,9 @@ namespace
 
         if(!hog_errors)
         {
+            cudaStream_t stream;
+            cudaStreamCreate(&stream);
+
             do {
                 ret = pgm_wait(node);
 
@@ -3873,7 +3901,6 @@ namespace
                 fprintf(stderr, "compute_scales->classify_hists node out buffer is NULL\n");
         }
 
-        Stream stream;
         cv::Size blocks_per_win = numPartsWithin(win_size_, block_size_, block_stride_);
         GpuMat * gpu_img;
         std::vector<double>* confidences;
@@ -3881,14 +3908,15 @@ namespace
         double scale = 1.0;
         int levels = 0;
 
-        BufferPool pool(stream);
+        Stream managed_stream;
+        BufferPool pool(managed_stream);
 
         hog_rt::set_up_constants(nbins_,
                               block_stride_.width, block_stride_.height,
                               blocks_per_win.width, blocks_per_win.height,
                               cells_per_block_.width, cells_per_block_.height,
-                              StreamAccessor::getStream(stream));
-        cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
+                              StreamAccessor::getStream(managed_stream));
+        cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(managed_stream));
 
         const std::vector<node_config> &source_config = *t_info.source_config;
 
@@ -3902,6 +3930,9 @@ namespace
 
         if(!hog_errors)
         {
+            cudaStream_t stream;
+            cudaStreamCreate(&stream);
+
             do {
                 ret = pgm_wait(node);
 
@@ -4205,7 +4236,7 @@ namespace
                                    cuda::GpuMat** block_hists_array,
                                    cuda::GpuMat** smaller_img_array, cuda::GpuMat** labels_array,
                                    std::vector<Rect>* found,
-                                   Mat *img, int frame_idx, Stream stream, lt_t frame_start_time,
+                                   Mat *img, int frame_idx, const cudaStream_t& stream, lt_t frame_start_time,
                                    int omlp_sem_od)
     {
         const std::vector<node_config> &source_config = *t_info.source_config;
@@ -4226,8 +4257,6 @@ namespace
         std::vector<double> *level_scale = new std::vector<double>();
         double scale = 1.0;
         int levels = 0;
-
-        BufferPool pool(stream);
 
         for (levels = 0; levels < nlevels_; levels++)
         {
@@ -4509,15 +4538,16 @@ namespace
         std::vector<double> * level_scale;
         std::vector<double> * confidences;
         GpuMat * labels_array[13];
-        Stream stream;
         double scale;
 
         GpuMat * smaller_img;
         GpuMat * labels;
 
+        Stream managed_stream;
+        BufferPool pool(managed_stream);
+
         // Specific to classify-hists
         GpuMat * block_hists;
-        BufferPool pool(stream);
         Size wins_per_img;
 
         const std::vector<node_config> &sink_config = *t_info.sink_config;
@@ -4532,6 +4562,9 @@ namespace
 
         if(!hog_errors)
         {
+            cudaStream_t stream;
+            cudaStreamCreate(&stream);
+
             do {
                 ret = pgm_wait(node);
 
@@ -4632,9 +4665,9 @@ namespace
 
                             lt_t fz_start = litmus_clock();
 
-                            labels->download(labels_host, stream);
+                            labels->download(labels_host, managed_stream);
                             exit_np();
-                            cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
+                            cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(managed_stream));
 
                             lt_t fz_len = litmus_clock() - fz_start;
 
@@ -4653,8 +4686,8 @@ namespace
                         else
                         {
                             Mat labels_host;
-                            labels->download(labels_host, stream);
-                            cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
+                            labels->download(labels_host, managed_stream);
+                            cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(managed_stream));
                             float* vec = labels_host.ptr<float>();
 
                             level_confidences_ptr->clear();
@@ -4769,15 +4802,16 @@ namespace
         std::vector<double> * level_scale;
         std::vector<double> * confidences = NULL;
         GpuMat * labels_array[13];
-        Stream stream;
         double scale;
 
         GpuMat * smaller_img = NULL;
         GpuMat * labels = NULL;
 
+        Stream managed_stream;
+        BufferPool pool(managed_stream);
+
         // Specific to normalize-hists and/or classify-hists
         GpuMat * block_hists = NULL;
-        BufferPool pool(stream);
         Size wins_per_img;
 
         const std::vector<node_config> &sink_config = *t_info.sink_config;
@@ -4792,6 +4826,9 @@ namespace
 
         if(!hog_errors)
         {
+            cudaStream_t stream;
+            cudaStreamCreate(&stream);
+
             do {
                 ret = pgm_wait(node);
 
@@ -4906,9 +4943,9 @@ namespace
 
                             lt_t fz_start = litmus_clock();
 
-                            labels->download(labels_host, stream);
+                            labels->download(labels_host, managed_stream);
                             exit_np();
-                            cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
+                            cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(managed_stream));
 
                             lt_t fz_len = litmus_clock() - fz_start;
 
@@ -4932,8 +4969,8 @@ namespace
                         else
                         {
                             Mat labels_host;
-                            labels->download(labels_host, stream);
-                            cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
+                            labels->download(labels_host, managed_stream);
+                            cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(managed_stream));
                             float* vec = labels_host.ptr<float>();
 
                             level_confidences_ptr->clear();
@@ -5044,11 +5081,13 @@ namespace
         std::vector<double> * level_scale;
         std::vector<double> * confidences = NULL;
         GpuMat * labels_array[13];
-        Stream stream;
         double scale;
 
         GpuMat * smaller_img = NULL;
         GpuMat * labels = NULL;
+
+        Stream managed_stream;
+        BufferPool pool(managed_stream);
 
         // Specific to compute-hists
         GpuMat * grad;
@@ -5056,7 +5095,6 @@ namespace
 
         // Specific to normalize-hists and/or classify-hists
         GpuMat * block_hists = NULL;
-        BufferPool pool(stream);
         Size wins_per_img;
 
         const std::vector<node_config> &sink_config = *t_info.sink_config;
@@ -5071,6 +5109,9 @@ namespace
 
         if(!hog_errors)
         {
+            cudaStream_t stream;
+            cudaStreamCreate(&stream);
+
             do {
                 ret = pgm_wait(node);
 
@@ -5217,9 +5258,9 @@ namespace
 
                             lt_t fz_start = litmus_clock();
 
-                            labels->download(labels_host, stream);
+                            labels->download(labels_host, managed_stream);
                             exit_np();
-                            cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
+                            cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(managed_stream));
 
                             lt_t fz_len = litmus_clock() - fz_start;
 
@@ -5243,8 +5284,8 @@ namespace
                         else
                         {
                             Mat labels_host;
-                            labels->download(labels_host, stream);
-                            cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
+                            labels->download(labels_host, managed_stream);
+                            cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(managed_stream));
                             float* vec = labels_host.ptr<float>();
 
                             level_confidences_ptr->clear();
@@ -5354,11 +5395,13 @@ namespace
         std::vector<double> * level_scale;
         std::vector<double> * confidences = NULL;
         GpuMat * labels_array[13];
-        Stream stream;
         double scale;
 
         GpuMat * smaller_img = NULL;
         GpuMat * labels = NULL;
+
+        Stream managed_stream;
+        BufferPool pool(managed_stream);
 
         // Specific to compute-grads and compute-hists
         GpuMat * grad;
@@ -5366,7 +5409,6 @@ namespace
 
         // Specific to normalize-hists and/or classify-hists
         GpuMat * block_hists = NULL;
-        BufferPool pool(stream);
         Size wins_per_img;
 
         const std::vector<node_config> &sink_config = *t_info.sink_config;
@@ -5381,6 +5423,9 @@ namespace
 
         if(!hog_errors)
         {
+            cudaStream_t stream;
+            cudaStreamCreate(&stream);
+
             do {
                 ret = pgm_wait(node);
 
@@ -5563,9 +5608,9 @@ namespace
 
                             lt_t fz_start = litmus_clock();
 
-                            labels->download(labels_host, stream);
+                            labels->download(labels_host, managed_stream);
                             exit_np();
-                            cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
+                            cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(managed_stream));
 
                             lt_t fz_len = litmus_clock() - fz_start;
 
@@ -5589,8 +5634,8 @@ namespace
                         else
                         {
                             Mat labels_host;
-                            labels->download(labels_host, stream);
-                            cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
+                            labels->download(labels_host, managed_stream);
+                            cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(managed_stream));
                             float* vec = labels_host.ptr<float>();
 
                             level_confidences_ptr->clear();
@@ -5700,11 +5745,13 @@ namespace
         std::vector<double> * level_scale;
         std::vector<double> * confidences = NULL;
         GpuMat * labels_array[13];
-        Stream stream;
         double scale;
 
         GpuMat * smaller_img = NULL;
         GpuMat * labels = NULL;
+
+        Stream managed_stream;
+        BufferPool pool(managed_stream);
 
         // Specific to resize
         GpuMat * gpu_img;
@@ -5715,7 +5762,6 @@ namespace
 
         // Specific to normalize-hists and/or classify-hists
         GpuMat * block_hists = NULL;
-        BufferPool pool(stream);
         Size wins_per_img;
 
         const std::vector<node_config> &sink_config = *t_info.sink_config;
@@ -5730,6 +5776,9 @@ namespace
 
         if(!hog_errors)
         {
+            cudaStream_t stream;
+            cudaStreamCreate(&stream);
+
             do {
                 ret = pgm_wait(node);
 
@@ -5952,9 +6001,9 @@ namespace
 
                             lt_t fz_start = litmus_clock();
 
-                            labels->download(labels_host, stream);
+                            labels->download(labels_host, managed_stream);
                             exit_np();
-                            cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
+                            cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(managed_stream));
 
                             lt_t fz_len = litmus_clock() - fz_start;
 
@@ -5978,8 +6027,8 @@ namespace
                         else
                         {
                             Mat labels_host;
-                            labels->download(labels_host, stream);
-                            cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
+                            labels->download(labels_host, managed_stream);
+                            cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(managed_stream));
                             float* vec = labels_host.ptr<float>();
 
                             level_confidences_ptr->clear();

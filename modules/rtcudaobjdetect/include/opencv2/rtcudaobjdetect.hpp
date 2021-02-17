@@ -51,6 +51,7 @@
 #include <pgm.h>
 #include <litmus.h>
 #include <vector>
+#include <cuda_runtime.h>
 
 /* Include the LITMUS^RT user space library header.
  * This header, part of liblitmus, provides the user space API of
@@ -264,7 +265,7 @@ public:
                                  cuda::GpuMat** block_hists_array,
                                  cuda::GpuMat** smaller_img_array, cuda::GpuMat** labels_array,
                                  std::vector<Rect>* found,
-                                 Mat *img, int frame_idx, Stream stream, lt_t frame_start_time,
+                                 Mat *img, int frame_idx, const cudaStream_t& stream, lt_t frame_start_time,
                                  int omlp_sem_od) = 0; // color-convert -> classify hists (maybe not all the way)
 
     /* source-node combinations */
