@@ -1121,6 +1121,7 @@ void App::thread_color_convert(node_t* _node, pthread_barrier_t* init_barrier,
     if (t_info.realtime) {
         gpu_hog->set_up_litmus_task(t_info, param, &omlp_sem_od);
     }
+    struct control_page* cp = get_ctrl_page();
 
     if(!hog_sample_errors)
     {
@@ -1157,8 +1158,10 @@ void App::thread_color_convert(node_t* _node, pthread_barrier_t* init_barrier,
                 lt_t fz_start = litmus_clock();
 
                 gpu_img->upload(*img, stream);
+                cp->fz_progress = FZ_POST_GPU_LAUNCH;
                 exit_np();
                 cudaStreamSynchronize(stream);
+                cp->fz_progress = FZ_DONE;
 
                 lt_t fz_len = litmus_clock() - fz_start;
                 fprintf(stdout, "[%d | %d] Computation %d took %llu microseconds.\n",
@@ -2137,8 +2140,10 @@ void App::thread_fine_CC_S_ABCDE(node_t* _node, pthread_barrier_t* init_barrier,
             SAMPLE_START_LOCK(lt_t fz_start, NODE_AB);
 
             gpu_img->upload(*img, stream);
+            cp->fz_progress = FZ_POST_GPU_LAUNCH;
             exit_np();
             cudaStreamSynchronize(stream);
+            cp->fz_progress = FZ_DONE;
 
             SAMPLE_STOP_LOCK(lt_t fz_len, NODE_AB);
             /*

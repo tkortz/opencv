@@ -55,6 +55,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <signal.h>
 /* Second, we include the LITMUS^RT user space library header.
  * This header, part of liblitmus, provides the user space API of
  * LITMUS^RT.
@@ -1390,9 +1391,11 @@ namespace
 
         struct rt_task param;
         int omlp_sem_od = -1;
+        struct control_page* cp;
         if (t_info.realtime) {
             set_up_litmus_task(t_info, param, &omlp_sem_od);
         }
+        cp = get_ctrl_page();
 
         if(!hog_errors)
         {
@@ -1443,8 +1446,10 @@ namespace
                             lt_t fz_start = litmus_clock();
 
                             labels->download(labels_host, stream);
+                            cp->fz_progress = FZ_POST_GPU_LAUNCH;
                             exit_np();
                             cudaStreamSynchronize(stream);
+                            cp->fz_progress = FZ_DONE;
 
                             lt_t fz_len = litmus_clock() - fz_start;
 
@@ -1478,8 +1483,10 @@ namespace
                             lt_t fz_start = litmus_clock();
 
                             labels->download(labels_host, stream);
+                            cp->fz_progress = FZ_POST_GPU_LAUNCH;
                             exit_np();
                             cudaStreamSynchronize(stream);
+                            cp->fz_progress = FZ_DONE;
 
                             lt_t fz_len = litmus_clock() - fz_start;
 
@@ -4539,9 +4546,11 @@ namespace
 
         struct rt_task param;
         int omlp_sem_od = -1;
+        struct control_page* cp;
         if (t_info.realtime) {
             set_up_litmus_task(t_info, param, &omlp_sem_od);
         }
+        cp = get_ctrl_page();
 
         if(!hog_errors)
         {
@@ -4649,8 +4658,10 @@ namespace
                             lt_t fz_start = litmus_clock();
 
                             labels->download(labels_host, stream);
+                            cp->fz_progress = FZ_POST_GPU_LAUNCH;
                             exit_np();
                             cudaStreamSynchronize(stream);
+                            cp->fz_progress = FZ_DONE;
 
                             lt_t fz_len = litmus_clock() - fz_start;
 
@@ -4805,9 +4816,11 @@ namespace
 
         struct rt_task param;
         int omlp_sem_od = -1;
+        struct control_page* cp;
         if (t_info.realtime) {
             set_up_litmus_task(t_info, param, &omlp_sem_od);
         }
+        cp = get_ctrl_page();
 
         if(!hog_errors)
         {
@@ -4929,8 +4942,10 @@ namespace
                             lt_t fz_start = litmus_clock();
 
                             labels->download(labels_host, stream);
+                            cp->fz_progress = FZ_POST_GPU_LAUNCH;
                             exit_np();
                             cudaStreamSynchronize(stream);
+                            cp->fz_progress = FZ_DONE;
 
                             lt_t fz_len = litmus_clock() - fz_start;
 
@@ -5090,9 +5105,11 @@ namespace
 
         struct rt_task param;
         int omlp_sem_od = -1;
+        struct control_page* cp;
         if (t_info.realtime) {
             set_up_litmus_task(t_info, param, &omlp_sem_od);
         }
+        cp = get_ctrl_page();
 
         if(!hog_errors)
         {
@@ -5246,8 +5263,10 @@ namespace
                             lt_t fz_start = litmus_clock();
 
                             labels->download(labels_host, stream);
+                            cp->fz_progress = FZ_POST_GPU_LAUNCH;
                             exit_np();
                             cudaStreamSynchronize(stream);
+                            cp->fz_progress = FZ_DONE;
 
                             lt_t fz_len = litmus_clock() - fz_start;
 
@@ -5406,9 +5425,11 @@ namespace
 
         struct rt_task param;
         int omlp_sem_od = -1;
+        struct control_page* cp;
         if (t_info.realtime) {
             set_up_litmus_task(t_info, param, &omlp_sem_od);
         }
+        cp = get_ctrl_page();
 
         if(!hog_errors)
         {
@@ -5598,8 +5619,10 @@ namespace
                             lt_t fz_start = litmus_clock();
 
                             labels->download(labels_host, stream);
+                            cp->fz_progress = FZ_POST_GPU_LAUNCH;
                             exit_np();
                             cudaStreamSynchronize(stream);
+                            cp->fz_progress = FZ_DONE;
 
                             lt_t fz_len = litmus_clock() - fz_start;
 
@@ -5761,9 +5784,11 @@ namespace
 
         struct rt_task param;
         int omlp_sem_od = -1;
+        struct control_page* cp;
         if (t_info.realtime) {
             set_up_litmus_task(t_info, param, &omlp_sem_od);
         }
+        cp = get_ctrl_page();
 
         if(!hog_errors)
         {
@@ -5993,8 +6018,10 @@ namespace
                             lt_t fz_start = litmus_clock();
 
                             labels->download(labels_host, stream);
+                            cp->fz_progress = FZ_POST_GPU_LAUNCH;
                             exit_np();
                             cudaStreamSynchronize(stream);
+                            cp->fz_progress = FZ_DONE;
 
                             lt_t fz_len = litmus_clock() - fz_start;
 
@@ -6100,8 +6127,22 @@ namespace
         pthread_exit(0);
     }
 
+    void default_rt_sig_hndlr(int sig)
+    {
+        if (sig == SIGTERM)
+        {
+            // TODO: siglongjmp()
+            pthread_exit(0);
+        }
+    }
+
     void HOG_Impl::set_up_litmus_task(const struct task_info &t_info, struct rt_task &param, int *sem_od)
     {
+        // Handle signals locally. Deferring to our potentially non-real-time
+        // parent may cause a priority inversion.
+        struct sigaction handler;
+        handler.sa_handler = default_rt_sig_hndlr;
+        sigaction(SIGTERM, &handler, NULL);
         // if (t_info.cluster != -1)
         //     CALL(be_migrate_to_domain(t_info.cluster));
         init_rt_task_param(&param);
