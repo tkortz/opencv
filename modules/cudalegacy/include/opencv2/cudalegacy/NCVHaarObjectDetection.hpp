@@ -59,6 +59,11 @@
 #ifndef _ncvhaarobjectdetection_hpp_
 #define _ncvhaarobjectdetection_hpp_
 
+#ifdef __GNUC__
+# pragma GCC diagnostic push
+# pragma GCC diagnostic ignored "-Wstrict-aliasing"
+#endif
+
 #include "opencv2/cudalegacy/NCV.hpp"
 
 //! @addtogroup cudalegacy
@@ -459,5 +464,8 @@ CV_EXPORTS NCVStatus ncvHaarStoreNVBIN_host(const cv::String &filename,
                                              NCVVector<HaarFeature64> &h_HaarFeatures);
 
 //! @}
+#ifdef __GNUC__
+# pragma GCC diagnostic pop
+#endif
 
 #endif // _ncvhaarobjectdetection_hpp_
