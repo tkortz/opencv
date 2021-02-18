@@ -332,6 +332,7 @@ namespace
                                    const cudaStream_t& stream,
                                    int omlp_sem_od, bool should_lock = true);
 
+        void set_up_litmus_task(const struct task_info &t_info, struct rt_task &param, int *sem_od);
         void set_up_constants(const cudaStream_t& stream);
 
         int open_lock(int resource_id);
@@ -367,8 +368,6 @@ namespace
         float free_coef_;
         GpuMat detector_;
     };
-
-    void set_up_litmus_task(const struct task_info &t_info, struct rt_task &param, int *sem_od);
 
     struct params_compute  // a.k.a. compute scales node
     {
@@ -6101,7 +6100,7 @@ namespace
         pthread_exit(0);
     }
 
-    void set_up_litmus_task(const struct task_info &t_info, struct rt_task &param, int *sem_od)
+    void HOG_Impl::set_up_litmus_task(const struct task_info &t_info, struct rt_task &param, int *sem_od)
     {
         // if (t_info.cluster != -1)
         //     CALL(be_migrate_to_domain(t_info.cluster));

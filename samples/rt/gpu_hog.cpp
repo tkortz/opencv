@@ -151,6 +151,22 @@ private:
     void parseGraphConfiguration(char *filepath);
 };
 
+struct params_color_convert
+{
+    Mat * frame;
+    Mat * img;
+    cv::cuda::GpuMat * gpu_img;
+    cv::cuda::GpuMat ** grad_array;
+    cv::cuda::GpuMat ** qangle_array;
+    cv::cuda::GpuMat ** block_hists_array;
+    cv::cuda::GpuMat ** smaller_img_array;
+    cv::cuda::GpuMat ** labels_array;
+    std::vector<Rect> * found;
+    Mat * img_to_show;
+    size_t frame_index;
+    lt_t start_time;
+    lt_t end_time;
+};
 
 struct params_compute  // a.k.a. compute scales node
 {
@@ -292,11 +308,15 @@ public:
                                 cv::Ptr<cv::cuda::HOG_RT> gpu_hog,
                                 Mat* frames, struct task_info t_info, int graph_idx);
 
-    void thread_color_convert(node_t *_node, pthread_barrier_t* init_barrier,
-                              cv::Ptr<cv::cuda::HOG_RT> gpu_hog, cv::HOGDescriptor cpu_hog,
-                              Mat* frames, struct task_info t_info, int graph_idx);
-
+    void thread_image_acquisition(node_t *_node, pthread_barrier_t* init_barrier,
+                                  cv::Ptr<cv::cuda::HOG_RT> gpu_hog, cv::HOGDescriptor cpu_hog,
+                                  Mat* frames, struct task_info t_info, int graph_idx);
     void* thread_display(node_t* node, pthread_barrier_t* init_barrier, bool shouldDisplay);
+
+    void thread_color_convert(node_t* _node, pthread_barrier_t* init_barrier,
+                              cv::Ptr<cv::cuda::HOG_RT> gpu_hog,
+                              struct task_info t_info);
+
 
     void handleKey(char key);
 
@@ -867,11 +887,11 @@ static int loop(int count, int *nums, int numCount)
     return j;
 }
 
-void App::thread_color_convert(node_t *_node, pthread_barrier_t* init_barrier,
-                               cv::Ptr<cv::cuda::HOG_RT> gpu_hog, cv::HOGDescriptor cpu_hog,
-                               Mat* frames, struct task_info t_info, int graph_idx)
+void App::thread_image_acquisition(node_t *_node, pthread_barrier_t* init_barrier,
+                                   cv::Ptr<cv::cuda::HOG_RT> gpu_hog, cv::HOGDescriptor cpu_hog,
+                                   Mat* frames, struct task_info t_info, int graph_idx)
 {
-    fprintf(stdout, "node name: color_convert(source), task id: %d, node tid: %d\n", t_info.id, gettid());
+    fprintf(stdout, "node name: image_acquisition(source), task id: %d, node tid: %d\n", t_info.id, gettid());
     node_t node = *_node;
 #ifdef LOG_DEBUG
     char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
@@ -881,18 +901,16 @@ void App::thread_color_convert(node_t *_node, pthread_barrier_t* init_barrier,
 
     edge_t *out_edge = (edge_t *)calloc(1, sizeof(edge_t));
     CheckError(pgm_get_edges_out(node, out_edge, 1));
-    struct params_compute *out_buf = (struct params_compute *)pgm_get_edge_buf_p(*out_edge);
+    struct params_color_convert *out_buf = (struct params_color_convert *)pgm_get_edge_buf_p(*out_edge);
     if (out_buf == NULL)
-        fprintf(stderr, "color convert out buffer is NULL\n");
+        fprintf(stderr, "image acquisition out buffer is NULL\n");
 
     Size win_stride(args.win_stride_width, args.win_stride_height);
     Size win_size(args.win_width, args.win_width * 2);
 
-    Mat img_aux;
     Mat* img = new Mat();
-    Mat* img_to_show;
     vector<Rect>* found = new vector<Rect>();
-    Mat frame;
+    Mat* frame = new Mat();
 
     // Pre-allocate all gpu_img instances we will need (one per frame)
     unsigned cons_copies = 5; // be conservative so we don't overwrite anything
@@ -902,7 +920,7 @@ void App::thread_color_convert(node_t *_node, pthread_barrier_t* init_barrier,
         gpu_img_array[i] = new cuda::GpuMat();
     }
 
-    frame = frames[0];
+    *frame = frames[0];
 
     double level_scale[13];
     double scale_val = 1.0;
@@ -923,7 +941,7 @@ void App::thread_color_convert(node_t *_node, pthread_barrier_t* init_barrier,
     {
         for (unsigned j = 0; j < 13; j++)
         {
-            Size sz(cvRound(frame.cols / level_scale[j]), cvRound(frame.rows / level_scale[j]));
+            Size sz(cvRound(frame->cols / level_scale[j]), cvRound(frame->rows / level_scale[j]));
 
             grad_array[i][j] = new cuda::GpuMat();
             qangle_array[i][j] = new cuda::GpuMat();
@@ -947,6 +965,10 @@ void App::thread_color_convert(node_t *_node, pthread_barrier_t* init_barrier,
             *labels_array[i][j] = pool.getBuffer(1, gpu_hog->numPartsWithin(sz, win_size, win_stride).area(), CV_8UC1);
         }
     }
+
+    cudaStream_t stream;
+    cudaStreamCreate(&stream);
+    gpu_hog->set_up_constants(stream);
 
     /* initialization is finished */
     pthread_barrier_wait(init_barrier);
@@ -984,14 +1006,6 @@ void App::thread_color_convert(node_t *_node, pthread_barrier_t* init_barrier,
         CALL( wait_for_ts_release() );
     }
 
-    fprintf(stdout, "[%d | %d] Calling litmus_open_lock for OMLP_SEM.\n", gettid(), getpid());
-    int omlp_sem_od = gpu_hog->open_lock(args.cluster); // use the cluster ID as the resource ID
-    fprintf(stdout, "[%d | %d] Got OMLP_SEM=%d.\n", gettid(), getpid(), omlp_sem_od);
-
-    cudaStream_t stream;
-    cudaStreamCreate(&stream);
-    gpu_hog->set_up_constants(stream);
-
     int count_frame = 0;
     while (count_frame < args.count / args.num_fine_graphs && running) {
         for (int j = graph_idx; j < 100; j += args.num_fine_graphs) {
@@ -999,100 +1013,35 @@ void App::thread_color_convert(node_t *_node, pthread_barrier_t* init_barrier,
                 usleep(30000);
             if (count_frame >= args.count / args.num_fine_graphs)
                 break;
-            frame = frames[j];
+
+            /* choose the frame */
+            *frame = frames[j];
+
             workBegin();
             lt_t frame_start_time = litmus_clock();
 
-            /* color convert node starts below */
-            // Change format of the image
-            if (make_gray) cvtColor(frame, img_aux, COLOR_BGR2GRAY);
-            else if (use_gpu) cvtColor(frame, img_aux, COLOR_BGR2BGRA);
-            else frame.copyTo(img_aux);
-
-            // Resize image
-            if (args.resize_src) resize(img_aux, *img, Size(args.width, args.height));
-            else *img = img_aux;
-            img_to_show = img;
-
-            // Perform HOG classification
-            hogWorkBegin();
-
-            // Which of the (conservatively duplicated) data should we use?
+            /* Which of the (conservatively duplicated) data should we use? */
             unsigned data_idx = (j / args.num_fine_graphs) % cons_copies;
+            cuda::GpuMat *gpu_img = gpu_img_array[data_idx];
 
-            if (use_gpu) {
-                /* =============
-                * LOCK: upload image to GPU
-                */
-                cuda::GpuMat *gpu_img = gpu_img_array[data_idx];
+            gpu_hog->setNumLevels(nlevels);
+            gpu_hog->setHitThreshold(hit_threshold);
+            gpu_hog->setScaleFactor(scale);
+            gpu_hog->setGroupThreshold(gr_threshold);
 
-                SAMPLE_START_LOCK(lt_t fz_start, NODE_AB);
-
-                gpu_img->upload(*img, stream);
-                exit_np();
-                cudaStreamSynchronize(stream);
-
-                SAMPLE_STOP_LOCK(lt_t fz_len, NODE_AB);
-                /*
-                * UNLOCK: upload image to GPU
-                * ============= */
-
-                gpu_hog->setNumLevels(nlevels);
-                gpu_hog->setHitThreshold(hit_threshold);
-                gpu_hog->setScaleFactor(scale);
-                gpu_hog->setGroupThreshold(gr_threshold);
-                out_buf->gpu_img = gpu_img;
-                out_buf->grad_array = grad_array[data_idx];
-                out_buf->qangle_array = qangle_array[data_idx];
-                out_buf->block_hists_array = block_hists_array[data_idx];
-                out_buf->smaller_img_array = smaller_img_array[data_idx];
-                out_buf->labels_array = labels_array[data_idx];
-                out_buf->found = found;
-                out_buf->img_to_show = img;
-                out_buf->frame_index = j;
-                out_buf->start_time = frame_start_time;
-                CheckError(pgm_complete(node));
-            } else {
-                cpu_hog.nlevels = nlevels;
-                cpu_hog.detectMultiScale(*img, *found, hit_threshold, win_stride,
-                        Size(0, 0), scale, gr_threshold);
-                hogWorkEnd();
-
-                // Draw positive classified windows
-                for (size_t i = 0; i < found->size(); i++) {
-                    Rect r = (*found)[i];
-                    rectangle(*img_to_show, r.tl(), r.br(), Scalar(0, 255, 0), 3);
-                }
-
-                if (use_gpu)
-                    putText(*img_to_show, "Mode: GPU", Point(5, 25), FONT_HERSHEY_SIMPLEX, 1., Scalar(255, 100, 0), 2);
-                else
-                    putText(*img_to_show, "Mode: CPU", Point(5, 25), FONT_HERSHEY_SIMPLEX, 1., Scalar(255, 100, 0), 2);
-                putText(*img_to_show, "FPS HOG: " + hogWorkFps(), Point(5, 65), FONT_HERSHEY_SIMPLEX, 1., Scalar(255, 100, 0), 2);
-                putText(*img_to_show, "FPS total: " + workFps(), Point(5, 105), FONT_HERSHEY_SIMPLEX, 1., Scalar(255, 100, 0), 2);
-                imshow("opencv_gpu_hog", *img_to_show);
-
-                workEnd();
-
-                if (args.write_video) {
-                    if (!video_writer.isOpened()) {
-                        video_writer.open(args.dst_video,
-                                VideoWriter::fourcc('x','v','i','d'),
-                                args.dst_video_fps, img_to_show->size(), true);
-                        if (!video_writer.isOpened())
-                            throw std::runtime_error("can't create video writer");
-                    }
-
-                    if (make_gray) cvtColor(*img_to_show, *img, COLOR_GRAY2BGR);
-                    else cvtColor(*img_to_show, *img, COLOR_BGRA2BGR);
-
-                    video_writer << *img;
-                }
-
-                handleKey((char)waitKey(3));
-                delete found;
-                delete img;
-            }
+            out_buf->frame = frame;
+            out_buf->img = img;
+            out_buf->gpu_img = gpu_img;
+            out_buf->grad_array = grad_array[data_idx];
+            out_buf->qangle_array = qangle_array[data_idx];
+            out_buf->block_hists_array = block_hists_array[data_idx];
+            out_buf->smaller_img_array = smaller_img_array[data_idx];
+            out_buf->labels_array = labels_array[data_idx];
+            out_buf->found = found;
+            out_buf->img_to_show = img;
+            out_buf->frame_index = j;
+            out_buf->start_time = frame_start_time;
+            CheckError(pgm_complete(node));
 
             found = new vector<Rect>();
             img = new Mat();
@@ -1101,6 +1050,8 @@ void App::thread_color_convert(node_t *_node, pthread_barrier_t* init_barrier,
                 sleep_next_period();
         }
     }
+
+    delete frame;
 
     cudaStreamDestroy(stream);
 
@@ -1130,6 +1081,135 @@ void App::thread_color_convert(node_t *_node, pthread_barrier_t* init_barrier,
             labels_array[i][j]->release();
         }
     }
+}
+
+void App::thread_color_convert(node_t* _node, pthread_barrier_t* init_barrier,
+                               cv::Ptr<cv::cuda::HOG_RT> gpu_hog,
+                               struct task_info t_info)
+{
+    fprintf(stdout, "node name: color_convert, task id: %d, node tid: %d\n", t_info.id, gettid());
+    node_t node = *_node;
+#ifdef LOG_DEBUG
+    char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
+    tabbuf[node.node] = '\0';
+#endif
+
+    CheckError(pgm_claim_node(node));
+
+    int ret = 0;
+
+    edge_t *in_edge = (edge_t *)calloc(1, sizeof(edge_t));
+    CheckError(pgm_get_edges_in(node, in_edge, 1));
+    struct params_color_convert *in_buf = (struct params_color_convert *)pgm_get_edge_buf_c(*in_edge);
+    if (in_buf == NULL)
+        fprintf(stderr, "color convert node in buffer is NULL\n");
+
+    edge_t *out_edge = (edge_t *)calloc(1, sizeof(edge_t));
+    CheckError(pgm_get_edges_out(node, out_edge, 1));
+    struct params_compute *out_buf = (struct params_compute *)pgm_get_edge_buf_p(*out_edge);
+    if (out_buf == NULL)
+        fprintf(stderr, "color convert node out buffer is NULL\n");
+
+    Mat * frame;
+    Mat * img;
+    cuda::GpuMat * gpu_img;
+
+    pthread_barrier_wait(init_barrier);
+
+    struct rt_task param;
+    int omlp_sem_od = -1;
+    if (t_info.realtime) {
+        gpu_hog->set_up_litmus_task(t_info, param, &omlp_sem_od);
+    }
+
+    if(!hog_sample_errors)
+    {
+        cudaStream_t stream;
+        cudaStreamCreate(&stream);
+
+        do {
+            ret = pgm_wait(node);
+
+            if(ret != PGM_TERMINATE)
+            {
+                CheckError(ret);
+#ifdef LOG_DEBUG
+                fprintf(stdout, "%s%d fires\n", tabbuf, node.node);
+#endif
+
+                frame = in_buf->frame;
+                img = in_buf->img;
+                gpu_img = in_buf->gpu_img;
+
+                /* color convert node starts below */
+                // Change format of the image
+                if (true || make_gray) cvtColor(*frame, *img, COLOR_BGR2GRAY);
+                else cvtColor(*frame, *img, COLOR_BGR2BGRA); // always using GPU
+
+                // Perform HOG classification
+                hogWorkBegin();
+
+                /* =============
+                * LOCK: upload image to GPU
+                */
+                gpu_hog->lock_fzlp(omlp_sem_od);
+                gpu_hog->wait_forbidden_zone(omlp_sem_od, NODE_AB);
+                lt_t fz_start = litmus_clock();
+
+                gpu_img->upload(*img, stream);
+                exit_np();
+                cudaStreamSynchronize(stream);
+
+                lt_t fz_len = litmus_clock() - fz_start;
+                fprintf(stdout, "[%d | %d] Computation %d took %llu microseconds.\n",
+                        gettid(), getpid(), NODE_AB, fz_len / 1000);
+                gpu_hog->unlock_fzlp(omlp_sem_od);
+                /*
+                * UNLOCK: upload image to GPU
+                * ============= */
+
+                out_buf->gpu_img = gpu_img;
+                out_buf->grad_array = in_buf->grad_array;
+                out_buf->qangle_array = in_buf->qangle_array;
+                out_buf->block_hists_array = in_buf->block_hists_array;
+                out_buf->smaller_img_array = in_buf->smaller_img_array;
+                out_buf->labels_array = in_buf->labels_array;
+                out_buf->found = in_buf->found;
+                out_buf->img_to_show = img;
+                out_buf->frame_index = in_buf->frame_index;
+                out_buf->start_time = in_buf->start_time;
+                CheckError(pgm_complete(node));
+
+                if (t_info.realtime)
+                    sleep_next_period(); /* this calls the system call sys_complete_job. With early releasing, this shouldn't block.*/
+            }
+            else
+            {
+#ifdef LOG_DEBUG
+                fprintf(stdout, "%s- %d terminates\n", tabbuf, node.node);
+#endif
+                //pgm_terminate(node);
+            }
+
+        } while(ret != PGM_TERMINATE);
+
+        cudaStreamDestroy(stream);
+    }
+
+    pthread_barrier_wait(init_barrier);
+
+    CheckError(pgm_release_node(node));
+
+    free(in_edge);
+    free(out_edge);
+
+    if (t_info.realtime)
+        CALL( task_mode(BACKGROUND_TASK) );
+
+    /* end is finished */
+    pthread_barrier_wait(init_barrier);
+
+    pthread_exit(0);
 }
 
 static void sync_info_init(struct sync_info *s)
@@ -1432,12 +1512,14 @@ void App::sched_configurable_hog(cv::Ptr<cv::cuda::HOG_RT> gpu_hog, cv::HOGDescr
             // A graph consists of the graph itself, nodes, and edges
             graph_t* g_ptr = arr_g + g_idx;
 
+            node_t image_acquisition_node;
             node_t color_convert_node;
             node_t compute_scales_node;
             node_t level_nodes [NUM_SCALE_LEVELS][5];
             node_t collect_locations_node;
             node_t display_node;
 
+            edge_t ei_0;
             edge_t e0_1;
             edge_t level_edges [NUM_SCALE_LEVELS][6];
             edge_t e7_8;
@@ -1451,6 +1533,7 @@ void App::sched_configurable_hog(cv::Ptr<cv::cuda::HOG_RT> gpu_hog, cv::HOGDescr
             const char* level_node_names[] = { "node_1st", "node_2nd", "node_3rd", "node_4th", "node_5th" };
             if (!args.merge_color_convert)
             {
+                CheckError(pgm_init_node(&image_acquisition_node, g, "image_acquisition"));
                 CheckError(pgm_init_node(&color_convert_node, g, "color_convert"));
             }
             CheckError(pgm_init_node(&compute_scales_node, g, "compute_scales"));
@@ -1473,6 +1556,11 @@ void App::sched_configurable_hog(cv::Ptr<cv::cuda::HOG_RT> gpu_hog, cv::HOGDescr
 
             if (!args.merge_color_convert)
             {
+                fast_mq_attr.nr_produce = sizeof(struct params_color_convert);
+                fast_mq_attr.nr_consume = sizeof(struct params_color_convert);
+                fast_mq_attr.nr_threshold = sizeof(struct params_color_convert);
+                CheckError(pgm_init_edge(&ei_0, image_acquisition_node, color_convert_node, "ei_0", &fast_mq_attr));
+
                 fast_mq_attr.nr_produce = sizeof(struct params_compute);
                 fast_mq_attr.nr_consume = sizeof(struct params_compute);
                 fast_mq_attr.nr_threshold = sizeof(struct params_compute);
@@ -1571,7 +1659,7 @@ void App::sched_configurable_hog(cv::Ptr<cv::cuda::HOG_RT> gpu_hog, cv::HOGDescr
             }
             else
             {
-                pthread_barrier_init(fine_init_barrier, 0, num_total_level_nodes + 4);
+                pthread_barrier_init(fine_init_barrier, 0, num_total_level_nodes + 5);
             }
 
             std::vector<thread *> graph_threads;
@@ -1601,10 +1689,12 @@ void App::sched_configurable_hog(cv::Ptr<cv::cuda::HOG_RT> gpu_hog, cv::HOGDescr
             sync_info_init(&out_sink_sync_info);
 
             // WCETs and response-time bounds for each node
+            float bound_image_acquisition       = 33.0; // TODO
             float bound_color_convert           = args.non_level_bounds[0];
             float bound_compute_scales          = args.non_level_bounds[1];
             vector<vector<float>> bound_levels  = args.level_bounds;
 
+            float cost_image_acqusition        = 0; // TODO
             float cost_color_convert           = args.non_level_costs[0];
             float cost_compute_scales          = args.non_level_costs[1];
             vector<vector<float>> cost_levels  = args.level_costs;
@@ -1634,10 +1724,17 @@ void App::sched_configurable_hog(cv::Ptr<cv::cuda::HOG_RT> gpu_hog, cv::HOGDescr
             t_info.graph_idx = g_idx;
             if (!args.merge_color_convert)
             {
+                thread *ti = new thread(&App::thread_image_acquisition, this,
+                                        &image_acquisition_node, fine_init_barrier,
+                                        gpu_hog, cpu_hog, frames, t_info, g_idx);
+                graph_threads.push_back(ti);
+
                 // If the color-convert node is not merged, spawn its thread and the
                 // compute-scale-levels thread separately
+                t_info.id = task_id++;
+                t_info.phase = t_info.phase + bound_image_acquisition;
                 thread *t0 = new thread(&App::thread_color_convert, this,
-                                        &color_convert_node, fine_init_barrier, gpu_hog, cpu_hog, frames, t_info, g_idx);
+                                        &color_convert_node, fine_init_barrier, gpu_hog, t_info);
                 graph_threads.push_back(t0);
             
                 void* (cv::cuda::HOG_RT::* compute_scales_func)(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info);
@@ -1687,7 +1784,7 @@ void App::sched_configurable_hog(cv::Ptr<cv::cuda::HOG_RT> gpu_hog, cv::HOGDescr
             float level_start_phase = 0.0f;
             if (!args.merge_color_convert)
             {
-                level_start_phase = PERIOD * g_idx + bound_color_convert + bound_compute_scales;
+                level_start_phase = PERIOD * g_idx + bound_image_acquisition + bound_color_convert + bound_compute_scales;
                 printf("level start phase: %f\n", level_start_phase);
             }
             else

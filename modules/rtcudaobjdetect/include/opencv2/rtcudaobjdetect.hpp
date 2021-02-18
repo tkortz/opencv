@@ -282,6 +282,7 @@ public:
     virtual void* thread_fine_DE_T(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0;    // normalize hists -> collect-locations
     virtual void* thread_fine_E_T(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0;     // classify hists   + collect-locations
 
+    virtual void set_up_litmus_task(const struct task_info &t_info, struct rt_task &param, int *sem_od) = 0;
     virtual void set_up_constants(const cudaStream_t& stream) = 0;
 
     virtual int open_lock(int resource_id) = 0;
