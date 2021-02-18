@@ -1,9 +1,10 @@
-#include <iostream>
 #include <fstream>
+#include <iomanip>
+#include <iostream>
+#include <stdexcept>
 #include <string>
 #include <sstream>
-#include <iomanip>
-#include <stdexcept>
+#include <thread>
 #include <opencv2/core/utility.hpp>
 #include "opencv2/rtcudaobjdetect.hpp"
 #include "opencv2/highgui.hpp"
@@ -13,7 +14,8 @@
 #include <unistd.h>
 #include <errno.h>
 #include <pthread.h>
-#include <thread>
+#include <setjmp.h>
+#include <signal.h>
 #include <opencv2/core/cuda.hpp>
 #include <opencv2/core/cuda_stream_accessor.hpp>
 #include <cuda_runtime.h>
@@ -54,6 +56,8 @@ using namespace cv;
 int hog_sample_errors;
 
 __thread char hog_sample_errstr[80];
+// Used to store initial node state for budget-enforcement reset
+__thread jmp_buf initial_state;
 
 //#define LOG_DEBUG 1
 #define NUM_SCALE_LEVELS 13
@@ -2057,6 +2061,13 @@ void App::thread_fine_CC_S_ABCDE(node_t* _node, pthread_barrier_t* init_barrier,
     pthread_barrier_wait(init_barrier);
 
     if (t_info.realtime) {
+        // NOTE: LITMUS^RT initialization here is /almost/ identical to
+        //       set_up_litmus_task(), but we don't allow for early releasing.
+        // Handle signals locally. Deferring to our potentially non-real-time
+        // parent may cause a priority inversion.
+        struct sigaction handler;
+        handler.sa_handler = [] (int UNUSED(sig)) {};
+        sigaction(SIGTERM, &handler, NULL);
         // if (t_info.cluster != -1)
         //     CALL(be_migrate_to_domain(t_info.cluster));
         struct rt_task param;
@@ -2093,6 +2104,7 @@ void App::thread_fine_CC_S_ABCDE(node_t* _node, pthread_barrier_t* init_barrier,
     fprintf(stdout, "[%d | %d] Calling litmus_open_lock for OMLP_SEM.\n", gettid(), getpid());
     int omlp_sem_od = gpu_hog->open_lock(args.cluster); // use the cluster ID as the resource ID
     fprintf(stdout, "[%d | %d] Got OMLP_SEM=%d.\n", gettid(), getpid(), omlp_sem_od);
+    struct control_page* cp = get_ctrl_page();
 
     cudaStream_t stream;
     cudaStreamCreate(&stream);
