@@ -480,21 +480,6 @@ namespace
         lt_t end_time;
     };
 
-    lt_t module_start_lock(int omlp_sem_od, node_config t)
-    {
-        hog_rt::lock_fzlp(omlp_sem_od);
-        hog_rt::wait_forbidden_zone(omlp_sem_od, t);
-        return litmus_clock();
-    }
-
-    void module_stop_lock(int omlp_sem_od, node_config t, lt_t fz_start)
-    {
-        lt_t fz_len = litmus_clock() - fz_start;
-        fprintf(stdout, "[%d | %d] Computation %d took %llu microseconds.\n", \
-                gettid(), getpid(), t, fz_len / 1000);
-        hog_rt::unlock_fzlp(omlp_sem_od);
-    }
-
     inline void HOG_Impl::resize(GpuMat* gpu_img, GpuMat* smaller_img,
                                  const cudaStream_t& stream,
                                  int frame_index,
