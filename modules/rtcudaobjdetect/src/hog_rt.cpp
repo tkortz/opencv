@@ -156,23 +156,6 @@ namespace cv { namespace cuda { namespace device
                                       int omlp_sem_od = -1,
                                       bool should_lock = true);
 
-        void extract_descrs_by_rows(int win_height, int win_width,
-                                    int block_stride_y, int block_stride_x,
-                                    int win_stride_y, int win_stride_x,
-                                    int height, int width,
-                                    float* block_hists,
-                                    int cell_size_x, int ncells_block_x,
-                                    cv::cuda::PtrStepSzf descriptors,
-                                    const cudaStream_t& stream);
-        void extract_descrs_by_cols(int win_height, int win_width,
-                                    int block_stride_y, int block_stride_x,
-                                    int win_stride_y, int win_stride_x,
-                                    int height, int width,
-                                    float* block_hists,
-                                    int cell_size_x, int ncells_block_x,
-                                    cv::cuda::PtrStepSzf descriptors,
-                                    const cudaStream_t& stream);
-
         void compute_gradients_8UC1(int nbins,
                                     int height, int width, const cv::cuda::PtrStepSzb& img,
                                     float angle_scale,
@@ -659,7 +642,6 @@ namespace
                 fprintf(stderr, "compute scales node out buffer is NULL\n");
         }
 
-        cv::Size blocks_per_win = numPartsWithin(win_size_, block_size_, block_stride_);
         GpuMat * gpu_img;
         std::vector<double>* confidences;
         std::vector<double> * level_scale;
@@ -2885,7 +2867,6 @@ namespace
                 fprintf(stderr, "compute_scales+resize node out buffer is NULL\n");
         }
 
-        cv::Size blocks_per_win = numPartsWithin(win_size_, block_size_, block_stride_);
         GpuMat * gpu_img;
         std::vector<double>* confidences;
         std::vector<double> * level_scale;
@@ -3086,7 +3067,6 @@ namespace
                 fprintf(stderr, "compute_scales->compute_grads node out buffer is NULL\n");
         }
 
-        cv::Size blocks_per_win = numPartsWithin(win_size_, block_size_, block_stride_);
         GpuMat * gpu_img;
         std::vector<double>* confidences;
         std::vector<double> * level_scale;
@@ -3323,7 +3303,6 @@ namespace
                 fprintf(stderr, "compute_scales->compute_hists node out buffer is NULL\n");
         }
 
-        cv::Size blocks_per_win = numPartsWithin(win_size_, block_size_, block_stride_);
         GpuMat * gpu_img;
         std::vector<double>* confidences;
         std::vector<double> * level_scale;
@@ -3594,7 +3573,6 @@ namespace
                 fprintf(stderr, "compute_scales->normalize_hists node out buffer is NULL\n");
         }
 
-        cv::Size blocks_per_win = numPartsWithin(win_size_, block_size_, block_stride_);
         GpuMat * gpu_img;
         std::vector<double>* confidences;
         std::vector<double> * level_scale;
@@ -3899,7 +3877,6 @@ namespace
                 fprintf(stderr, "compute_scales->classify_hists node out buffer is NULL\n");
         }
 
-        cv::Size blocks_per_win = numPartsWithin(win_size_, block_size_, block_stride_);
         GpuMat * gpu_img;
         std::vector<double>* confidences;
         std::vector<double> * level_scale;
