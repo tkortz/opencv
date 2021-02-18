@@ -60,6 +60,8 @@
 #include <litmus.h>
 /* LITMUS^RT */
 
+# define UNUSED(x) UNUSED_ ## x __attribute__((unused))
+
 enum scheduling_option
 {
     END_TO_END = 0,

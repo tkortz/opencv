@@ -760,7 +760,7 @@ namespace
         pthread_exit(0);
     }
 
-    static void gpu_period_guard(struct sync_info *in, struct sync_info *out)
+    static void gpu_period_guard(struct sync_info* UNUSED(in), struct sync_info* UNUSED(out))
     {
 //         struct timespec ts = {0, 0};
 //         unsigned long long curr_release;
@@ -3482,7 +3482,7 @@ namespace
                             }
                         }
 
-                        GpuMat * block_hists;
+                        GpuMat * block_hists = NULL;
 
                         if (do_compute_hists)
                         {
@@ -3759,7 +3759,7 @@ namespace
                             }
                         }
 
-                        GpuMat * block_hists;
+                        GpuMat * block_hists = NULL;
 
                         if (do_compute_hists)
                         {
@@ -4071,7 +4071,7 @@ namespace
                             }
                         }
 
-                        GpuMat * block_hists;
+                        GpuMat * block_hists = NULL;
 
                         if (do_compute_hists)
                         {
@@ -4351,8 +4351,8 @@ namespace
                 }
             }
 
-            GpuMat *grad;
-            GpuMat *qangle;
+            GpuMat *grad = NULL;
+            GpuMat *qangle = NULL;
 
             if (do_compute_grads)
             {
@@ -4384,7 +4384,7 @@ namespace
                 }
             }
 
-            GpuMat * block_hists;
+            GpuMat * block_hists = NULL;
 
             if (do_compute_hists)
             {
