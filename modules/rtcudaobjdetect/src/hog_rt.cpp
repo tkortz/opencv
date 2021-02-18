@@ -52,10 +52,11 @@
  * system call blocks. To be on the safe side, only use I/O for debugging
  * purposes and from non-real-time sections.
  */
+#include <setjmp.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <signal.h>
 /* Second, we include the LITMUS^RT user space library header.
  * This header, part of liblitmus, provides the user space API of
  * LITMUS^RT.
@@ -78,6 +79,8 @@ using namespace cv::cuda;
 int hog_errors;
 
 __thread char hog_errstr[80];
+// Used to store initial node state for budget-enforcement reset
+__thread jmp_buf initial_state;
 
 //#define LOG_DEBUG 1
 #define CheckError(e) \
@@ -6093,8 +6096,11 @@ namespace
     {
         if (sig == SIGTERM)
         {
-            // TODO: siglongjmp()
-            pthread_exit(0);
+            // Reset the node if an initial state was saved, otherwise terminate
+            if (initial_state[0].__mask_was_saved != 0)
+                siglongjmp(initial_state, 1);
+            else
+                pthread_exit(0);
         }
     }
 
