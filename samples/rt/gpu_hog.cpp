@@ -719,6 +719,11 @@ Args Args::read(int argc, char** argv)
 
 App::App(const Args& s)
 {
+	int d_err = cudaSetDeviceFlags(2);
+	if (d_err)
+		fprintf(stderr, "CUDA ERROR %d!\n", d_err);
+	else
+		fprintf(stderr, "flag set success!");
     cv::cuda::printShortCudaDeviceInfo(cv::cuda::getDevice());
 
     args = s;
