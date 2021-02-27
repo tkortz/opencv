@@ -248,31 +248,31 @@ namespace
         virtual Mat getDefaultPeopleDetector() const;
 
         /* fine-grained */
-        void* thread_fine_compute_scales(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info);
-        void* thread_fine_resize(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info);
-        void* thread_fine_compute_gradients(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info);
-        void* thread_fine_compute_histograms(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info);
-        void* thread_fine_normalize_histograms(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info);
-        void* thread_fine_classify(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info);
-        void* thread_fine_collect_locations(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info);
+        void* thread_fine_compute_scales(node_t node, pthread_barrier_t* init_barrier, struct task_info t_info);
+        void* thread_fine_resize(node_t node, pthread_barrier_t* init_barrier, struct task_info t_info);
+        void* thread_fine_compute_gradients(node_t node, pthread_barrier_t* init_barrier, struct task_info t_info);
+        void* thread_fine_compute_histograms(node_t node, pthread_barrier_t* init_barrier, struct task_info t_info);
+        void* thread_fine_normalize_histograms(node_t node, pthread_barrier_t* init_barrier, struct task_info t_info);
+        void* thread_fine_classify(node_t node, pthread_barrier_t* init_barrier, struct task_info t_info);
+        void* thread_fine_collect_locations(node_t node, pthread_barrier_t* init_barrier, struct task_info t_info);
 
         /* two-node intra-level combinations */
-        void* thread_fine_AB(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info); // resize          + compute grads
-        void* thread_fine_BC(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info); // compute grads   + compute hists
-        void* thread_fine_CD(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info); // compute hists   + normalize hists
-        void* thread_fine_DE(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info); // normalize hists + classify hists
+        void* thread_fine_AB(node_t node, pthread_barrier_t* init_barrier, struct task_info t_info); // resize          + compute grads
+        void* thread_fine_BC(node_t node, pthread_barrier_t* init_barrier, struct task_info t_info); // compute grads   + compute hists
+        void* thread_fine_CD(node_t node, pthread_barrier_t* init_barrier, struct task_info t_info); // compute hists   + normalize hists
+        void* thread_fine_DE(node_t node, pthread_barrier_t* init_barrier, struct task_info t_info); // normalize hists + classify hists
 
         /* three-node intra-level combinations */
-        void* thread_fine_ABC(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info); // resize        -> compute hists
-        void* thread_fine_BCD(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info); // compute grads -> normalize hists
-        void* thread_fine_CDE(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info); // compute hists -> classify hists
+        void* thread_fine_ABC(node_t node, pthread_barrier_t* init_barrier, struct task_info t_info); // resize        -> compute hists
+        void* thread_fine_BCD(node_t node, pthread_barrier_t* init_barrier, struct task_info t_info); // compute grads -> normalize hists
+        void* thread_fine_CDE(node_t node, pthread_barrier_t* init_barrier, struct task_info t_info); // compute hists -> classify hists
 
         /* four-node intra-level combinations */
-        void* thread_fine_ABCD(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info); // resize        -> normalize hists
-        void* thread_fine_BCDE(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info); // compute grads -> classify hists
+        void* thread_fine_ABCD(node_t node, pthread_barrier_t* init_barrier, struct task_info t_info); // resize        -> normalize hists
+        void* thread_fine_BCDE(node_t node, pthread_barrier_t* init_barrier, struct task_info t_info); // compute grads -> classify hists
 
         /* five-node entire-level combination */
-        void* thread_fine_ABCDE(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info); // resize -> classify hists
+        void* thread_fine_ABCDE(node_t node, pthread_barrier_t* init_barrier, struct task_info t_info); // resize -> classify hists
 
         /* color-convert and source-node combination */
         void fine_CC_S_ABCDE(struct task_info &t_info, void** out_buf_ptrs,
@@ -285,18 +285,18 @@ namespace
                              int omlp_sem_od); // color-convert -> classify hists (maybe not all the way)
 
         /* source-node combinations */
-        void* thread_fine_S_A(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info);     // compute-levels +  resize
-        void* thread_fine_S_AB(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info);    // compute-levels -> compute grads
-        void* thread_fine_S_ABC(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info);   // compute-levels -> compute hists
-        void* thread_fine_S_ABCD(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info);  // compute-levels -> normalize hists
-        void* thread_fine_S_ABCDE(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info); // compute-levels -> classify hists
+        void* thread_fine_S_A(node_t node, pthread_barrier_t* init_barrier, struct task_info t_info);     // compute-levels +  resize
+        void* thread_fine_S_AB(node_t node, pthread_barrier_t* init_barrier, struct task_info t_info);    // compute-levels -> compute grads
+        void* thread_fine_S_ABC(node_t node, pthread_barrier_t* init_barrier, struct task_info t_info);   // compute-levels -> compute hists
+        void* thread_fine_S_ABCD(node_t node, pthread_barrier_t* init_barrier, struct task_info t_info);  // compute-levels -> normalize hists
+        void* thread_fine_S_ABCDE(node_t node, pthread_barrier_t* init_barrier, struct task_info t_info); // compute-levels -> classify hists
 
         /* sink-node combinations */
-        void* thread_fine_ABCDE_T(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info); // resize          -> collect-locations
-        void* thread_fine_BCDE_T(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info);  // compute grads   -> collect-locations
-        void* thread_fine_CDE_T(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info);   // compute hists   -> collect-locations
-        void* thread_fine_DE_T(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info);    // normalize hists -> collect-locations
-        void* thread_fine_E_T(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info);     // classify hists   + collect-locations
+        void* thread_fine_ABCDE_T(node_t node, pthread_barrier_t* init_barrier, struct task_info t_info); // resize          -> collect-locations
+        void* thread_fine_BCDE_T(node_t node, pthread_barrier_t* init_barrier, struct task_info t_info);  // compute grads   -> collect-locations
+        void* thread_fine_CDE_T(node_t node, pthread_barrier_t* init_barrier, struct task_info t_info);   // compute hists   -> collect-locations
+        void* thread_fine_DE_T(node_t node, pthread_barrier_t* init_barrier, struct task_info t_info);    // normalize hists -> collect-locations
+        void* thread_fine_E_T(node_t node, pthread_barrier_t* init_barrier, struct task_info t_info);     // classify hists   + collect-locations
 
         /* individual computations */
         inline void resize(GpuMat* gpu_img, GpuMat* smaller_img,
@@ -600,10 +600,9 @@ namespace
         }
     }
 
-    void* HOG_Impl::thread_fine_compute_scales(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info)
+    void* HOG_Impl::thread_fine_compute_scales(node_t node, pthread_barrier_t* init_barrier, struct task_info t_info)
     {
         fprintf(stdout, "node name: compute_scales, task id: %d, node tid: %d\n", t_info.id, gettid());
-        node_t node = *_node;
 #ifdef LOG_DEBUG
         char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
         tabbuf[node.node] = '\0';
@@ -796,10 +795,9 @@ namespace
 //         return;
     }
 
-    void* HOG_Impl::thread_fine_resize(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info)
+    void* HOG_Impl::thread_fine_resize(node_t node, pthread_barrier_t* init_barrier, struct task_info t_info)
     {
         fprintf(stdout, "node name: resize, task id: %d, node tid: %d\n", t_info.id, gettid());
-        node_t node = *_node;
 #ifdef LOG_DEBUG
         char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
         tabbuf[node.node] = '\0';
@@ -901,10 +899,9 @@ namespace
         pthread_exit(0);
     }
 
-    void* HOG_Impl::thread_fine_compute_gradients(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info)
+    void* HOG_Impl::thread_fine_compute_gradients(node_t node, pthread_barrier_t* init_barrier, struct task_info t_info)
     {
         fprintf(stdout, "node name: compute_gradients, task id: %d, node tid: %d\n", t_info.id, gettid());
-        node_t node = *_node;
 #ifdef LOG_DEBUG
         char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
         tabbuf[node.node] = '\0';
@@ -1006,10 +1003,9 @@ namespace
         pthread_exit(0);
     }
 
-    void* HOG_Impl::thread_fine_compute_histograms(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info)
+    void* HOG_Impl::thread_fine_compute_histograms(node_t node, pthread_barrier_t* init_barrier, struct task_info t_info)
     {
         fprintf(stdout, "node name: compute_histograms, task id: %d, node tid: %d\n", t_info.id, gettid());
-        node_t node = *_node;
 #ifdef LOG_DEBUG
         char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
         tabbuf[node.node] = '\0';
@@ -1113,10 +1109,9 @@ namespace
         pthread_exit(0);
     }
 
-    void* HOG_Impl::thread_fine_normalize_histograms(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info)
+    void* HOG_Impl::thread_fine_normalize_histograms(node_t node, pthread_barrier_t* init_barrier, struct task_info t_info)
     {
         fprintf(stdout, "node name: normalize_histograms, task id: %d, node tid: %d\n", t_info.id, gettid());
-        node_t node = *_node;
 #ifdef LOG_DEBUG
         char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
         tabbuf[node.node] = '\0';
@@ -1213,10 +1208,9 @@ namespace
         pthread_exit(0);
     }
 
-    void* HOG_Impl::thread_fine_classify(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info)
+    void* HOG_Impl::thread_fine_classify(node_t node, pthread_barrier_t* init_barrier, struct task_info t_info)
     {
         fprintf(stdout, "node name: fine_classify, task id: %d, node tid: %d\n", t_info.id, gettid());
-        node_t node = *_node;
 #ifdef LOG_DEBUG
         char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
         tabbuf[node.node] = '\0';
@@ -1322,10 +1316,9 @@ namespace
         size_t count = 0;
     };
 
-    void* HOG_Impl::thread_fine_collect_locations(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info)
+    void* HOG_Impl::thread_fine_collect_locations(node_t node, pthread_barrier_t* init_barrier, struct task_info t_info)
     {
         fprintf(stdout, "node name: collect_locations(sink), task id: %d, node tid: %d\n", t_info.id, gettid());
-        node_t node = *_node;
 #ifdef LOG_DEBUG
         char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
         tabbuf[node.node] = '\0';
@@ -1693,10 +1686,9 @@ namespace
         return static_cast<int>(block_hist_size * blocks_per_img.area());
     }
 
-    void* HOG_Impl::thread_fine_AB(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info)
+    void* HOG_Impl::thread_fine_AB(node_t node, pthread_barrier_t* init_barrier, struct task_info t_info)
     {
         fprintf(stdout, "node name: resize+compute_grads, task id: %d, node tid: %d\n", t_info.id, gettid());
-        node_t node = *_node;
 #ifdef LOG_DEBUG
         char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
         tabbuf[node.node] = '\0';
@@ -1806,10 +1798,9 @@ namespace
         pthread_exit(0);
     }
 
-    void* HOG_Impl::thread_fine_BC(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info)
+    void* HOG_Impl::thread_fine_BC(node_t node, pthread_barrier_t* init_barrier, struct task_info t_info)
     {
         fprintf(stdout, "node name: compute_grads+compute_hists, task id: %d, node tid: %d\n", t_info.id, gettid());
-        node_t node = *_node;
 #ifdef LOG_DEBUG
         char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
         tabbuf[node.node] = '\0';
@@ -1915,10 +1906,9 @@ namespace
         pthread_exit(0);
     }
 
-    void* HOG_Impl::thread_fine_CD(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info)
+    void* HOG_Impl::thread_fine_CD(node_t node, pthread_barrier_t* init_barrier, struct task_info t_info)
     {
         fprintf(stdout, "node name: compute_hists+normalize_hists, task id: %d, node tid: %d\n", t_info.id, gettid());
-        node_t node = *_node;
 #ifdef LOG_DEBUG
         char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
         tabbuf[node.node] = '\0';
@@ -2025,10 +2015,9 @@ namespace
         pthread_exit(0);
     }
 
-    void* HOG_Impl::thread_fine_DE(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info)
+    void* HOG_Impl::thread_fine_DE(node_t node, pthread_barrier_t* init_barrier, struct task_info t_info)
     {
         fprintf(stdout, "node name: normalize_hists+classify_hists, task id: %d, node tid: %d\n", t_info.id, gettid());
-        node_t node = *_node;
 #ifdef LOG_DEBUG
         char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
         tabbuf[node.node] = '\0';
@@ -2133,10 +2122,9 @@ namespace
         pthread_exit(0);
     }
 
-    void* HOG_Impl::thread_fine_ABC(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info)
+    void* HOG_Impl::thread_fine_ABC(node_t node, pthread_barrier_t* init_barrier, struct task_info t_info)
     {
         fprintf(stdout, "node name: resize->compute_hists, task id: %d, node tid: %d\n", t_info.id, gettid());
-        node_t node = *_node;
 #ifdef LOG_DEBUG
         char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
         tabbuf[node.node] = '\0';
@@ -2250,10 +2238,9 @@ namespace
         pthread_exit(0);
     }
 
-    void* HOG_Impl::thread_fine_BCD(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info)
+    void* HOG_Impl::thread_fine_BCD(node_t node, pthread_barrier_t* init_barrier, struct task_info t_info)
     {
         fprintf(stdout, "node name: compute_grads->normalize_hists, task id: %d, node tid: %d\n", t_info.id, gettid());
-        node_t node = *_node;
 #ifdef LOG_DEBUG
         char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
         tabbuf[node.node] = '\0';
@@ -2362,10 +2349,9 @@ namespace
         pthread_exit(0);
     }
 
-    void* HOG_Impl::thread_fine_CDE(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info)
+    void* HOG_Impl::thread_fine_CDE(node_t node, pthread_barrier_t* init_barrier, struct task_info t_info)
     {
         fprintf(stdout, "node name: compute_hists->classify_hists, task id: %d, node tid: %d\n", t_info.id, gettid());
-        node_t node = *_node;
 #ifdef LOG_DEBUG
         char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
         tabbuf[node.node] = '\0';
@@ -2478,10 +2464,9 @@ namespace
         pthread_exit(0);
     }
 
-    void* HOG_Impl::thread_fine_ABCD(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info)
+    void* HOG_Impl::thread_fine_ABCD(node_t node, pthread_barrier_t* init_barrier, struct task_info t_info)
     {
         fprintf(stdout, "node name: resize->normalize_hists, task id: %d, node tid: %d\n", t_info.id, gettid());
-        node_t node = *_node;
 #ifdef LOG_DEBUG
         char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
         tabbuf[node.node] = '\0';
@@ -2597,10 +2582,9 @@ namespace
         pthread_exit(0);
     }
 
-    void* HOG_Impl::thread_fine_BCDE(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info)
+    void* HOG_Impl::thread_fine_BCDE(node_t node, pthread_barrier_t* init_barrier, struct task_info t_info)
     {
         fprintf(stdout, "node name: compute_grads->classify_hists, task id: %d, node tid: %d\n", t_info.id, gettid());
-        node_t node = *_node;
 #ifdef LOG_DEBUG
         char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
         tabbuf[node.node] = '\0';
@@ -2715,10 +2699,9 @@ namespace
         pthread_exit(0);
     }
 
-    void* HOG_Impl::thread_fine_ABCDE(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info)
+    void* HOG_Impl::thread_fine_ABCDE(node_t node, pthread_barrier_t* init_barrier, struct task_info t_info)
     {
         fprintf(stdout, "node name: resize->classify_hists, task id: %d, node tid: %d\n", t_info.id, gettid());
-        node_t node = *_node;
 #ifdef LOG_DEBUG
         char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
         tabbuf[node.node] = '\0';
@@ -2840,10 +2823,9 @@ namespace
         pthread_exit(0);
     }
 
-    void* HOG_Impl::thread_fine_S_A(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info)
+    void* HOG_Impl::thread_fine_S_A(node_t node, pthread_barrier_t* init_barrier, struct task_info t_info)
     {
         fprintf(stdout, "node name: compute_scales+resize, task id: %d, node tid: %d\n", t_info.id, gettid());
-        node_t node = *_node;
 #ifdef LOG_DEBUG
         char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
         tabbuf[node.node] = '\0';
@@ -3040,10 +3022,9 @@ namespace
         pthread_exit(0);
     }
 
-    void* HOG_Impl::thread_fine_S_AB(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info)
+    void* HOG_Impl::thread_fine_S_AB(node_t node, pthread_barrier_t* init_barrier, struct task_info t_info)
     {
         fprintf(stdout, "node name: compute_scales->compute_grads, task id: %d, node tid: %d\n", t_info.id, gettid());
-        node_t node = *_node;
 #ifdef LOG_DEBUG
         char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
         tabbuf[node.node] = '\0';
@@ -3276,10 +3257,9 @@ namespace
         pthread_exit(0);
     }
 
-    void* HOG_Impl::thread_fine_S_ABC(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info)
+    void* HOG_Impl::thread_fine_S_ABC(node_t node, pthread_barrier_t* init_barrier, struct task_info t_info)
     {
         fprintf(stdout, "node name: compute_scales->compute_hists, task id: %d, node tid: %d\n", t_info.id, gettid());
-        node_t node = *_node;
 #ifdef LOG_DEBUG
         char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
         tabbuf[node.node] = '\0';
@@ -3546,10 +3526,9 @@ namespace
         pthread_exit(0);
     }
 
-    void* HOG_Impl::thread_fine_S_ABCD(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info)
+    void* HOG_Impl::thread_fine_S_ABCD(node_t node, pthread_barrier_t* init_barrier, struct task_info t_info)
     {
         fprintf(stdout, "node name: compute_scales->normalize_hists, task id: %d, node tid: %d\n", t_info.id, gettid());
-        node_t node = *_node;
 #ifdef LOG_DEBUG
         char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
         tabbuf[node.node] = '\0';
@@ -3850,10 +3829,9 @@ namespace
         pthread_exit(0);
     }
 
-    void* HOG_Impl::thread_fine_S_ABCDE(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info)
+    void* HOG_Impl::thread_fine_S_ABCDE(node_t node, pthread_barrier_t* init_barrier, struct task_info t_info)
     {
         fprintf(stdout, "node name: compute_scales->classify_hists, task id: %d, node tid: %d\n", t_info.id, gettid());
-        node_t node = *_node;
 #ifdef LOG_DEBUG
         char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
         tabbuf[node.node] = '\0';
@@ -4475,10 +4453,9 @@ namespace
          * =========================== */
     }
 
-    void* HOG_Impl::thread_fine_E_T(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info)
+    void* HOG_Impl::thread_fine_E_T(node_t node, pthread_barrier_t* init_barrier, struct task_info t_info)
     {
         fprintf(stdout, "node name: classify_hists+sink, task id: %d, node tid: %d\n", t_info.id, gettid());
-        node_t node = *_node;
 #ifdef LOG_DEBUG
         char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
         tabbuf[node.node] = '\0';
@@ -4758,10 +4735,9 @@ namespace
         pthread_exit(0);
     }
 
-    void* HOG_Impl::thread_fine_DE_T(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info)
+    void* HOG_Impl::thread_fine_DE_T(node_t node, pthread_barrier_t* init_barrier, struct task_info t_info)
     {
         fprintf(stdout, "node name: normalize_hists->sink, task id: %d, node tid: %d\n", t_info.id, gettid());
-        node_t node = *_node;
 #ifdef LOG_DEBUG
         char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
         tabbuf[node.node] = '\0';
@@ -5056,10 +5032,9 @@ namespace
         pthread_exit(0);
     }
 
-    void* HOG_Impl::thread_fine_CDE_T(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info)
+    void* HOG_Impl::thread_fine_CDE_T(node_t node, pthread_barrier_t* init_barrier, struct task_info t_info)
     {
         fprintf(stdout, "node name: compute_hists->sink, task id: %d, node tid: %d\n", t_info.id, gettid());
-        node_t node = *_node;
 #ifdef LOG_DEBUG
         char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
         tabbuf[node.node] = '\0';
@@ -5389,10 +5364,9 @@ namespace
         pthread_exit(0);
     }
 
-    void* HOG_Impl::thread_fine_BCDE_T(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info)
+    void* HOG_Impl::thread_fine_BCDE_T(node_t node, pthread_barrier_t* init_barrier, struct task_info t_info)
     {
         fprintf(stdout, "node name: compute_grads->sink, task id: %d, node tid: %d\n", t_info.id, gettid());
-        node_t node = *_node;
 #ifdef LOG_DEBUG
         char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
         tabbuf[node.node] = '\0';
@@ -5758,10 +5732,9 @@ namespace
         pthread_exit(0);
     }
 
-    void* HOG_Impl::thread_fine_ABCDE_T(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info)
+    void* HOG_Impl::thread_fine_ABCDE_T(node_t node, pthread_barrier_t* init_barrier, struct task_info t_info)
     {
         fprintf(stdout, "node name: resize->sink, task id: %d, node tid: %d\n", t_info.id, gettid());
-        node_t node = *_node;
 #ifdef LOG_DEBUG
         char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
         tabbuf[node.node] = '\0';

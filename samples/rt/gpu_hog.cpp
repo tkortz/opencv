@@ -308,16 +308,16 @@ public:
 
     void sched_configurable_hog(cv::Ptr<cv::cuda::HOG_RT> gpu_hog, cv::HOGDescriptor cpu_hog, Mat* frames);
 
-    void thread_fine_CC_S_ABCDE(node_t* _node, pthread_barrier_t* init_barrier,
+    void thread_fine_CC_S_ABCDE(node_t node, pthread_barrier_t* init_barrier,
                                 cv::Ptr<cv::cuda::HOG_RT> gpu_hog,
                                 Mat* frames, struct task_info t_info, int graph_idx);
 
-    void thread_image_acquisition(node_t *_node, pthread_barrier_t* init_barrier,
+    void thread_image_acquisition(node_t node, pthread_barrier_t* init_barrier,
                                   cv::Ptr<cv::cuda::HOG_RT> gpu_hog, cv::HOGDescriptor cpu_hog,
                                   Mat* frames, struct task_info t_info, int graph_idx);
-    void* thread_display(node_t* node, pthread_barrier_t* init_barrier, bool shouldDisplay);
+    void* thread_display(node_t node, pthread_barrier_t* init_barrier, bool shouldDisplay);
 
-    void thread_color_convert(node_t* _node, pthread_barrier_t* init_barrier,
+    void thread_color_convert(node_t node, pthread_barrier_t* init_barrier,
                               cv::Ptr<cv::cuda::HOG_RT> gpu_hog,
                               struct task_info t_info);
 
@@ -771,10 +771,9 @@ struct linked_frames
     struct linked_frames * next;
 };
 
-void* App::thread_display(node_t* _node, pthread_barrier_t* init_barrier, bool shouldDisplay)
+void* App::thread_display(node_t node, pthread_barrier_t* init_barrier, bool shouldDisplay)
 {
     fprintf(stdout, "node name: display\n");
-    node_t node = *_node;
 #ifdef LOG_DEBUG
     char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
     tabbuf[node.node] = '\0';
@@ -897,12 +896,11 @@ static int loop(int count, int *nums, int numCount)
     return j;
 }
 
-void App::thread_image_acquisition(node_t *_node, pthread_barrier_t* init_barrier,
+void App::thread_image_acquisition(node_t node, pthread_barrier_t* init_barrier,
                                    cv::Ptr<cv::cuda::HOG_RT> gpu_hog, cv::HOGDescriptor cpu_hog,
                                    Mat* frames, struct task_info t_info, int graph_idx)
 {
     fprintf(stdout, "node name: image_acquisition(source), task id: %d, node tid: %d\n", t_info.id, gettid());
-    node_t node = *_node;
 #ifdef LOG_DEBUG
     char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
     tabbuf[node.node] = '\0';
@@ -1093,12 +1091,11 @@ void App::thread_image_acquisition(node_t *_node, pthread_barrier_t* init_barrie
     }
 }
 
-void App::thread_color_convert(node_t* _node, pthread_barrier_t* init_barrier,
+void App::thread_color_convert(node_t node, pthread_barrier_t* init_barrier,
                                cv::Ptr<cv::cuda::HOG_RT> gpu_hog,
                                struct task_info t_info)
 {
     fprintf(stdout, "node name: color_convert, task id: %d, node tid: %d\n", t_info.id, gettid());
-    node_t node = *_node;
 #ifdef LOG_DEBUG
     char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
     tabbuf[node.node] = '\0';
@@ -1761,7 +1758,7 @@ void App::sched_configurable_hog(cv::Ptr<cv::cuda::HOG_RT> gpu_hog, cv::HOGDescr
             if (!args.merge_color_convert)
             {
                 thread *ti = new thread(&App::thread_image_acquisition, this,
-                                        &image_acquisition_node, fine_init_barrier,
+                                        image_acquisition_node, fine_init_barrier,
                                         gpu_hog, cpu_hog, frames, t_info, g_idx);
                 graph_threads.push_back(ti);
 
@@ -1770,10 +1767,10 @@ void App::sched_configurable_hog(cv::Ptr<cv::cuda::HOG_RT> gpu_hog, cv::HOGDescr
                 t_info.id = task_id++;
                 t_info.phase = t_info.phase + bound_image_acquisition;
                 thread *t0 = new thread(&App::thread_color_convert, this,
-                                        &color_convert_node, fine_init_barrier, gpu_hog, t_info);
+                                        color_convert_node, fine_init_barrier, gpu_hog, t_info);
                 graph_threads.push_back(t0);
 
-                void* (cv::cuda::HOG_RT::* compute_scales_func)(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info);
+                void* (cv::cuda::HOG_RT::* compute_scales_func)(node_t node, pthread_barrier_t* init_barrier, struct task_info t_info);
                 if (is_source_E)
                 {
                     compute_scales_func = &cv::cuda::HOG_RT::thread_fine_S_ABCDE;
@@ -1803,7 +1800,7 @@ void App::sched_configurable_hog(cv::Ptr<cv::cuda::HOG_RT> gpu_hog, cv::HOGDescr
                 t_info.s_info_in = &in_source_sync_info;
                 t_info.s_info_out = &out_source_sync_info;
                 thread *t1 = new thread(compute_scales_func, gpu_hog,
-                                        &compute_scales_node, fine_init_barrier, t_info);
+                                        compute_scales_node, fine_init_barrier, t_info);
                 graph_threads.push_back(t1);
             }
             else
@@ -1812,7 +1809,7 @@ void App::sched_configurable_hog(cv::Ptr<cv::cuda::HOG_RT> gpu_hog, cv::HOGDescr
                 t_info.s_info_in = &in_source_sync_info;
                 t_info.s_info_out = &out_source_sync_info;
                 thread *t1 = new thread(&App::thread_fine_CC_S_ABCDE, this,
-                                        &compute_scales_node, fine_init_barrier, gpu_hog,
+                                        compute_scales_node, fine_init_barrier, gpu_hog,
                                         frames, t_info, g_idx);
                 graph_threads.push_back(t1);
             }
@@ -1839,7 +1836,7 @@ void App::sched_configurable_hog(cv::Ptr<cv::cuda::HOG_RT> gpu_hog, cv::HOGDescr
                     continue;
                 }
 
-                void* (cv::cuda::HOG_RT::* level_funcs[num_nodes])(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info);
+                void* (cv::cuda::HOG_RT::* level_funcs[num_nodes])(node_t node, pthread_barrier_t* init_barrier, struct task_info t_info);
 
                 for (unsigned node_idx = 0; node_idx < num_nodes; node_idx++)
                 {
@@ -1903,7 +1900,7 @@ void App::sched_configurable_hog(cv::Ptr<cv::cuda::HOG_RT> gpu_hog, cv::HOGDescr
                     t_info.s_info_in = &(in_sync_info[i][node_idx]);
                     t_info.s_info_out = &(out_sync_info[i][node_idx]);
                     thread *tlevel = new thread(level_funcs[node_idx], gpu_hog,
-                                                &(level_nodes[i][node_idx]), fine_init_barrier, t_info);
+                                                (level_nodes[i][node_idx]), fine_init_barrier, t_info);
                     graph_threads.push_back(tlevel);
                 }
 
@@ -1914,7 +1911,7 @@ void App::sched_configurable_hog(cv::Ptr<cv::cuda::HOG_RT> gpu_hog, cv::HOGDescr
                 }
             }
 
-            void* (cv::cuda::HOG_RT::* collect_locations_func)(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info);
+            void* (cv::cuda::HOG_RT::* collect_locations_func)(node_t node, pthread_barrier_t* init_barrier, struct task_info t_info);
             if (is_sink_A)
             {
                 collect_locations_func = &cv::cuda::HOG_RT::thread_fine_ABCDE_T;
@@ -1944,13 +1941,13 @@ void App::sched_configurable_hog(cv::Ptr<cv::cuda::HOG_RT> gpu_hog, cv::HOGDescr
             t_info.s_info_in = &in_sink_sync_info;
             t_info.s_info_out = &out_sink_sync_info;
             thread *t7 = new thread(collect_locations_func, gpu_hog,
-                                    &collect_locations_node, fine_init_barrier, t_info);
+                                    collect_locations_node, fine_init_barrier, t_info);
             graph_threads.push_back(t7);
 
             if (has_display_node)
             {
                 thread *t8 = new thread(&App::thread_display, this,
-                                        &display_node, fine_init_barrier, g_idx == 0 && args.display);
+                                        display_node, fine_init_barrier, g_idx == 0 && args.display);
                 graph_threads.push_back(t8);
             }
 
@@ -2001,12 +1998,11 @@ void App::sched_configurable_hog(cv::Ptr<cv::cuda::HOG_RT> gpu_hog, cv::HOGDescr
     fprintf(stdout, "cleaned up ...");
 }
 
-void App::thread_fine_CC_S_ABCDE(node_t* _node, pthread_barrier_t* init_barrier,
+void App::thread_fine_CC_S_ABCDE(node_t node, pthread_barrier_t* init_barrier,
                                  cv::Ptr<cv::cuda::HOG_RT> gpu_hog, Mat* frames,
                                  struct task_info t_info, int graph_idx)
 {
     fprintf(stdout, "node name: color_convert->classify_hists(source), task id: %d, node tid: %d\n", t_info.id, gettid());
-    node_t node = *_node;
 #ifdef LOG_DEBUG
     char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
     tabbuf[node.node] = '\0';

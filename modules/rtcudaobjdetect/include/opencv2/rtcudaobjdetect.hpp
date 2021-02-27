@@ -235,31 +235,31 @@ public:
     virtual Mat getDefaultPeopleDetector() const = 0;
 
     /* fine-grained nodes */
-    virtual void* thread_fine_compute_scales(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0;
-    virtual void* thread_fine_resize(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0;
-    virtual void* thread_fine_compute_gradients(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0;
-    virtual void* thread_fine_compute_histograms(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0;
-    virtual void* thread_fine_normalize_histograms(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0;
-    virtual void* thread_fine_classify(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0;
-    virtual void* thread_fine_collect_locations(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0;
+    virtual void* thread_fine_compute_scales(node_t node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0;
+    virtual void* thread_fine_resize(node_t node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0;
+    virtual void* thread_fine_compute_gradients(node_t node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0;
+    virtual void* thread_fine_compute_histograms(node_t node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0;
+    virtual void* thread_fine_normalize_histograms(node_t node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0;
+    virtual void* thread_fine_classify(node_t node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0;
+    virtual void* thread_fine_collect_locations(node_t node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0;
 
     /* two-node intra-level combinations */
-    virtual void* thread_fine_AB(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0; // resize          + compute grads
-    virtual void* thread_fine_BC(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0; // compute grads   + compute hists
-    virtual void* thread_fine_CD(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0; // compute hists   + normalize hists
-    virtual void* thread_fine_DE(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0; // normalize hists + classify hists
+    virtual void* thread_fine_AB(node_t node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0; // resize          + compute grads
+    virtual void* thread_fine_BC(node_t node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0; // compute grads   + compute hists
+    virtual void* thread_fine_CD(node_t node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0; // compute hists   + normalize hists
+    virtual void* thread_fine_DE(node_t node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0; // normalize hists + classify hists
 
     /* three-node intra-level combinations */
-    virtual void* thread_fine_ABC(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0; // resize        -> compute hists
-    virtual void* thread_fine_BCD(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0; // compute grads -> normalize hists
-    virtual void* thread_fine_CDE(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0; // compute hists -> classify hists
+    virtual void* thread_fine_ABC(node_t node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0; // resize        -> compute hists
+    virtual void* thread_fine_BCD(node_t node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0; // compute grads -> normalize hists
+    virtual void* thread_fine_CDE(node_t node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0; // compute hists -> classify hists
 
     /* four-node intra-level combinations */
-    virtual void* thread_fine_ABCD(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0; // resize        -> normalize hists
-    virtual void* thread_fine_BCDE(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0; // compute grads -> classify hists
+    virtual void* thread_fine_ABCD(node_t node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0; // resize        -> normalize hists
+    virtual void* thread_fine_BCDE(node_t node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0; // compute grads -> classify hists
 
     /* five-node entire-level combination */
-    virtual void* thread_fine_ABCDE(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0; // resize -> classify hists
+    virtual void* thread_fine_ABCDE(node_t node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0; // resize -> classify hists
 
     /* color-convert and source-node combination */
     virtual void fine_CC_S_ABCDE(struct task_info &t_info, void** out_buf_ptrs,
@@ -272,18 +272,18 @@ public:
                                  int omlp_sem_od) = 0; // color-convert -> classify hists (maybe not all the way)
 
     /* source-node combinations */
-    virtual void* thread_fine_S_A(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0;     // compute-levels +  resize
-    virtual void* thread_fine_S_AB(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0;    // compute-levels -> compute grads
-    virtual void* thread_fine_S_ABC(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0;   // compute-levels -> compute hists
-    virtual void* thread_fine_S_ABCD(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0;  // compute-levels -> normalize hists
-    virtual void* thread_fine_S_ABCDE(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0; // compute-levels -> classify hists
+    virtual void* thread_fine_S_A(node_t node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0;     // compute-levels +  resize
+    virtual void* thread_fine_S_AB(node_t node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0;    // compute-levels -> compute grads
+    virtual void* thread_fine_S_ABC(node_t node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0;   // compute-levels -> compute hists
+    virtual void* thread_fine_S_ABCD(node_t node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0;  // compute-levels -> normalize hists
+    virtual void* thread_fine_S_ABCDE(node_t node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0; // compute-levels -> classify hists
 
     /* sink-node combinations */
-    virtual void* thread_fine_ABCDE_T(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0; // resize          -> collect-locations
-    virtual void* thread_fine_BCDE_T(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0;  // compute grads   -> collect-locations
-    virtual void* thread_fine_CDE_T(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0;   // compute hists   -> collect-locations
-    virtual void* thread_fine_DE_T(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0;    // normalize hists -> collect-locations
-    virtual void* thread_fine_E_T(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0;     // classify hists   + collect-locations
+    virtual void* thread_fine_ABCDE_T(node_t node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0; // resize          -> collect-locations
+    virtual void* thread_fine_BCDE_T(node_t node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0;  // compute grads   -> collect-locations
+    virtual void* thread_fine_CDE_T(node_t node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0;   // compute hists   -> collect-locations
+    virtual void* thread_fine_DE_T(node_t node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0;    // normalize hists -> collect-locations
+    virtual void* thread_fine_E_T(node_t node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0;     // classify hists   + collect-locations
 
     virtual void set_up_litmus_task(const struct task_info &t_info, struct rt_task &param, int *sem_od) = 0;
     virtual void set_up_constants(const cudaStream_t& stream) = 0;
