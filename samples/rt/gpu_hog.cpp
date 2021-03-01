@@ -773,6 +773,7 @@ struct linked_frames
 
 void* App::thread_display(node_t* _node, pthread_barrier_t* init_barrier, bool shouldDisplay)
 {
+    fprintf(stdout, "node name: display\n");
     node_t node = *_node;
 #ifdef LOG_DEBUG
     char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
@@ -785,7 +786,7 @@ void* App::thread_display(node_t* _node, pthread_barrier_t* init_barrier, bool s
     CheckError(pgm_get_edges_in(node, in_edge, 1));
     struct params_display *in_buf = (struct params_display *)pgm_get_edge_buf_c(*in_edge);
     if (in_buf == NULL)
-        fprintf(stderr, "compute gradients in buffer is NULL\n");
+        fprintf(stderr, "display in buffer is NULL\n");
 
     pthread_barrier_wait(init_barrier);
 
@@ -1416,6 +1417,8 @@ void App::sched_configurable_hog(cv::Ptr<cv::cuda::HOG_RT> gpu_hog, cv::HOGDescr
     const std::vector<node_config> &source_config = args.source_configuration;
     const std::vector<node_config> &sink_config = args.sink_configuration;
 
+    bool has_display_node = args.display || args.write_video;
+
     unsigned num_total_level_nodes = 0;
     for (unsigned i = 0; i < level_configs.size(); i++)
     {
@@ -1558,7 +1561,10 @@ void App::sched_configurable_hog(cv::Ptr<cv::cuda::HOG_RT> gpu_hog, cv::HOGDescr
                 }
             }
             CheckError(pgm_init_node(&collect_locations_node, g, "collect_locations"));
-            CheckError(pgm_init_node(&display_node, g, "display"));
+            if (has_display_node)
+            {
+                CheckError(pgm_init_node(&display_node, g, "display"));
+            }
 
             // Initialize the edges
             const char* level_edge_name_formats[] = { "e1_1st_%d", "e1st_2nd_%d", "e2nd_3rd_%d", "e3rd_4th_%d", "e4th_5th_%d", "e5th_7_%d" };
@@ -1659,19 +1665,36 @@ void App::sched_configurable_hog(cv::Ptr<cv::cuda::HOG_RT> gpu_hog, cv::HOGDescr
                 }
             }
 
-            fast_mq_attr.nr_produce = sizeof(struct params_display);
-            fast_mq_attr.nr_consume = sizeof(struct params_display);
-            fast_mq_attr.nr_threshold = sizeof(struct params_display);
-            CheckError(pgm_init_edge(&e7_8, collect_locations_node, display_node, "e7_8", &fast_mq_attr));
+            if (has_display_node)
+            {
+                fast_mq_attr.nr_produce = sizeof(struct params_display);
+                fast_mq_attr.nr_consume = sizeof(struct params_display);
+                fast_mq_attr.nr_threshold = sizeof(struct params_display);
+                CheckError(pgm_init_edge(&e7_8, collect_locations_node, display_node, "e7_8", &fast_mq_attr));
+            }
 
             // Initialize the threads (one per node)
             if (args.merge_color_convert)
             {
-                pthread_barrier_init(fine_init_barrier, 0, num_total_level_nodes + 3);
+                if (has_display_node)
+                {
+                    pthread_barrier_init(fine_init_barrier, 0, num_total_level_nodes + 3);
+                }
+                else
+                {
+                    pthread_barrier_init(fine_init_barrier, 0, num_total_level_nodes + 2);
+                }
             }
             else
             {
-                pthread_barrier_init(fine_init_barrier, 0, num_total_level_nodes + 5);
+                if (has_display_node)
+                {
+                    pthread_barrier_init(fine_init_barrier, 0, num_total_level_nodes + 5);
+                }
+                else
+                {
+                    pthread_barrier_init(fine_init_barrier, 0, num_total_level_nodes + 4);
+                }
             }
 
             std::vector<thread *> graph_threads;
@@ -1726,6 +1749,7 @@ void App::sched_configurable_hog(cv::Ptr<cv::cuda::HOG_RT> gpu_hog, cv::HOGDescr
             t_info.relative_deadline = period; // use EDF
             t_info.source_config = &args.source_configuration;
             t_info.sink_config = &args.sink_configuration;
+            t_info.has_display_node = has_display_node;
             if (args.cluster != -1)
                 t_info.cluster = args.cluster;
             else
@@ -1748,7 +1772,7 @@ void App::sched_configurable_hog(cv::Ptr<cv::cuda::HOG_RT> gpu_hog, cv::HOGDescr
                 thread *t0 = new thread(&App::thread_color_convert, this,
                                         &color_convert_node, fine_init_barrier, gpu_hog, t_info);
                 graph_threads.push_back(t0);
-            
+
                 void* (cv::cuda::HOG_RT::* compute_scales_func)(node_t* _node, pthread_barrier_t* init_barrier, struct task_info t_info);
                 if (is_source_E)
                 {
@@ -1923,9 +1947,12 @@ void App::sched_configurable_hog(cv::Ptr<cv::cuda::HOG_RT> gpu_hog, cv::HOGDescr
                                     &collect_locations_node, fine_init_barrier, t_info);
             graph_threads.push_back(t7);
 
-            thread *t8 = new thread(&App::thread_display, this,
-                                    &display_node, fine_init_barrier, g_idx == 0 && args.display);
-            graph_threads.push_back(t8);
+            if (has_display_node)
+            {
+                thread *t8 = new thread(&App::thread_display, this,
+                                        &display_node, fine_init_barrier, g_idx == 0 && args.display);
+                graph_threads.push_back(t8);
+            }
 
             fprintf(stdout, "Created %d tasks\n", task_id);
 

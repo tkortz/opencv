@@ -1340,14 +1340,19 @@ namespace
         for (int i=0; i < NUM_SCALE_LEVELS; i++) {
             in_bufs[i] = (struct params_fine_collect_locations *)pgm_get_edge_buf_c(in_edges[i]);
             if (in_bufs[i] == NULL)
-                fprintf(stderr, "compute scales node out buffer is NULL\n");
+                fprintf(stderr, "collect-locations node out buffer is NULL\n");
         }
 
-        edge_t *out_edge = (edge_t *)calloc(1, sizeof(edge_t));
-        CheckError(pgm_get_edges_out(node, out_edge, 1));
-        struct params_display *out_buf = (struct params_display *)pgm_get_edge_buf_p(*out_edge);
-        if (out_buf == NULL)
-            fprintf(stderr, "detect node out buffer is NULL\n");
+        edge_t *out_edge = NULL;
+        struct params_display *out_buf = NULL;
+        if (t_info.has_display_node)
+        {
+            out_edge = (edge_t *)calloc(1, sizeof(edge_t));
+            CheckError(pgm_get_edges_out(node, out_edge, 1));
+            out_buf = (struct params_display *)pgm_get_edge_buf_p(*out_edge);
+            if (out_buf == NULL)
+                fprintf(stderr, "collect-locations node out buffer is NULL\n");
+        }
 
         std::vector<Rect>* found;
         std::vector<double> * level_scale;
@@ -1508,10 +1513,18 @@ namespace
                     lt_t frame_end_time = litmus_clock();
                     printf("%lu response time: %llu\n", in_buf->frame_index, frame_end_time - in_buf->start_time);
 
-                    out_buf->found = in_buf->found;
-                    out_buf->img_to_show = in_buf->img_to_show;
-                    out_buf->frame_index = in_buf->frame_index;
-                    out_buf->start_time = in_buf->start_time;
+                    if (t_info.has_display_node)
+                    {
+                        out_buf->found = in_buf->found;
+                        out_buf->img_to_show = in_buf->img_to_show;
+                        out_buf->frame_index = in_buf->frame_index;
+                        out_buf->start_time = in_buf->start_time;
+                    }
+                    else
+                    {
+                        delete in_buf->found;
+                        delete in_buf->img_to_show;
+                    }
 
                     CheckError(pgm_complete(node));
                     if (t_info.realtime)
@@ -1536,7 +1549,7 @@ namespace
         CheckError(pgm_release_node(node));
 
         free(in_edges);
-        free(out_edge);
+        if (t_info.has_display_node) { free(out_edge); }
         free(in_bufs);
         if (t_info.realtime)
             CALL( task_mode(BACKGROUND_TASK) );
@@ -4482,11 +4495,16 @@ namespace
                 fprintf(stderr, "classify_hists+sink node in buffer is NULL\n");
         }
 
-        edge_t *out_edge = (edge_t *)calloc(1, sizeof(edge_t));
-        CheckError(pgm_get_edges_out(node, out_edge, 1));
-        struct params_display *out_buf = (struct params_display *)pgm_get_edge_buf_p(*out_edge);
-        if (out_buf == NULL)
-            fprintf(stderr, "classify_hists+sink node out buffer is NULL\n");
+        edge_t *out_edge = NULL;
+        struct params_display *out_buf = NULL;
+        if (t_info.has_display_node)
+        {
+            out_edge = (edge_t *)calloc(1, sizeof(edge_t));
+            CheckError(pgm_get_edges_out(node, out_edge, 1));
+            out_buf = (struct params_display *)pgm_get_edge_buf_p(*out_edge);
+            if (out_buf == NULL)
+                fprintf(stderr, "classify_hists+sink node out buffer is NULL\n");
+        }
 
         std::vector<Rect>* found;
         GpuMat * smaller_img_array[13];
@@ -4693,10 +4711,18 @@ namespace
                     lt_t frame_end_time = litmus_clock();
                     printf("%lu response time: %llu\n", in_buf->frame_index, frame_end_time - in_buf->start_time);
 
-                    out_buf->found = in_buf->found;
-                    out_buf->img_to_show = in_buf->img_to_show;
-                    out_buf->frame_index = in_buf->frame_index;
-                    out_buf->start_time = in_buf->start_time;
+                    if (t_info.has_display_node)
+                    {
+                        out_buf->found = in_buf->found;
+                        out_buf->img_to_show = in_buf->img_to_show;
+                        out_buf->frame_index = in_buf->frame_index;
+                        out_buf->start_time = in_buf->start_time;
+                    }
+                    else
+                    {
+                        delete in_buf->found;
+                        delete in_buf->img_to_show;
+                    }
 
                     CheckError(pgm_complete(node));
 
@@ -4721,7 +4747,7 @@ namespace
         CheckError(pgm_release_node(node));
 
         free(in_edges);
-        free(out_edge);
+        if (t_info.has_display_node) { free(out_edge); }
         free(in_buf_ptrs);
         if (t_info.realtime)
             CALL( task_mode(BACKGROUND_TASK) );
@@ -4752,11 +4778,16 @@ namespace
                 fprintf(stderr, "normalize_hists->sink node in buffer is NULL\n");
         }
 
-        edge_t *out_edge = (edge_t *)calloc(1, sizeof(edge_t));
-        CheckError(pgm_get_edges_out(node, out_edge, 1));
-        struct params_display *out_buf = (struct params_display *)pgm_get_edge_buf_p(*out_edge);
-        if (out_buf == NULL)
-            fprintf(stderr, "normalize_hists->sink node out buffer is NULL\n");
+        edge_t *out_edge = NULL;
+        struct params_display *out_buf = NULL;
+        if (t_info.has_display_node)
+        {
+            out_edge = (edge_t *)calloc(1, sizeof(edge_t));
+            CheckError(pgm_get_edges_out(node, out_edge, 1));
+            out_buf = (struct params_display *)pgm_get_edge_buf_p(*out_edge);
+            if (out_buf == NULL)
+                fprintf(stderr, "normalize_hists->sink node out buffer is NULL\n");
+        }
 
         std::vector<Rect>* found;
         GpuMat * smaller_img_array[13];
@@ -4978,10 +5009,18 @@ namespace
                     lt_t frame_end_time = litmus_clock();
                     printf("%lu response time: %llu\n", in_buf->frame_index, frame_end_time - in_buf->start_time);
 
-                    out_buf->found = in_buf->found;
-                    out_buf->img_to_show = in_buf->img_to_show;
-                    out_buf->frame_index = in_buf->frame_index;
-                    out_buf->start_time = in_buf->start_time;
+                    if (t_info.has_display_node)
+                    {
+                        out_buf->found = in_buf->found;
+                        out_buf->img_to_show = in_buf->img_to_show;
+                        out_buf->frame_index = in_buf->frame_index;
+                        out_buf->start_time = in_buf->start_time;
+                    }
+                    else
+                    {
+                        delete in_buf->found;
+                        delete in_buf->img_to_show;
+                    }
 
                     CheckError(pgm_complete(node));
 
@@ -5006,7 +5045,7 @@ namespace
         CheckError(pgm_release_node(node));
 
         free(in_edges);
-        free(out_edge);
+        if (t_info.has_display_node) { free(out_edge); }
         free(in_buf_ptrs);
         if (t_info.realtime)
             CALL( task_mode(BACKGROUND_TASK) );
@@ -5034,14 +5073,19 @@ namespace
         for (int i = 0; i < NUM_SCALE_LEVELS; i++) {
             in_buf_ptrs[i] = (void *)pgm_get_edge_buf_c(in_edges[i]);
             if (in_buf_ptrs[i] == NULL)
-                fprintf(stderr, "compute_hists->+sink node in buffer is NULL\n");
+                fprintf(stderr, "compute_hists->sink node in buffer is NULL\n");
         }
 
-        edge_t *out_edge = (edge_t *)calloc(1, sizeof(edge_t));
-        CheckError(pgm_get_edges_out(node, out_edge, 1));
-        struct params_display *out_buf = (struct params_display *)pgm_get_edge_buf_p(*out_edge);
-        if (out_buf == NULL)
-            fprintf(stderr, "compute_hists->sink node out buffer is NULL\n");
+        edge_t *out_edge = NULL;
+        struct params_display *out_buf = NULL;
+        if (t_info.has_display_node)
+        {
+            out_edge = (edge_t *)calloc(1, sizeof(edge_t));
+            CheckError(pgm_get_edges_out(node, out_edge, 1));
+            out_buf = (struct params_display *)pgm_get_edge_buf_p(*out_edge);
+            if (out_buf == NULL)
+                fprintf(stderr, "compute_hists->sink node out buffer is NULL\n");
+        }
 
         std::vector<Rect>* found;
         GpuMat * smaller_img_array[13];
@@ -5298,10 +5342,18 @@ namespace
                     lt_t frame_end_time = litmus_clock();
                     printf("%lu response time: %llu\n", in_buf->frame_index, frame_end_time - in_buf->start_time);
 
-                    out_buf->found = in_buf->found;
-                    out_buf->img_to_show = in_buf->img_to_show;
-                    out_buf->frame_index = in_buf->frame_index;
-                    out_buf->start_time = in_buf->start_time;
+                    if (t_info.has_display_node)
+                    {
+                        out_buf->found = in_buf->found;
+                        out_buf->img_to_show = in_buf->img_to_show;
+                        out_buf->frame_index = in_buf->frame_index;
+                        out_buf->start_time = in_buf->start_time;
+                    }
+                    else
+                    {
+                        delete in_buf->found;
+                        delete in_buf->img_to_show;
+                    }
 
                     CheckError(pgm_complete(node));
 
@@ -5326,7 +5378,7 @@ namespace
         CheckError(pgm_release_node(node));
 
         free(in_edges);
-        free(out_edge);
+        if (t_info.has_display_node) { free(out_edge); }
         free(in_buf_ptrs);
         if (t_info.realtime)
             CALL( task_mode(BACKGROUND_TASK) );
@@ -5354,14 +5406,19 @@ namespace
         for (int i = 0; i < NUM_SCALE_LEVELS; i++) {
             in_buf_ptrs[i] = (void *)pgm_get_edge_buf_c(in_edges[i]);
             if (in_buf_ptrs[i] == NULL)
-                fprintf(stderr, "compute_grads->+sink node in buffer is NULL\n");
+                fprintf(stderr, "compute_grads->sink node in buffer is NULL\n");
         }
 
-        edge_t *out_edge = (edge_t *)calloc(1, sizeof(edge_t));
-        CheckError(pgm_get_edges_out(node, out_edge, 1));
-        struct params_display *out_buf = (struct params_display *)pgm_get_edge_buf_p(*out_edge);
-        if (out_buf == NULL)
-            fprintf(stderr, "compute_grads->sink node out buffer is NULL\n");
+        edge_t *out_edge = NULL;
+        struct params_display *out_buf = NULL;
+        if (t_info.has_display_node)
+        {
+            out_edge = (edge_t *)calloc(1, sizeof(edge_t));
+            CheckError(pgm_get_edges_out(node, out_edge, 1));
+            out_buf = (struct params_display *)pgm_get_edge_buf_p(*out_edge);
+            if (out_buf == NULL)
+                fprintf(stderr, "compute_grads->sink node out buffer is NULL\n");
+        }
 
         std::vector<Rect>* found;
         GpuMat * smaller_img_array[13];
@@ -5654,10 +5711,18 @@ namespace
                     lt_t frame_end_time = litmus_clock();
                     printf("%lu response time: %llu\n", in_buf->frame_index, frame_end_time - in_buf->start_time);
 
-                    out_buf->found = in_buf->found;
-                    out_buf->img_to_show = in_buf->img_to_show;
-                    out_buf->frame_index = in_buf->frame_index;
-                    out_buf->start_time = in_buf->start_time;
+                    if (t_info.has_display_node)
+                    {
+                        out_buf->found = in_buf->found;
+                        out_buf->img_to_show = in_buf->img_to_show;
+                        out_buf->frame_index = in_buf->frame_index;
+                        out_buf->start_time = in_buf->start_time;
+                    }
+                    else
+                    {
+                        delete in_buf->found;
+                        delete in_buf->img_to_show;
+                    }
 
                     CheckError(pgm_complete(node));
 
@@ -5682,7 +5747,7 @@ namespace
         CheckError(pgm_release_node(node));
 
         free(in_edges);
-        free(out_edge);
+        if (t_info.has_display_node) { free(out_edge); }
         free(in_buf_ptrs);
         if (t_info.realtime)
             CALL( task_mode(BACKGROUND_TASK) );
@@ -5710,14 +5775,19 @@ namespace
         for (int i = 0; i < NUM_SCALE_LEVELS; i++) {
             in_buf_ptrs[i] = (void *)pgm_get_edge_buf_c(in_edges[i]);
             if (in_buf_ptrs[i] == NULL)
-                fprintf(stderr, "resize->+sink node in buffer is NULL\n");
+                fprintf(stderr, "resize->sink node in buffer is NULL\n");
         }
 
-        edge_t *out_edge = (edge_t *)calloc(1, sizeof(edge_t));
-        CheckError(pgm_get_edges_out(node, out_edge, 1));
-        struct params_display *out_buf = (struct params_display *)pgm_get_edge_buf_p(*out_edge);
-        if (out_buf == NULL)
-            fprintf(stderr, "resize->sink node out buffer is NULL\n");
+        edge_t *out_edge = NULL;
+        struct params_display *out_buf = NULL;
+        if (t_info.has_display_node)
+        {
+            out_edge = (edge_t *)calloc(1, sizeof(edge_t));
+            CheckError(pgm_get_edges_out(node, out_edge, 1));
+            out_buf = (struct params_display *)pgm_get_edge_buf_p(*out_edge);
+            if (out_buf == NULL)
+                fprintf(stderr, "resize->sink node out buffer is NULL\n");
+        }
 
         std::vector<Rect>* found;
         GpuMat * smaller_img_array[13];
@@ -6053,10 +6123,18 @@ namespace
                     lt_t frame_end_time = litmus_clock();
                     printf("%lu response time: %llu\n", in_buf->frame_index, frame_end_time - in_buf->start_time);
 
-                    out_buf->found = in_buf->found;
-                    out_buf->img_to_show = in_buf->img_to_show;
-                    out_buf->frame_index = in_buf->frame_index;
-                    out_buf->start_time = in_buf->start_time;
+                    if (t_info.has_display_node)
+                    {
+                        out_buf->found = in_buf->found;
+                        out_buf->img_to_show = in_buf->img_to_show;
+                        out_buf->frame_index = in_buf->frame_index;
+                        out_buf->start_time = in_buf->start_time;
+                    }
+                    else
+                    {
+                        delete in_buf->found;
+                        delete in_buf->img_to_show;
+                    }
 
                     CheckError(pgm_complete(node));
 
@@ -6081,7 +6159,7 @@ namespace
         CheckError(pgm_release_node(node));
 
         free(in_edges);
-        free(out_edge);
+        if (t_info.has_display_node) { free(out_edge); }
         free(in_buf_ptrs);
         if (t_info.realtime)
             CALL( task_mode(BACKGROUND_TASK) );

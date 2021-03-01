@@ -116,6 +116,7 @@ struct task_info
     struct sync_info *s_info_out;
     std::vector<node_config> *source_config;
     std::vector<node_config> *sink_config;
+    bool has_display_node;
 };
 
 /* Next, we define period and execution cost to be constant.
