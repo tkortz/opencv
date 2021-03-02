@@ -52,7 +52,6 @@
  * system call blocks. To be on the safe side, only use I/O for debugging
  * purposes and from non-real-time sections.
  */
-#include <setjmp.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -79,8 +78,6 @@ using namespace cv::cuda;
 int hog_errors;
 
 __thread char hog_errstr[80];
-// Used to store initial node state for budget-enforcement reset
-__thread jmp_buf initial_state;
 
 //#define LOG_DEBUG 1
 #define CheckError(e) \

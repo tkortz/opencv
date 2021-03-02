@@ -14,7 +14,6 @@
 #include <unistd.h>
 #include <errno.h>
 #include <pthread.h>
-#include <setjmp.h>
 #include <signal.h>
 #include <opencv2/core/cuda.hpp>
 #include <opencv2/core/cuda_stream_accessor.hpp>
@@ -56,8 +55,6 @@ using namespace cv;
 int hog_sample_errors;
 
 __thread char hog_sample_errstr[80];
-// Used to store initial node state for budget-enforcement reset
-__thread jmp_buf initial_state;
 
 //#define LOG_DEBUG 1
 #define NUM_SCALE_LEVELS 13
