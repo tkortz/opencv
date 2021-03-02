@@ -200,6 +200,18 @@ namespace cv { namespace cuda { namespace device
     }
 }}}
 
+void cv::cuda::HOG_RT::default_fz_sig_hndlr(int sig)
+{
+    struct control_page* cp = get_ctrl_page();
+    if (sig == SIGSYS)
+    {
+        if (!cp)
+            fprintf(stderr, " *** KERNEL BUG! FZ exceedance sent to non-real-time task %d!\n", gettid());
+        else
+            fprintf(stderr, "FZ exceedance in (%d/%ld)!\n", gettid(), cp->job_index);
+    }
+}
+
 using namespace cv::cuda::device;
 
 namespace
@@ -6150,25 +6162,13 @@ namespace
         pthread_exit(0);
     }
 
-    void default_rt_sig_hndlr(int sig)
-    {
-        if (sig == SIGTERM)
-        {
-            // Reset the node if an initial state was saved, otherwise terminate
-            if (initial_state[0].__mask_was_saved != 0)
-                siglongjmp(initial_state, 1);
-            else
-                pthread_exit(0);
-        }
-    }
-
     void HOG_Impl::set_up_litmus_task(const struct task_info &t_info, struct rt_task &param, int *sem_od)
     {
         // Handle signals locally. Deferring to our potentially non-real-time
         // parent may cause a priority inversion.
         struct sigaction handler;
-        handler.sa_handler = default_rt_sig_hndlr;
-        sigaction(SIGTERM, &handler, NULL);
+        handler.sa_handler = default_fz_sig_hndlr;
+        sigaction(SIGSYS, &handler, NULL);
         // if (t_info.cluster != -1)
         //     CALL(be_migrate_to_domain(t_info.cluster));
         init_rt_task_param(&param);

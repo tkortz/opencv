@@ -287,6 +287,7 @@ public:
 
     virtual void set_up_litmus_task(const struct task_info &t_info, struct rt_task &param, int *sem_od) = 0;
     virtual void set_up_constants(const cudaStream_t& stream) = 0;
+    static void default_fz_sig_hndlr(int sig);
 
     virtual int open_lock(int resource_id) = 0;
     virtual int lock_fzlp(int sem_od) = 0;
