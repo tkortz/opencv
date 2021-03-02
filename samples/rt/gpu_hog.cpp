@@ -1168,7 +1168,7 @@ void App::thread_color_convert(node_t node, pthread_barrier_t* init_barrier,
                 cp->fz_progress = FZ_POST_GPU_LAUNCH;
                 exit_np();
                 cudaStreamSynchronize(stream);
-                cp->fz_progress = FZ_DONE;
+                gpu_hog->exit_forbidden_zone(omlp_sem_od);
 
                 lt_t fz_len = litmus_clock() - fz_start;
                 fprintf(stdout, "[%d | %d] Computation %d took %llu microseconds.\n",
@@ -2183,7 +2183,7 @@ void App::thread_fine_CC_S_ABCDE(node_t node, pthread_barrier_t* init_barrier,
             cp->fz_progress = FZ_POST_GPU_LAUNCH;
             exit_np();
             cudaStreamSynchronize(stream);
-            cp->fz_progress = FZ_DONE;
+            gpu_hog->exit_forbidden_zone(omlp_sem_od);
 
             SAMPLE_STOP_LOCK(lt_t fz_len, NODE_AB);
             /*

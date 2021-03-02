@@ -195,6 +195,7 @@ namespace cv { namespace cuda { namespace device
         int open_fzlp_lock(int resource_id);
         int lock_fzlp(int sem_od);
         int wait_forbidden_zone(int sem_od, node_config computation);
+        int exit_forbidden_zone(int sem_od);
         int unlock_fzlp(int sem_od);
     }
 }}}
@@ -325,6 +326,7 @@ namespace
         int open_lock(int resource_id);
         int lock_fzlp(int sem_od);
         int wait_forbidden_zone(int sem_od, node_config computation);
+        int exit_forbidden_zone(int sem_od);
         int unlock_fzlp(int sem_od);
 
         int getTotalHistSize(Size img_size) const;
@@ -1417,7 +1419,7 @@ namespace
                             cp->fz_progress = FZ_POST_GPU_LAUNCH;
                             exit_np();
                             cudaStreamSynchronize(stream);
-                            cp->fz_progress = FZ_DONE;
+                            hog_rt::exit_forbidden_zone(omlp_sem_od);
 
                             lt_t fz_len = litmus_clock() - fz_start;
 
@@ -1454,7 +1456,7 @@ namespace
                             cp->fz_progress = FZ_POST_GPU_LAUNCH;
                             exit_np();
                             cudaStreamSynchronize(stream);
-                            cp->fz_progress = FZ_DONE;
+                            hog_rt::exit_forbidden_zone(omlp_sem_od);
 
                             lt_t fz_len = litmus_clock() - fz_start;
 
@@ -1603,6 +1605,11 @@ namespace
     int HOG_Impl::wait_forbidden_zone(int sem_od, node_config computation)
     {
         return hog_rt::wait_forbidden_zone(sem_od, computation);
+    }
+
+    int HOG_Impl::exit_forbidden_zone(int sem_od)
+    {
+        return hog_rt::exit_forbidden_zone(sem_od);
     }
 
     int HOG_Impl::unlock_fzlp(int sem_od)
@@ -4621,7 +4628,7 @@ namespace
                             cp->fz_progress = FZ_POST_GPU_LAUNCH;
                             exit_np();
                             cudaStreamSynchronize(stream);
-                            cp->fz_progress = FZ_DONE;
+                            hog_rt::exit_forbidden_zone(omlp_sem_od);
 
                             lt_t fz_len = litmus_clock() - fz_start;
 
@@ -4917,7 +4924,7 @@ namespace
                             cp->fz_progress = FZ_POST_GPU_LAUNCH;
                             exit_np();
                             cudaStreamSynchronize(stream);
-                            cp->fz_progress = FZ_DONE;
+                            hog_rt::exit_forbidden_zone(omlp_sem_od);
 
                             lt_t fz_len = litmus_clock() - fz_start;
 
@@ -5250,7 +5257,7 @@ namespace
                             cp->fz_progress = FZ_POST_GPU_LAUNCH;
                             exit_np();
                             cudaStreamSynchronize(stream);
-                            cp->fz_progress = FZ_DONE;
+                            hog_rt::exit_forbidden_zone(omlp_sem_od);
 
                             lt_t fz_len = litmus_clock() - fz_start;
 
@@ -5618,7 +5625,7 @@ namespace
                             cp->fz_progress = FZ_POST_GPU_LAUNCH;
                             exit_np();
                             cudaStreamSynchronize(stream);
-                            cp->fz_progress = FZ_DONE;
+                            hog_rt::exit_forbidden_zone(omlp_sem_od);
 
                             lt_t fz_len = litmus_clock() - fz_start;
 
@@ -6029,7 +6036,7 @@ namespace
                             cp->fz_progress = FZ_POST_GPU_LAUNCH;
                             exit_np();
                             cudaStreamSynchronize(stream);
-                            cp->fz_progress = FZ_DONE;
+                            hog_rt::exit_forbidden_zone(omlp_sem_od);
 
                             lt_t fz_len = litmus_clock() - fz_start;
 

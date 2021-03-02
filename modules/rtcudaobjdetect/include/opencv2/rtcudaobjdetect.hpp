@@ -291,6 +291,7 @@ public:
     virtual int open_lock(int resource_id) = 0;
     virtual int lock_fzlp(int sem_od) = 0;
     virtual int wait_forbidden_zone(int sem_od, node_config computation) = 0;
+    virtual int exit_forbidden_zone(int sem_od) = 0;
     virtual int unlock_fzlp(int sem_od) = 0;
 
     virtual int getTotalHistSize(Size img_size) const = 0;

@@ -158,6 +158,20 @@ namespace cv { namespace cuda { namespace device
             return res;
         }
 
+        int exit_forbidden_zone(int sem_od)
+        {
+            if (!use_locks) return -3;
+
+            int res = -2;
+
+            if (sem_od >= 0)
+            {
+                res = litmus_exit_forbidden_zone(sem_od);
+            }
+
+            return res;
+        }
+
         int unlock_fzlp(int sem_od)
         {
             if (!use_locks) return -3;
@@ -407,7 +421,7 @@ namespace cv { namespace cuda { namespace device
             {
                 cudaSafeCall(cudaStreamSynchronize(stream));
             }
-            cp->fz_progress = FZ_DONE;
+            exit_forbidden_zone(omlp_sem_od);
 
             lt_t fz_len = litmus_clock() - fz_start;
 
@@ -547,7 +561,7 @@ namespace cv { namespace cuda { namespace device
             {
                 cudaSafeCall(cudaStreamSynchronize(stream));
             }
-            cp->fz_progress = FZ_DONE;
+            exit_forbidden_zone(omlp_sem_od);
 
             lt_t fz_len = litmus_clock() - fz_start;
 
@@ -638,7 +652,7 @@ namespace cv { namespace cuda { namespace device
             cudaSafeCall( cudaGetLastError() );
 
             cudaSafeCall(cudaStreamSynchronize(stream));
-            cp->fz_progress = FZ_DONE;
+            exit_forbidden_zone(omlp_sem_od);
 
             lt_t fz_len = litmus_clock() - fz_start;
 
@@ -734,7 +748,7 @@ namespace cv { namespace cuda { namespace device
            exit_np();
 
            cudaSafeCall(cudaStreamSynchronize(stream));
-           cp->fz_progress = FZ_DONE;
+           exit_forbidden_zone(omlp_sem_od);
 
            lt_t fz_len = litmus_clock() - fz_start;
 
@@ -895,7 +909,7 @@ namespace cv { namespace cuda { namespace device
             {
                 cudaSafeCall(cudaStreamSynchronize(stream));
             }
-            cp->fz_progress = FZ_DONE;
+            exit_forbidden_zone(omlp_sem_od);
 
             lt_t fz_len = litmus_clock() - fz_start;
 
@@ -1003,7 +1017,7 @@ namespace cv { namespace cuda { namespace device
             {
                 cudaSafeCall(cudaStreamSynchronize(stream));
             }
-            cp->fz_progress = FZ_DONE;
+            exit_forbidden_zone(omlp_sem_od);
 
             lt_t fz_len = litmus_clock() - fz_start;
 
@@ -1169,7 +1183,7 @@ namespace cv { namespace cuda { namespace device
             {
                 cudaSafeCall(cudaStreamSynchronize(stream));
             }
-            cp->fz_progress = FZ_DONE;
+            exit_forbidden_zone(omlp_sem_od);
 
             lt_t fz_len = litmus_clock() - fz_start;
 
