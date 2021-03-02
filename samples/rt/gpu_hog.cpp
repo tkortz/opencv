@@ -400,6 +400,7 @@ static void printHelp()
 int main(int argc, char** argv)
 {
     struct sigaction handler;
+    memset(&handler, 0, sizeof(handler));
     handler.sa_handler = cv::cuda::HOG_RT::default_fz_sig_hndlr;
     sigaction(SIGSYS, &handler, NULL);
     try
@@ -788,6 +789,7 @@ void* App::thread_display(node_t node, pthread_barrier_t* init_barrier, bool sho
         fprintf(stderr, "display in buffer is NULL\n");
 
     struct sigaction handler;
+    memset(&handler, 0, sizeof(handler));
     handler.sa_handler = cv::cuda::HOG_RT::default_fz_sig_hndlr;
     sigaction(SIGSYS, &handler, NULL);
 
@@ -969,7 +971,12 @@ void App::thread_image_acquisition(node_t node, pthread_barrier_t* init_barrier,
     pthread_barrier_wait(init_barrier);
 
     if (t_info.realtime) {
+        // NOTE: LITMUS^RT initialization here is /almost/ identical to
+        //       set_up_litmus_task(), but we don't allow for early releasing.
+        // Handle signals locally. Deferring to our potentially non-real-time
+        // parent may cause a priority inversion.
         struct sigaction handler;
+        memset(&handler, 0, sizeof(handler));
         handler.sa_handler = cv::cuda::HOG_RT::default_fz_sig_hndlr;
         sigaction(SIGSYS, &handler, NULL);
         // if (t_info.cluster != -1)
@@ -1115,10 +1122,11 @@ void App::thread_color_convert(node_t node, pthread_barrier_t* init_barrier,
 
     struct rt_task param;
     int omlp_sem_od = -1;
+    struct control_page* cp;
     if (t_info.realtime) {
         gpu_hog->set_up_litmus_task(t_info, param, &omlp_sem_od);
     }
-    struct control_page* cp = get_ctrl_page();
+    cp = get_ctrl_page();
 
     if(!hog_sample_errors)
     {
@@ -2079,6 +2087,7 @@ void App::thread_fine_CC_S_ABCDE(node_t node, pthread_barrier_t* init_barrier,
         // Handle signals locally. Deferring to our potentially non-real-time
         // parent may cause a priority inversion.
         struct sigaction handler;
+        memset(&handler, 0, sizeof(handler));
         handler.sa_handler = cv::cuda::HOG_RT::default_fz_sig_hndlr;
         sigaction(SIGSYS, &handler, NULL);
         // if (t_info.cluster != -1)

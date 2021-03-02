@@ -6164,6 +6164,7 @@ namespace
         // Handle signals locally. Deferring to our potentially non-real-time
         // parent may cause a priority inversion.
         struct sigaction handler;
+        memset(&handler, 0, sizeof(handler));
         handler.sa_handler = default_fz_sig_hndlr;
         sigaction(SIGSYS, &handler, NULL);
         // if (t_info.cluster != -1)
