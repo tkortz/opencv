@@ -75,9 +75,9 @@ if(__ret < 0) { \
 /* Catch errors.
  */
 #define CALL( exp ) do { \
-    int ret; \
-    ret = exp; \
-    if (ret != 0) \
+    int _ret; \
+    _ret = exp; \
+    if (_ret != 0) \
     fprintf(stderr, "%s failed: %m\n", #exp);\
     else \
     fprintf(stderr, "%s ok.\n", #exp); \
@@ -877,23 +877,6 @@ void* App::thread_display(node_t node, pthread_barrier_t* init_barrier, bool sho
     pthread_barrier_wait(init_barrier);
 
     pthread_exit(0);
-}
-
-static int loop(int count, int *nums, int numCount)
-{
-    // Taken from rtspin: touch some numbers and do some math
-    int j = 0;
-    for (int i = 0; i < count; i++)
-    {
-        int index = i % numCount;
-        j += nums[index]++;
-        if (j > nums[index])
-        {
-            nums[index] = (j / 2) + 1;
-        }
-    }
-
-    return j;
 }
 
 void App::thread_image_acquisition(node_t node, pthread_barrier_t* init_barrier,
@@ -1725,12 +1708,7 @@ void App::sched_configurable_hog(cv::Ptr<cv::cuda::HOG_RT> gpu_hog, cv::HOGDescr
             float bound_color_convert           = args.non_level_bounds[0];
             float bound_compute_scales          = args.non_level_bounds[1];
             vector<vector<float>> bound_levels  = args.level_bounds;
-
-            float cost_image_acqusition        = 0; // TODO
-            float cost_color_convert           = args.non_level_costs[0];
-            float cost_compute_scales          = args.non_level_costs[1];
             vector<vector<float>> cost_levels  = args.level_costs;
-            float cost_collect_locations       = args.non_level_costs[2];
 
             /* | first graph release      | second graph release     | first graph release again
             *  <---------PERIOD--------->
