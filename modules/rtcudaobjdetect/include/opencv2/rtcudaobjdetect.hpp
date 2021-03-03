@@ -50,6 +50,7 @@
 #include "opencv2/core/cuda.hpp"
 #include <pgm.h>
 #include <litmus.h>
+#include <signal.h>
 #include <vector>
 #include <cuda_runtime.h>
 
@@ -288,6 +289,7 @@ public:
     virtual void set_up_litmus_task(const struct task_info &t_info, struct rt_task &param, int *sem_od) = 0;
     virtual void set_up_constants(const cudaStream_t& stream) = 0;
     static void default_fz_sig_hndlr(int sig);
+    sighandler_t get_aborting_fz_sig_hndlr();
 
     virtual int open_lock(int resource_id) = 0;
     virtual int lock_fzlp(int sem_od) = 0;
@@ -299,6 +301,11 @@ public:
 
     virtual int numPartsWithin(int size, int part_size, int stride) const = 0;
     virtual Size numPartsWithin(Size size, Size part_size, Size stride) const = 0;
+
+    bool is_aborting_frame = false;
+
+protected:
+    static void aborting_fz_sig_hndlr(int sig);
 };
 
 //! @}

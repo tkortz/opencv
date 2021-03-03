@@ -977,7 +977,7 @@ void App::thread_image_acquisition(node_t node, pthread_barrier_t* init_barrier,
         // parent may cause a priority inversion.
         struct sigaction handler;
         memset(&handler, 0, sizeof(handler));
-        handler.sa_handler = cv::cuda::HOG_RT::default_fz_sig_hndlr;
+        handler.sa_handler = gpu_hog->get_aborting_fz_sig_hndlr();
         sigaction(SIGSYS, &handler, NULL);
         // if (t_info.cluster != -1)
         //     CALL(be_migrate_to_domain(t_info.cluster));
@@ -1029,6 +1029,7 @@ void App::thread_image_acquisition(node_t node, pthread_barrier_t* init_barrier,
             unsigned data_idx = (j / args.num_fine_graphs) % cons_copies;
             cuda::GpuMat *gpu_img = gpu_img_array[data_idx];
 
+            gpu_hog->is_aborting_frame = false;
             gpu_hog->setNumLevels(nlevels);
             gpu_hog->setHitThreshold(hit_threshold);
             gpu_hog->setScaleFactor(scale);
@@ -1135,6 +1136,10 @@ void App::thread_color_convert(node_t node, pthread_barrier_t* init_barrier,
 
         do {
             ret = pgm_wait(node);
+            if (gpu_hog->is_aborting_frame) {
+                CheckError(pgm_complete(node));
+                continue;
+            }
 
             if(ret != PGM_TERMINATE)
             {
@@ -2088,7 +2093,7 @@ void App::thread_fine_CC_S_ABCDE(node_t node, pthread_barrier_t* init_barrier,
         // parent may cause a priority inversion.
         struct sigaction handler;
         memset(&handler, 0, sizeof(handler));
-        handler.sa_handler = cv::cuda::HOG_RT::default_fz_sig_hndlr;
+        handler.sa_handler = gpu_hog->get_aborting_fz_sig_hndlr();
         sigaction(SIGSYS, &handler, NULL);
         // if (t_info.cluster != -1)
         //     CALL(be_migrate_to_domain(t_info.cluster));
@@ -2184,6 +2189,7 @@ void App::thread_fine_CC_S_ABCDE(node_t node, pthread_barrier_t* init_barrier,
              * UNLOCK: upload image to GPU
              * ============= */
 
+            gpu_hog->is_aborting_frame = false;
             gpu_hog->setNumLevels(nlevels);
             gpu_hog->setHitThreshold(hit_threshold);
             gpu_hog->setScaleFactor(scale);

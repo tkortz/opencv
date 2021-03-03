@@ -197,15 +197,33 @@ namespace cv { namespace cuda { namespace device
     }
 }}}
 
-void cv::cuda::HOG_RT::default_fz_sig_hndlr(int sig)
-{
-    struct control_page* cp = get_ctrl_page();
-    if (sig == SIGSYS)
+namespace cv::cuda {
+    // This is necessary as signal handlers must be static class functions or non-capturing lambdas
+    __thread bool* fz_hndlr_state_prxy = NULL;
+    // Impl for class methods
+    void HOG_RT::default_fz_sig_hndlr(int sig)
     {
-        if (!cp)
-            fprintf(stderr, " *** KERNEL BUG! FZ exceedance sent to non-real-time task %d!\n", gettid());
-        else
-            fprintf(stderr, "FZ exceedance in (%d/%ld)!\n", gettid(), cp->job_index);
+        struct control_page* cp = get_ctrl_page();
+        if (sig == SIGSYS)
+        {
+            if (!cp) {
+                fprintf(stderr, " *** KERNEL BUG! FZ exceedance sent to non-real-time task %d!\n", gettid());
+                fprintf(stdout, " *** KERNEL BUG! FZ exceedance sent to non-real-time task %d!\n", gettid());
+            }
+            else {
+                fprintf(stderr, "FZ exceedance in (%d/%ld)!\n", gettid(), cp->job_index);
+            }
+        }
+    }
+    void HOG_RT::aborting_fz_sig_hndlr(int sig) {
+        *fz_hndlr_state_prxy = sig == SIGSYS;
+        default_fz_sig_hndlr(sig);
+    }
+    sighandler_t HOG_RT::get_aborting_fz_sig_hndlr() {
+        if (fz_hndlr_state_prxy)
+            throw std::domain_error("Can only get aborting_fz_sig_hndlr once per thread.");
+        fz_hndlr_state_prxy = &this->is_aborting_frame;
+        return aborting_fz_sig_hndlr;
     }
 }
 
@@ -658,6 +676,10 @@ namespace
         {
             do {
                 ret = pgm_wait(node);
+                if (this->is_aborting_frame) {
+                    CheckError(pgm_complete(node));
+                    continue;
+                }
 
                 if(ret != PGM_TERMINATE)
                 {
@@ -848,6 +870,10 @@ namespace
 
             do {
                 ret = pgm_wait(node);
+                if (this->is_aborting_frame) {
+                    CheckError(pgm_complete(node));
+                    continue;
+                }
 
                 if(ret != PGM_TERMINATE)
                 {
@@ -951,6 +977,10 @@ namespace
 
             do {
                 ret = pgm_wait(node);
+                if (this->is_aborting_frame) {
+                    CheckError(pgm_complete(node));
+                    continue;
+                }
 
                 if(ret != PGM_TERMINATE)
                 {
@@ -1057,6 +1087,10 @@ namespace
 
             do {
                 ret = pgm_wait(node);
+                if (this->is_aborting_frame) {
+                    CheckError(pgm_complete(node));
+                    continue;
+                }
 
                 if(ret != PGM_TERMINATE)
                 {
@@ -1160,6 +1194,10 @@ namespace
 
             do {
                 ret = pgm_wait(node);
+                if (this->is_aborting_frame) {
+                    CheckError(pgm_complete(node));
+                    continue;
+                }
 
                 if(ret != PGM_TERMINATE)
                 {
@@ -1262,6 +1300,10 @@ namespace
 
             do {
                 ret = pgm_wait(node);
+                if (this->is_aborting_frame) {
+                    CheckError(pgm_complete(node));
+                    continue;
+                }
 
                 if(ret != PGM_TERMINATE)
                 {
@@ -1383,6 +1425,10 @@ namespace
 
             do {
                 ret = pgm_wait(node);
+                if (this->is_aborting_frame) {
+                    CheckError(pgm_complete(node));
+                    continue;
+                }
 
                 if(ret != PGM_TERMINATE)
                 {
@@ -1747,6 +1793,10 @@ namespace
 
             do {
                 ret = pgm_wait(node);
+                if (this->is_aborting_frame) {
+                    CheckError(pgm_complete(node));
+                    continue;
+                }
 
                 if(ret != PGM_TERMINATE)
                 {
@@ -1856,6 +1906,10 @@ namespace
 
             do {
                 ret = pgm_wait(node);
+                if (this->is_aborting_frame) {
+                    CheckError(pgm_complete(node));
+                    continue;
+                }
 
                 if(ret != PGM_TERMINATE)
                 {
@@ -1965,6 +2019,10 @@ namespace
 
             do {
                 ret = pgm_wait(node);
+                if (this->is_aborting_frame) {
+                    CheckError(pgm_complete(node));
+                    continue;
+                }
 
                 if(ret != PGM_TERMINATE)
                 {
@@ -2075,6 +2133,10 @@ namespace
 
             do {
                 ret = pgm_wait(node);
+                if (this->is_aborting_frame) {
+                    CheckError(pgm_complete(node));
+                    continue;
+                }
 
                 if(ret != PGM_TERMINATE)
                 {
@@ -2185,6 +2247,10 @@ namespace
 
             do {
                 ret = pgm_wait(node);
+                if (this->is_aborting_frame) {
+                    CheckError(pgm_complete(node));
+                    continue;
+                }
 
                 if(ret != PGM_TERMINATE)
                 {
@@ -2297,6 +2363,10 @@ namespace
 
             do {
                 ret = pgm_wait(node);
+                if (this->is_aborting_frame) {
+                    CheckError(pgm_complete(node));
+                    continue;
+                }
 
                 if(ret != PGM_TERMINATE)
                 {
@@ -2412,6 +2482,10 @@ namespace
 
             do {
                 ret = pgm_wait(node);
+                if (this->is_aborting_frame) {
+                    CheckError(pgm_complete(node));
+                    continue;
+                }
 
                 if(ret != PGM_TERMINATE)
                 {
@@ -2527,6 +2601,10 @@ namespace
 
             do {
                 ret = pgm_wait(node);
+                if (this->is_aborting_frame) {
+                    CheckError(pgm_complete(node));
+                    continue;
+                }
 
                 if(ret != PGM_TERMINATE)
                 {
@@ -2645,6 +2723,10 @@ namespace
 
             do {
                 ret = pgm_wait(node);
+                if (this->is_aborting_frame) {
+                    CheckError(pgm_complete(node));
+                    continue;
+                }
 
                 if(ret != PGM_TERMINATE)
                 {
@@ -2766,6 +2848,10 @@ namespace
 
             do {
                 ret = pgm_wait(node);
+                if (this->is_aborting_frame) {
+                    CheckError(pgm_complete(node));
+                    continue;
+                }
 
                 if(ret != PGM_TERMINATE)
                 {
@@ -2889,6 +2975,10 @@ namespace
 
             do {
                 ret = pgm_wait(node);
+                if (this->is_aborting_frame) {
+                    CheckError(pgm_complete(node));
+                    continue;
+                }
 
                 if(ret != PGM_TERMINATE)
                 {
@@ -3088,6 +3178,10 @@ namespace
 
             do {
                 ret = pgm_wait(node);
+                if (this->is_aborting_frame) {
+                    CheckError(pgm_complete(node));
+                    continue;
+                }
 
                 if(ret != PGM_TERMINATE)
                 {
@@ -3323,6 +3417,10 @@ namespace
 
             do {
                 ret = pgm_wait(node);
+                if (this->is_aborting_frame) {
+                    CheckError(pgm_complete(node));
+                    continue;
+                }
 
                 if(ret != PGM_TERMINATE)
                 {
@@ -3592,6 +3690,10 @@ namespace
 
             do {
                 ret = pgm_wait(node);
+                if (this->is_aborting_frame) {
+                    CheckError(pgm_complete(node));
+                    continue;
+                }
 
                 if(ret != PGM_TERMINATE)
                 {
@@ -3895,6 +3997,10 @@ namespace
 
             do {
                 ret = pgm_wait(node);
+                if (this->is_aborting_frame) {
+                    CheckError(pgm_complete(node));
+                    continue;
+                }
 
                 if(ret != PGM_TERMINATE)
                 {
@@ -4535,6 +4641,10 @@ namespace
 
             do {
                 ret = pgm_wait(node);
+                if (this->is_aborting_frame) {
+                    CheckError(pgm_complete(node));
+                    continue;
+                }
 
                 if(ret != PGM_TERMINATE)
                 {
@@ -4817,6 +4927,10 @@ namespace
 
             do {
                 ret = pgm_wait(node);
+                if (this->is_aborting_frame) {
+                    CheckError(pgm_complete(node));
+                    continue;
+                }
 
                 if(ret != PGM_TERMINATE)
                 {
@@ -5118,6 +5232,10 @@ namespace
 
             do {
                 ret = pgm_wait(node);
+                if (this->is_aborting_frame) {
+                    CheckError(pgm_complete(node));
+                    continue;
+                }
 
                 if(ret != PGM_TERMINATE)
                 {
@@ -5450,6 +5568,10 @@ namespace
 
             do {
                 ret = pgm_wait(node);
+                if (this->is_aborting_frame) {
+                    CheckError(pgm_complete(node));
+                    continue;
+                }
 
                 if(ret != PGM_TERMINATE)
                 {
@@ -5821,6 +5943,10 @@ namespace
 
             do {
                 ret = pgm_wait(node);
+                if (this->is_aborting_frame) {
+                    CheckError(pgm_complete(node));
+                    continue;
+                }
 
                 if(ret != PGM_TERMINATE)
                 {
@@ -6165,7 +6291,7 @@ namespace
         // parent may cause a priority inversion.
         struct sigaction handler;
         memset(&handler, 0, sizeof(handler));
-        handler.sa_handler = default_fz_sig_hndlr;
+        handler.sa_handler = get_aborting_fz_sig_hndlr();
         sigaction(SIGSYS, &handler, NULL);
         // if (t_info.cluster != -1)
         //     CALL(be_migrate_to_domain(t_info.cluster));
