@@ -64,8 +64,8 @@ do { int __ret = (e); \
 if(__ret < 0) { \
     hog_sample_errors++; \
     char* errstr = strerror_r(errno, hog_sample_errstr, sizeof(errstr)); \
-    fprintf(stderr, "%lu: Error %d (%s (%d)) @ %s:%s:%d\n",  \
-            pthread_self(), __ret, errstr, errno, __FILE__, __FUNCTION__, __LINE__); \
+    fprintf(stderr, "%d: Error %d (%s (%d)) @ %s:%s:%d\n",  \
+            gettid(), __ret, errstr, errno, __FILE__, __FUNCTION__, __LINE__); \
 }}while(0)
 
 
