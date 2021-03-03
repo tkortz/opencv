@@ -119,34 +119,44 @@ namespace cv { namespace cuda { namespace device
             int res = -2;
 
             int zone_length = 0;
+            int cpu_measured = 0;
             switch (computation) {
                 case NODE_A: // resize
-                    zone_length = us2ns(360); // 5.4 us, measured at 179.8 us
+                    zone_length = us2ns(27);   // 27 us
+                    cpu_measured = us2ns(141); // 141 us
                     break;
                 case NODE_B: // compute gradients
-                    zone_length = us2ns(4896); // 16.2 us, measured at 2448.1 us
+                    zone_length = us2ns(42);   // 42 us
+                    cpu_measured = us2ns(153); // 153 us
                     break;
                 case NODE_C: // compute hists
-                    zone_length = us2ns(843); // 56.8 us, measured at 421.4 us
+                    zone_length = us2ns(56);   // 56 us
+                    cpu_measured = us2ns(187); // 187 us
                     break;
                 case NODE_D: // normalize hists
-                    zone_length = us2ns(811); // 15.1 us, measured at 405.5 us
+                    zone_length = us2ns(28);   // 28 us
+                    cpu_measured = us2ns(145); // 145 us
                     break;
                 case NODE_E: // classify hists
-                    zone_length = us2ns(666); // 50.5 us, measured at 333.2 us
+                    zone_length = us2ns(49);   // 49 us
+                    cpu_measured = us2ns(174); // 174 us
                     break;
                 case NODE_AB: // stand-in for copy-in of image
-                    zone_length = us2ns(10000);//4884); // 38.5 us, measured at 2442.0 us
+                    zone_length = us2ns(77);   // 77 us
+                    cpu_measured = us2ns(197); // 197 us
                     break;
                 case NODE_DE: // stand-in for copy-out of results
-                    zone_length = us2ns(10000);//4582); // 1.6 us, measured at 2290.9 us
+                    zone_length = us2ns(29);   // 29 us
+                    cpu_measured = us2ns(49);  // 49 us
                     break;
                 default:
-                    zone_length = ms2ns(10); // default to 10 milliseconds
+                    zone_length = ms2ns(2);    // default to 2 milliseconds
+                    cpu_measured = ms2ns(3);   // default to 3 milliseconds
                     break;
             }
 
-            zone_length = ms2ns(1); // default to 1 milliseconds
+            zone_length += us2ns(100);
+            cpu_measured += us2ns(100);
 
             if (sem_od >= 0)
             {
