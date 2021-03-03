@@ -123,31 +123,31 @@ namespace cv { namespace cuda { namespace device
             switch (computation) {
                 case NODE_A: // resize
                     zone_length = us2ns(27);   // 27 us
-                    cpu_measured = us2ns(141); // 141 us
+                    cpu_measured = us2ns(136); // 136 us
                     break;
                 case NODE_B: // compute gradients
                     zone_length = us2ns(42);   // 42 us
-                    cpu_measured = us2ns(153); // 153 us
+                    cpu_measured = us2ns(146); // 146 us
                     break;
                 case NODE_C: // compute hists
                     zone_length = us2ns(56);   // 56 us
-                    cpu_measured = us2ns(187); // 187 us
+                    cpu_measured = us2ns(181); // 181 us
                     break;
                 case NODE_D: // normalize hists
                     zone_length = us2ns(28);   // 28 us
-                    cpu_measured = us2ns(145); // 145 us
+                    cpu_measured = us2ns(137); // 137 us
                     break;
                 case NODE_E: // classify hists
                     zone_length = us2ns(49);   // 49 us
-                    cpu_measured = us2ns(174); // 174 us
+                    cpu_measured = us2ns(171); // 171 us
                     break;
                 case NODE_AB: // stand-in for copy-in of image
                     zone_length = us2ns(77);   // 77 us
-                    cpu_measured = us2ns(197); // 197 us
+                    cpu_measured = us2ns(178); // 178 us
                     break;
                 case NODE_DE: // stand-in for copy-out of results
                     zone_length = us2ns(29);   // 29 us
-                    cpu_measured = us2ns(49);  // 49 us
+                    cpu_measured = us2ns(36);  // 36 us
                     break;
                 default:
                     zone_length = ms2ns(2);    // default to 2 milliseconds
@@ -155,8 +155,12 @@ namespace cv { namespace cuda { namespace device
                     break;
             }
 
-            zone_length += us2ns(100);
-            cpu_measured += us2ns(100);
+            // Add overhead values
+            zone_length += 1185; // TIMER-LATENCY, in ns
+
+            // Multiply both durations by a 10% margin
+            zone_length *= 1.1;
+            cpu_measured *= 1.1;
 
             if (sem_od >= 0)
             {
