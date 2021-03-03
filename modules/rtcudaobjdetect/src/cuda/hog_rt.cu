@@ -168,6 +168,15 @@ namespace cv { namespace cuda { namespace device
             return res;
         }
 
+        int set_fz_launch_done(int sem_od)
+        {
+            if (!use_locks) return -3;
+            int res = -2;
+            if (sem_od >= 0)
+                res = litmus_set_fz_launch_done(sem_od);
+            return res;
+        }
+
         int exit_forbidden_zone(int sem_od)
         {
             if (!use_locks) return -3;
@@ -402,7 +411,6 @@ namespace cv { namespace cuda { namespace device
             int hists_size = (nbins * ncells_block * patch_size * nblocks) * sizeof(float);
             int final_hists_size = (nbins * ncells_block * nblocks) * sizeof(float);
             int smem = hists_size + final_hists_size;
-            struct control_page* cp = get_ctrl_page();
 
             /* =============
              * LOCK: compute hists
@@ -422,8 +430,7 @@ namespace cv { namespace cuda { namespace device
             else
                 compute_hists_kernel_many_blocks<1><<<grid, threads, smem, stream>>>(img_block_width, grad, qangle, scale, block_hists, cell_size_x, patch_size, block_patch_size, threads_cell, threads_block, half_cell_size);
 
-            cp->fz_progress = FZ_POST_GPU_LAUNCH;
-            exit_np();
+            set_fz_launch_done(omlp_sem_od);
 
             cudaSafeCall( cudaGetLastError() );
 
@@ -538,7 +545,6 @@ namespace cv { namespace cuda { namespace device
             int img_block_width = (width - ncells_block_x * cell_size_x + block_stride_x) / block_stride_x;
             int img_block_height = (height - ncells_block_y * cell_size_y + block_stride_y) / block_stride_y;
             dim3 grid(divUp(img_block_width, nblocks), img_block_height);
-            struct control_page* cp = get_ctrl_page();
 
             /* =============
              * LOCK: normalize hists
@@ -562,8 +568,7 @@ namespace cv { namespace cuda { namespace device
             else
                 CV_Error(cv::Error::StsBadArg, "normalize_hists: histogram's size is too big, try to decrease number of bins");
 
-            cp->fz_progress = FZ_POST_GPU_LAUNCH;
-            exit_np();
+            set_fz_launch_done(omlp_sem_od);
 
             cudaSafeCall( cudaGetLastError() );
 
@@ -638,7 +643,6 @@ namespace cv { namespace cuda { namespace device
             dim3 grid(divUp(img_win_width, nblocks), img_win_height);
 
             int img_block_width = (width - ncells_block_x * cell_size_x + block_stride_x) / block_stride_x;
-            struct control_page* cp = get_ctrl_page();
 
             /* =============
              * LOCK: classify hists
@@ -656,8 +660,7 @@ namespace cv { namespace cuda { namespace device
                 img_win_width, img_block_width, win_block_stride_x, win_block_stride_y,
                 block_hists, coefs, free_coef, threshold, labels);
 
-            cp->fz_progress = FZ_POST_GPU_LAUNCH;
-            exit_np();
+            set_fz_launch_done(omlp_sem_od);
 
             cudaSafeCall( cudaGetLastError() );
 
@@ -735,7 +738,6 @@ namespace cv { namespace cuda { namespace device
 
            int img_block_width = (width - ncells_block_x * cell_size_x + block_stride_x) /
                                                        block_stride_x;
-           struct control_page* cp = get_ctrl_page();
 
            /* =============
             * LOCK: classify hists
@@ -754,8 +756,7 @@ namespace cv { namespace cuda { namespace device
                    img_win_width, img_block_width, win_block_stride_x, win_block_stride_y,
                    block_hists, coefs, free_coef, threshold, confidences);
 
-           cp->fz_progress = FZ_POST_GPU_LAUNCH;
-           exit_np();
+           set_fz_launch_done(omlp_sem_od);
 
            cudaSafeCall(cudaStreamSynchronize(stream));
            exit_forbidden_zone(omlp_sem_od);
@@ -894,7 +895,6 @@ namespace cv { namespace cuda { namespace device
 
             dim3 bdim(nthreads, 1);
             dim3 gdim(divUp(width, bdim.x), divUp(height, bdim.y));
-            struct control_page* cp = get_ctrl_page();
 
             /* =============
              * LOCK: compute gradients
@@ -910,8 +910,7 @@ namespace cv { namespace cuda { namespace device
             else
                 compute_gradients_8UC4_kernel<nthreads, 0><<<gdim, bdim, 0, stream>>>(height, width, img, angle_scale, grad, qangle);
 
-            cp->fz_progress = FZ_POST_GPU_LAUNCH;
-            exit_np();
+            set_fz_launch_done(omlp_sem_od);
 
             cudaSafeCall( cudaGetLastError() );
 
@@ -1002,7 +1001,6 @@ namespace cv { namespace cuda { namespace device
 
             dim3 bdim(nthreads, 1);
             dim3 gdim(divUp(width, bdim.x), divUp(height, bdim.y));
-            struct control_page* cp = get_ctrl_page();
 
             /* =============
              * LOCK: compute gradients
@@ -1018,8 +1016,7 @@ namespace cv { namespace cuda { namespace device
             else
                 compute_gradients_8UC1_kernel<nthreads, 0><<<gdim, bdim, 0, stream>>>(height, width, img, angle_scale, grad, qangle);
 
-            cp->fz_progress = FZ_POST_GPU_LAUNCH;
-            exit_np();
+            set_fz_launch_done(omlp_sem_od);
 
             cudaSafeCall( cudaGetLastError() );
 
@@ -1161,7 +1158,6 @@ namespace cv { namespace cuda { namespace device
 
             float sx = static_cast<float>(src.cols) / dst.cols;
             float sy = static_cast<float>(src.rows) / dst.rows;
-            struct control_page* cp = get_ctrl_page();
 
             /* =============
              * LOCK: resize
@@ -1184,8 +1180,7 @@ namespace cv { namespace cuda { namespace device
 
             resize_for_hog_kernel<<<grid, threads, 0, stream>>>(sx, sy, (PtrStepSz<T>)dst, colOfs, tex_index);
 
-            cp->fz_progress = FZ_POST_GPU_LAUNCH;
-            exit_np();
+            set_fz_launch_done(omlp_sem_od);
 
             cudaSafeCall( cudaGetLastError() );
 

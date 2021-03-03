@@ -192,6 +192,7 @@ namespace cv { namespace cuda { namespace device
         int open_fzlp_lock(int resource_id);
         int lock_fzlp(int sem_od);
         int wait_forbidden_zone(int sem_od, node_config computation);
+        int set_fz_launch_done(int sem_od);
         int exit_forbidden_zone(int sem_od);
         int unlock_fzlp(int sem_od);
     }
@@ -354,6 +355,7 @@ namespace
         int open_lock(int resource_id);
         int lock_fzlp(int sem_od);
         int wait_forbidden_zone(int sem_od, node_config computation);
+        int set_fz_launch_done(int sem_od);
         int exit_forbidden_zone(int sem_od);
         int unlock_fzlp(int sem_od);
 
@@ -1413,11 +1415,9 @@ namespace
 
         struct rt_task param;
         int omlp_sem_od = -1;
-        struct control_page* cp;
         if (t_info.realtime) {
             set_up_litmus_task(t_info, param, &omlp_sem_od);
         }
-        cp = get_ctrl_page();
 
         if(!hog_errors)
         {
@@ -1473,8 +1473,7 @@ namespace
                             lt_t fz_start = litmus_clock();
 
                             labels->download(labels_host, stream);
-                            cp->fz_progress = FZ_POST_GPU_LAUNCH;
-                            exit_np();
+                            hog_rt::set_fz_launch_done(omlp_sem_od);
                             cudaStreamSynchronize(stream);
                             hog_rt::exit_forbidden_zone(omlp_sem_od);
 
@@ -1510,8 +1509,7 @@ namespace
                             lt_t fz_start = litmus_clock();
 
                             labels->download(labels_host, stream);
-                            cp->fz_progress = FZ_POST_GPU_LAUNCH;
-                            exit_np();
+                            hog_rt::set_fz_launch_done(omlp_sem_od);
                             cudaStreamSynchronize(stream);
                             hog_rt::exit_forbidden_zone(omlp_sem_od);
 
@@ -1662,6 +1660,10 @@ namespace
     int HOG_Impl::wait_forbidden_zone(int sem_od, node_config computation)
     {
         return hog_rt::wait_forbidden_zone(sem_od, computation);
+    }
+    int HOG_Impl::set_fz_launch_done(int sem_od)
+    {
+        return hog_rt::set_fz_launch_done(sem_od);
     }
 
     int HOG_Impl::exit_forbidden_zone(int sem_od)
@@ -4630,11 +4632,9 @@ namespace
 
         struct rt_task param;
         int omlp_sem_od = -1;
-        struct control_page* cp;
         if (t_info.realtime) {
             set_up_litmus_task(t_info, param, &omlp_sem_od);
         }
-        cp = get_ctrl_page();
 
         if(!hog_errors)
         {
@@ -4747,8 +4747,7 @@ namespace
                             lt_t fz_start = litmus_clock();
 
                             labels->download(labels_host, stream);
-                            cp->fz_progress = FZ_POST_GPU_LAUNCH;
-                            exit_np();
+                            hog_rt::set_fz_launch_done(omlp_sem_od);
                             cudaStreamSynchronize(stream);
                             hog_rt::exit_forbidden_zone(omlp_sem_od);
 
@@ -4917,11 +4916,9 @@ namespace
 
         struct rt_task param;
         int omlp_sem_od = -1;
-        struct control_page* cp;
         if (t_info.realtime) {
             set_up_litmus_task(t_info, param, &omlp_sem_od);
         }
-        cp = get_ctrl_page();
 
         if(!hog_errors)
         {
@@ -5048,8 +5045,7 @@ namespace
                             lt_t fz_start = litmus_clock();
 
                             labels->download(labels_host, stream);
-                            cp->fz_progress = FZ_POST_GPU_LAUNCH;
-                            exit_np();
+                            hog_rt::set_fz_launch_done(omlp_sem_od);
                             cudaStreamSynchronize(stream);
                             hog_rt::exit_forbidden_zone(omlp_sem_od);
 
@@ -5223,11 +5219,9 @@ namespace
 
         struct rt_task param;
         int omlp_sem_od = -1;
-        struct control_page* cp;
         if (t_info.realtime) {
             set_up_litmus_task(t_info, param, &omlp_sem_od);
         }
-        cp = get_ctrl_page();
 
         if(!hog_errors)
         {
@@ -5386,8 +5380,7 @@ namespace
                             lt_t fz_start = litmus_clock();
 
                             labels->download(labels_host, stream);
-                            cp->fz_progress = FZ_POST_GPU_LAUNCH;
-                            exit_np();
+                            hog_rt::set_fz_launch_done(omlp_sem_od);
                             cudaStreamSynchronize(stream);
                             hog_rt::exit_forbidden_zone(omlp_sem_od);
 
@@ -5560,11 +5553,9 @@ namespace
 
         struct rt_task param;
         int omlp_sem_od = -1;
-        struct control_page* cp;
         if (t_info.realtime) {
             set_up_litmus_task(t_info, param, &omlp_sem_od);
         }
-        cp = get_ctrl_page();
 
         if(!hog_errors)
         {
@@ -5759,8 +5750,7 @@ namespace
                             lt_t fz_start = litmus_clock();
 
                             labels->download(labels_host, stream);
-                            cp->fz_progress = FZ_POST_GPU_LAUNCH;
-                            exit_np();
+                            hog_rt::set_fz_launch_done(omlp_sem_od);
                             cudaStreamSynchronize(stream);
                             hog_rt::exit_forbidden_zone(omlp_sem_od);
 
@@ -5936,11 +5926,9 @@ namespace
 
         struct rt_task param;
         int omlp_sem_od = -1;
-        struct control_page* cp;
         if (t_info.realtime) {
             set_up_litmus_task(t_info, param, &omlp_sem_od);
         }
-        cp = get_ctrl_page();
 
         if(!hog_errors)
         {
@@ -6175,8 +6163,7 @@ namespace
                             lt_t fz_start = litmus_clock();
 
                             labels->download(labels_host, stream);
-                            cp->fz_progress = FZ_POST_GPU_LAUNCH;
-                            exit_np();
+                            hog_rt::set_fz_launch_done(omlp_sem_od);
                             cudaStreamSynchronize(stream);
                             hog_rt::exit_forbidden_zone(omlp_sem_od);
 

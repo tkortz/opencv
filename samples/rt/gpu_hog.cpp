@@ -1119,11 +1119,9 @@ void App::thread_color_convert(node_t node, pthread_barrier_t* init_barrier,
 
     struct rt_task param;
     int omlp_sem_od = -1;
-    struct control_page* cp;
     if (t_info.realtime) {
         gpu_hog->set_up_litmus_task(t_info, param, &omlp_sem_od);
     }
-    cp = get_ctrl_page();
 
     if(!hog_sample_errors)
     {
@@ -1164,8 +1162,7 @@ void App::thread_color_convert(node_t node, pthread_barrier_t* init_barrier,
                 lt_t fz_start = litmus_clock();
 
                 gpu_img->upload(*img, stream);
-                cp->fz_progress = FZ_POST_GPU_LAUNCH;
-                exit_np();
+                gpu_hog->set_fz_launch_done(omlp_sem_od);
                 cudaStreamSynchronize(stream);
                 gpu_hog->exit_forbidden_zone(omlp_sem_od);
 
@@ -2127,7 +2124,6 @@ void App::thread_fine_CC_S_ABCDE(node_t node, pthread_barrier_t* init_barrier,
     fprintf(stdout, "[%d | %d] Calling litmus_open_lock for OMLP_SEM.\n", gettid(), getpid());
     int omlp_sem_od = gpu_hog->open_lock(args.cluster); // use the cluster ID as the resource ID
     fprintf(stdout, "[%d | %d] Got OMLP_SEM=%d.\n", gettid(), getpid(), omlp_sem_od);
-    struct control_page* cp = get_ctrl_page();
 
     cudaStream_t stream;
     cudaStreamCreate(&stream);
@@ -2175,8 +2171,7 @@ void App::thread_fine_CC_S_ABCDE(node_t node, pthread_barrier_t* init_barrier,
             SAMPLE_START_LOCK(lt_t fz_start, NODE_AB);
 
             gpu_img->upload(*img, stream);
-            cp->fz_progress = FZ_POST_GPU_LAUNCH;
-            exit_np();
+            gpu_hog->set_fz_launch_done(omlp_sem_od);
             cudaStreamSynchronize(stream);
             gpu_hog->exit_forbidden_zone(omlp_sem_od);
 
