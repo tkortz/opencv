@@ -212,6 +212,7 @@ namespace cv::cuda {
             }
             else {
                 fprintf(stderr, "FZ exceedance in (%d/%ld)!\n", gettid(), cp->job_index);
+                fprintf(stdout, "FZ exceedance in (%d/%ld)!\n", gettid(), cp->job_index);
             }
         }
     }
@@ -1426,6 +1427,7 @@ namespace
             do {
                 ret = pgm_wait(node);
                 if (this->is_aborting_frame) {
+                    fprintf(stdout, "dropped a frame\n");
                     CheckError(pgm_complete(node));
                     continue;
                 }
@@ -4642,6 +4644,7 @@ namespace
             do {
                 ret = pgm_wait(node);
                 if (this->is_aborting_frame) {
+                    fprintf(stdout, "dropped a frame\n");
                     CheckError(pgm_complete(node));
                     continue;
                 }
@@ -4928,6 +4931,7 @@ namespace
             do {
                 ret = pgm_wait(node);
                 if (this->is_aborting_frame) {
+                    fprintf(stdout, "dropped a frame\n");
                     CheckError(pgm_complete(node));
                     continue;
                 }
@@ -5233,6 +5237,7 @@ namespace
             do {
                 ret = pgm_wait(node);
                 if (this->is_aborting_frame) {
+                    fprintf(stdout, "dropped a frame\n");
                     CheckError(pgm_complete(node));
                     continue;
                 }
@@ -5569,6 +5574,7 @@ namespace
             do {
                 ret = pgm_wait(node);
                 if (this->is_aborting_frame) {
+                    fprintf(stdout, "dropped a frame\n");
                     CheckError(pgm_complete(node));
                     continue;
                 }
@@ -5944,6 +5950,7 @@ namespace
             do {
                 ret = pgm_wait(node);
                 if (this->is_aborting_frame) {
+                    fprintf(stdout, "dropped a frame\n");
                     CheckError(pgm_complete(node));
                     continue;
                 }
