@@ -161,7 +161,7 @@ namespace cv { namespace cuda { namespace device
             if (sem_od >= 0)
             {
                 fprintf(stdout, "[%d | %d] Checking FZ at time \t%llu (computation %d)\n", gettid(), getpid(), litmus_clock(), computation);
-                res = litmus_access_forbidden_zone_check(sem_od, zone_length, 0.9 * zone_length);
+                res = litmus_access_forbidden_zone_check(sem_od, cpu_measured, zone_length);
                 fprintf(stdout, "[%d | %d] Not in FZ at time \t%llu (status=%d)\n", gettid(), getpid(), litmus_clock(), res);
             }
 
