@@ -4334,13 +4334,13 @@ namespace
         CV_Assert( gpu_img->type() == CV_8UC1 || gpu_img->type() == CV_8UC4 );
         CV_Assert( confidences == NULL || group_threshold_ == 0 );
 
-        std::vector<double> *level_scale = new std::vector<double>();
+        std::vector<double> level_scale;
         double scale = 1.0;
         int levels = 0;
 
         for (levels = 0; levels < nlevels_; levels++)
         {
-            level_scale->push_back(scale);
+            level_scale.push_back(scale);
 
             if (cvRound(gpu_img->cols / scale) < win_size_.width ||
                     cvRound(gpu_img->rows / scale) < win_size_.height ||
@@ -4352,12 +4352,12 @@ namespace
             scale *= scale0_;
         }
         levels = std::max(levels, 1);
-        level_scale->resize(levels);
+        level_scale.resize(levels);
 
         GpuMat *smaller_img = NULL;
         GpuMat *labels = NULL;
 
-        for (size_t level_idx = 0; level_idx < level_scale->size(); level_idx++)
+        for (size_t level_idx = 0; level_idx < level_scale.size(); level_idx++)
         {
             // Compute a scale level
             smaller_img = smaller_img_array[level_idx];
@@ -4366,7 +4366,7 @@ namespace
             if (detector_.empty())
                 break;
 
-            scale = (*level_scale)[level_idx];
+            scale = level_scale[level_idx];
 
             Size sz(cvRound(gpu_img->cols / scale), cvRound(gpu_img->rows / scale));
 
@@ -4385,17 +4385,22 @@ namespace
             hog_rt::lock_fzlp(omlp_sem_od);
 
             this->resize(gpu_img, smaller_img, stream, frame_idx, omlp_sem_od, false);
+            if (this->is_aborting_frame) return;
 
             GpuMat *grad = grad_array[level_idx];
             GpuMat *qangle = qangle_array[level_idx];
             this->compute_gradients(smaller_img, grad, qangle, stream, omlp_sem_od, false);
+            if (this->is_aborting_frame) return;
 
             GpuMat *block_hists = block_hists_array[level_idx];
             this->compute_hists(smaller_img, grad, qangle, block_hists, stream, omlp_sem_od, false);
+            if (this->is_aborting_frame) return;
 
             this->normalize_hists(smaller_img, block_hists, stream, omlp_sem_od, false);
+            if (this->is_aborting_frame) return;
 
             this->classify_hists(smaller_img, block_hists, confidences, labels, stream, omlp_sem_od, false);
+            if (this->is_aborting_frame) return;
 
             hog_rt::unlock_fzlp(omlp_sem_od);
             /*
@@ -4410,11 +4415,11 @@ namespace
          * collect locations
          */
         found->clear();
-        for (size_t i = 0; i < level_scale->size(); i++)
+        for (size_t i = 0; i < level_scale.size(); i++)
         {
             smaller_img = smaller_img_array[i];
             labels = labels_array[i];
-            scale = (*level_scale)[i];
+            scale = level_scale[i];
 
             std::vector<double> level_confidences;
             std::vector<double>* level_confidences_ptr = confidences ? &level_confidences : NULL;
@@ -4448,6 +4453,7 @@ namespace
                 /*
                 * UNLOCK: download labels from GPU
                 * ============= */
+                if (this->is_aborting_frame) return;
 
                 unsigned char* vec = labels_host.ptr();
                 for (int i = 0; i < wins_per_img.area(); i++)
@@ -4501,10 +4507,6 @@ namespace
 
         lt_t frame_end_time = litmus_clock();
         printf("%d response time: %llu\n", frame_idx, frame_end_time - frame_start_time);
-
-        if (level_scale) delete level_scale;
-        if (confidences) delete confidences;
-        if (found) delete found;
     }
 
     void HOG_Impl::fine_CC_S_ABCDE(struct task_info &t_info, void** out_buf_ptrs,

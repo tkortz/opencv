@@ -1056,23 +1056,33 @@ void App::thread_hog_single_node(cv::Ptr<cv::cuda::HOG_RT> gpu_hog, cv::HOGDescr
              * UNLOCK: upload image to GPU
              * ============= */
 
-            gpu_hog->is_aborting_frame = false;
-            gpu_hog->setNumLevels(nlevels);
-            gpu_hog->setHitThreshold(hit_threshold);
-            gpu_hog->setScaleFactor(scale);
-            gpu_hog->setGroupThreshold(gr_threshold);
-
             /*
              * end of color convert
              * =========================== */
 
-            gpu_hog->fine_CC_S_ABCDE_T(t_info, gpu_img,
-                                       grad_array[data_idx], qangle_array[data_idx],
-                                       block_hists_array[data_idx],
-                                       smaller_img_array[data_idx], labels_array[data_idx],
-                                       found,
-                                       j, stream, frame_start_time,
-                                       omlp_sem_od);
+            if (!gpu_hog->is_aborting_frame)
+            {
+                gpu_hog->is_aborting_frame = false;
+                gpu_hog->setNumLevels(nlevels);
+                gpu_hog->setHitThreshold(hit_threshold);
+                gpu_hog->setScaleFactor(scale);
+                gpu_hog->setGroupThreshold(gr_threshold);
+
+                gpu_hog->fine_CC_S_ABCDE_T(t_info, gpu_img,
+                                           grad_array[data_idx], qangle_array[data_idx],
+                                           block_hists_array[data_idx],
+                                           smaller_img_array[data_idx], labels_array[data_idx],
+                                           found,
+                                           j, stream, frame_start_time,
+                                           omlp_sem_od);
+            }
+
+            if (found) delete found;
+
+            if (gpu_hog->is_aborting_frame)
+            {
+                fprintf(stdout, "dropped a frame\n");
+            }
 
             found = new vector<Rect>();
             img = new Mat();
