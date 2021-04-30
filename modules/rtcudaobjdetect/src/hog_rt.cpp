@@ -304,6 +304,16 @@ namespace
         /* five-node entire-level combination */
         void* thread_fine_ABCDE(node_t node, pthread_barrier_t* init_barrier, struct task_info t_info); // resize -> classify hists
 
+        /* color-convert and source-node and sink-node combination */
+        void fine_CC_S_ABCDE_T(struct task_info &t_info,
+                               cuda::GpuMat* gpu_img,
+                               cuda::GpuMat** grad_array, cuda::GpuMat** qangle_array,
+                               cuda::GpuMat** block_hists_array,
+                               cuda::GpuMat** smaller_img_array, cuda::GpuMat** labels_array,
+                               std::vector<Rect>* found,
+                               int frame_idx, const cudaStream_t& stream, lt_t frame_start_time,
+                               int omlp_sem_od); // color-convert -> collection-locations
+
         /* color-convert and source-node combination */
         void fine_CC_S_ABCDE(struct task_info &t_info, void** out_buf_ptrs,
                              cuda::GpuMat* gpu_img,
@@ -4300,6 +4310,201 @@ namespace
                               cells_per_block_.width, cells_per_block_.height,
                               stream);
         cudaStreamSynchronize(stream);
+    }
+
+    void HOG_Impl::fine_CC_S_ABCDE_T(struct task_info &t_info,
+                                     cuda::GpuMat* gpu_img,
+                                     cuda::GpuMat** grad_array, cuda::GpuMat** qangle_array,
+                                     cuda::GpuMat** block_hists_array,
+                                     cuda::GpuMat** smaller_img_array, cuda::GpuMat** labels_array,
+                                     std::vector<Rect>* found,
+                                     int frame_idx, const cudaStream_t& stream, lt_t frame_start_time,
+                                     int omlp_sem_od)
+    {
+        if (hog_errors)
+        {
+            fprintf(stderr, "HOG_RT ERROR!!!\n");
+        }
+
+        /* ===========================
+         * compute scale levels
+         */
+        std::vector<double> *confidences = NULL;
+
+        CV_Assert( gpu_img->type() == CV_8UC1 || gpu_img->type() == CV_8UC4 );
+        CV_Assert( confidences == NULL || group_threshold_ == 0 );
+
+        std::vector<double> *level_scale = new std::vector<double>();
+        double scale = 1.0;
+        int levels = 0;
+
+        for (levels = 0; levels < nlevels_; levels++)
+        {
+            level_scale->push_back(scale);
+
+            if (cvRound(gpu_img->cols / scale) < win_size_.width ||
+                    cvRound(gpu_img->rows / scale) < win_size_.height ||
+                    scale0_ <= 1)
+            {
+                break;
+            }
+
+            scale *= scale0_;
+        }
+        levels = std::max(levels, 1);
+        level_scale->resize(levels);
+
+        GpuMat *smaller_img = NULL;
+        GpuMat *labels = NULL;
+
+        for (size_t level_idx = 0; level_idx < level_scale->size(); level_idx++)
+        {
+            // Compute a scale level
+            smaller_img = smaller_img_array[level_idx];
+            labels = labels_array[level_idx];
+
+            if (detector_.empty())
+                break;
+
+            scale = (*level_scale)[level_idx];
+
+            Size sz(cvRound(gpu_img->cols / scale), cvRound(gpu_img->rows / scale));
+
+            if (sz == gpu_img->size())
+            {
+                *smaller_img = *gpu_img;
+            }
+
+            if (t_info.sched == CONFIGURABLE && t_info.early)
+                gpu_period_guard(t_info.s_info_in, t_info.s_info_out);
+
+            /* =============
+                * LOCK: coalesce all kernels for this level
+                * (based on config, any from this level in this node)
+                */
+            hog_rt::lock_fzlp(omlp_sem_od);
+
+            this->resize(gpu_img, smaller_img, stream, frame_idx, omlp_sem_od, false);
+
+            GpuMat *grad = grad_array[level_idx];
+            GpuMat *qangle = qangle_array[level_idx];
+            this->compute_gradients(smaller_img, grad, qangle, stream, omlp_sem_od, false);
+
+            GpuMat *block_hists = block_hists_array[level_idx];
+            this->compute_hists(smaller_img, grad, qangle, block_hists, stream, omlp_sem_od, false);
+
+            this->normalize_hists(smaller_img, block_hists, stream, omlp_sem_od, false);
+
+            this->classify_hists(smaller_img, block_hists, confidences, labels, stream, omlp_sem_od, false);
+
+            hog_rt::unlock_fzlp(omlp_sem_od);
+            /*
+             * UNLOCK: coalesce all kernels for this level
+             * ============= */
+        }
+        /*
+         * end of compute scale levels
+         * =========================== */
+
+        /* ===========================
+         * collect locations
+         */
+        found->clear();
+        for (size_t i = 0; i < level_scale->size(); i++)
+        {
+            smaller_img = smaller_img_array[i];
+            labels = labels_array[i];
+            scale = (*level_scale)[i];
+
+            std::vector<double> level_confidences;
+            std::vector<double>* level_confidences_ptr = confidences ? &level_confidences : NULL;
+            std::vector<Point> level_hits;
+            Size wins_per_img = numPartsWithin(smaller_img->size(), win_size_, win_stride_);
+            level_hits.clear();
+
+            if (level_confidences_ptr == NULL)
+            {
+                Mat labels_host;
+
+                /* =============
+                * LOCK: download labels from GPU
+                */
+                hog_rt::lock_fzlp(omlp_sem_od);
+                hog_rt::wait_forbidden_zone(omlp_sem_od, NODE_DE);
+
+                lt_t fz_start = litmus_clock();
+
+                labels->download(labels_host, stream);
+                hog_rt::set_fz_launch_done(omlp_sem_od);
+                cudaStreamSynchronize(stream);
+                hog_rt::exit_forbidden_zone(omlp_sem_od);
+
+                lt_t fz_len = litmus_clock() - fz_start;
+
+                fprintf(stdout, "[%d | %d] Computation %d took %llu microseconds.\n",
+                        gettid(), getpid(), NODE_DE, fz_len / 1000);
+
+                hog_rt::unlock_fzlp(omlp_sem_od);
+                /*
+                * UNLOCK: download labels from GPU
+                * ============= */
+
+                unsigned char* vec = labels_host.ptr();
+                for (int i = 0; i < wins_per_img.area(); i++)
+                {
+                    int y = i / wins_per_img.width;
+                    int x = i - wins_per_img.width * y;
+                    if (vec[i])
+                        level_hits.push_back(Point(x * win_stride_.width, y * win_stride_.height));
+                }
+            }
+            else
+            {
+                Mat labels_host;
+                labels->download(labels_host, stream);
+                cudaStreamSynchronize(stream);
+                float* vec = labels_host.ptr<float>();
+
+                level_confidences_ptr->clear();
+                for (int i = 0; i < wins_per_img.area(); i++)
+                {
+                    int y = i / wins_per_img.width;
+                    int x = i - wins_per_img.width * y;
+
+                    if (vec[i] >= hit_threshold_)
+                    {
+                        level_hits.push_back(Point(x * win_stride_.width, y * win_stride_.height));
+                        level_confidences_ptr->push_back((double)vec[i]);
+                    }
+                }
+            }
+
+            Size scaled_win_size(cvRound(win_size_.width * scale),
+                                 cvRound(win_size_.height * scale));
+
+            for (size_t j = 0; j < level_hits.size(); j++)
+            {
+                found->push_back(Rect(Point2d(level_hits[j]) * scale, scaled_win_size));
+                if (confidences)
+                    confidences->push_back(level_confidences[j]);
+            }
+        }
+
+        if (group_threshold_ > 0)
+        {
+            groupRectangles(*found, group_threshold_, 0.2/*magic number copied from CPU version*/);
+        }
+
+        /*
+            * end of collect locations
+            * =========================== */
+
+        lt_t frame_end_time = litmus_clock();
+        printf("%d response time: %llu\n", frame_idx, frame_end_time - frame_start_time);
+
+        if (level_scale) delete level_scale;
+        if (confidences) delete confidences;
+        if (found) delete found;
     }
 
     void HOG_Impl::fine_CC_S_ABCDE(struct task_info &t_info, void** out_buf_ptrs,

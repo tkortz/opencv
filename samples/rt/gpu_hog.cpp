@@ -305,6 +305,9 @@ public:
 
     void sched_configurable_hog(cv::Ptr<cv::cuda::HOG_RT> gpu_hog, cv::HOGDescriptor cpu_hog, Mat* frames);
 
+    void thread_hog_single_node(cv::Ptr<cv::cuda::HOG_RT> gpu_hog, cv::HOGDescriptor cpu_hog,
+                                Mat* frames, struct task_info t_info, int graph_idx);
+
     void thread_fine_CC_S_ABCDE(node_t node, pthread_barrier_t* init_barrier,
                                 cv::Ptr<cv::cuda::HOG_RT> gpu_hog,
                                 Mat* frames, struct task_info t_info, int graph_idx);
@@ -879,6 +882,226 @@ void* App::thread_display(node_t node, pthread_barrier_t* init_barrier, bool sho
     pthread_barrier_wait(init_barrier);
 
     pthread_exit(0);
+}
+
+void App::thread_hog_single_node(cv::Ptr<cv::cuda::HOG_RT> gpu_hog, cv::HOGDescriptor cpu_hog,
+                                 Mat* frames, struct task_info t_info, int graph_idx)
+{
+    fprintf(stdout, "node name: hog_single_node(source), task id: %d, node tid: %d\n", t_info.id, gettid());
+#ifdef LOG_DEBUG
+    char tabbuf[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
+    tabbuf[node.node] = '\0';
+#endif
+
+    Size win_stride(args.win_stride_width, args.win_stride_height);
+    Size win_size(args.win_width, args.win_width * 2);
+
+    Mat img_aux;
+    Mat* img = new Mat();
+    vector<Rect>* found = new vector<Rect>();
+    Mat* frame = new Mat();
+
+    // Pre-allocate all gpu_img instances we will need (one per frame)
+    unsigned cons_copies = 5; // be conservative so we don't overwrite anything
+    cuda::GpuMat* gpu_img_array[cons_copies];
+    for (unsigned i = 0; i < cons_copies; i++)
+    {
+        gpu_img_array[i] = new cuda::GpuMat();
+    }
+
+    *frame = frames[0];
+
+    double level_scale[13];
+    double scale_val = 1.0;
+    for (unsigned i = 0; i < 13; i++)
+    {
+        level_scale[i] = scale_val;
+        scale_val *= scale;
+    }
+
+    cv::cuda::Stream managed_stream;
+    cuda::BufferPool pool(managed_stream);
+    cuda::GpuMat* grad_array[cons_copies][13];
+    cuda::GpuMat* qangle_array[cons_copies][13];
+    cuda::GpuMat* block_hists_array[cons_copies][13];
+    cuda::GpuMat* smaller_img_array[cons_copies][13];
+    cuda::GpuMat* labels_array[cons_copies][13];
+    for (unsigned i = 0; i < cons_copies; i++)
+    {
+        for (unsigned j = 0; j < 13; j++)
+        {
+            Size sz(cvRound(frame->cols / level_scale[j]), cvRound(frame->rows / level_scale[j]));
+
+            grad_array[i][j] = new cuda::GpuMat();
+            qangle_array[i][j] = new cuda::GpuMat();
+
+            *grad_array[i][j]   = pool.getBuffer(sz, CV_32FC2);
+            *qangle_array[i][j] = pool.getBuffer(sz, CV_8UC2);
+
+            block_hists_array[i][j] = new cuda::GpuMat();
+
+            *block_hists_array[i][j] = pool.getBuffer(1, gpu_hog->getTotalHistSize(sz), CV_32FC1);
+
+            smaller_img_array[i][j] = new cuda::GpuMat();
+
+            if (j != 0)
+            {
+                *smaller_img_array[i][j] = pool.getBuffer(sz, gpu_img_array[i]->type());
+            }
+
+            labels_array[i][j] = new cuda::GpuMat();
+
+            *labels_array[i][j] = pool.getBuffer(1, gpu_hog->numPartsWithin(sz, win_size, win_stride).area(), CV_8UC1);
+        }
+    }
+
+    cudaStream_t stream;
+    cudaStreamCreate(&stream);
+    gpu_hog->set_up_constants(stream);
+
+    if (t_info.realtime) {
+        // NOTE: LITMUS^RT initialization here is /almost/ identical to
+        //       set_up_litmus_task(), but we don't allow for early releasing.
+        // Handle signals locally. Deferring to our potentially non-real-time
+        // parent may cause a priority inversion.
+        struct sigaction handler;
+        memset(&handler, 0, sizeof(handler));
+        handler.sa_handler = gpu_hog->get_aborting_fz_sig_hndlr();
+        sigaction(SIGSYS, &handler, NULL);
+        // if (t_info.cluster != -1)
+        //     CALL(be_migrate_to_domain(t_info.cluster));
+        struct rt_task param;
+        init_rt_task_param(&param);
+        param.exec_cost = ms2ns(t_info.period) - 1;
+        param.period = ms2ns(t_info.period);
+        param.relative_deadline = ms2ns(t_info.relative_deadline);
+        param.phase = ms2ns(t_info.phase);
+        param.budget_policy = NO_ENFORCEMENT;
+        param.cls = RT_CLASS_SOFT;
+        param.priority = LITMUS_LOWEST_PRIORITY;
+        if (t_info.cluster == -1)
+        {
+            param.cpu = 1; // default to 1, maybe ignored by GSN-EDF?
+        }
+        else if (t_info.sched == CONFIGURABLE) // the cluster is not -1
+        {
+            param.cpu = t_info.cluster;
+        }
+        else // the cluster is not -1 and it's not configurable, so migrate to that cluster
+        {
+            param.cpu = domain_to_first_cpu(t_info.cluster);
+        }
+        CALL( set_rt_task_param(gettid(), &param) );
+        fprintf(stdout, "[%d | %d] Finished setting rt params.\n", gettid(), getpid());
+        CALL( init_litmus() );
+        fprintf(stdout, "[%d | %d] Called init_litmus.\n", gettid(), getpid());
+        CALL( task_mode(LITMUS_RT_TASK) );
+        fprintf(stdout, "[%d | %d] Now a real-time task.\n", gettid(), getpid());
+        CALL( wait_for_ts_release() );
+    }
+
+    fprintf(stdout, "[%d | %d] Calling litmus_open_lock for OMLP_SEM.\n", gettid(), getpid());
+    int omlp_sem_od = gpu_hog->open_lock(args.cluster); // use the cluster ID as the resource ID
+    fprintf(stdout, "[%d | %d] Got OMLP_SEM=%d.\n", gettid(), getpid(), omlp_sem_od);
+
+    int count_frame = 0;
+    while (count_frame < args.count / args.num_fine_graphs && running) {
+        for (int j = graph_idx; j < 100; j += args.num_fine_graphs) {
+            if (!t_info.realtime)
+                usleep(30000);
+            if (count_frame >= args.count / args.num_fine_graphs)
+                break;
+
+            /* choose the frame */
+            *frame = frames[j];
+
+            workBegin();
+            lt_t frame_start_time = litmus_clock();
+
+            /* ===========================
+             * color convert
+             */
+
+            /* color convert node starts below */
+            // Change format of the image
+            if (make_gray) cvtColor(*frame, img_aux, COLOR_BGR2GRAY);
+            else if (use_gpu) cvtColor(*frame, img_aux, COLOR_BGR2BGRA);
+            else frame->copyTo(img_aux);
+
+            // Resize image
+            if (args.resize_src) resize(img_aux, *img, Size(args.width, args.height));
+            else *img = img_aux;
+
+            // Prep HOG classification
+            hogWorkBegin();
+
+            // Which of the (conservatively duplicated) data should we use?
+            unsigned data_idx = (j / args.num_fine_graphs) % cons_copies;
+
+            /* =============
+             * LOCK: upload image to GPU
+             */
+            cuda::GpuMat *gpu_img = gpu_img_array[data_idx];
+
+            SAMPLE_START_LOCK(lt_t fz_start, NODE_AB);
+
+            gpu_hog->is_aborting_frame = false;
+            gpu_img->upload(*img, stream);
+            gpu_hog->set_fz_launch_done(omlp_sem_od);
+            cudaStreamSynchronize(stream);
+            gpu_hog->exit_forbidden_zone(omlp_sem_od);
+
+            SAMPLE_STOP_LOCK(lt_t fz_len, NODE_AB);
+            /*
+             * UNLOCK: upload image to GPU
+             * ============= */
+
+            gpu_hog->is_aborting_frame = false;
+            gpu_hog->setNumLevels(nlevels);
+            gpu_hog->setHitThreshold(hit_threshold);
+            gpu_hog->setScaleFactor(scale);
+            gpu_hog->setGroupThreshold(gr_threshold);
+
+            /*
+             * end of color convert
+             * =========================== */
+
+            gpu_hog->fine_CC_S_ABCDE_T(t_info, gpu_img,
+                                       grad_array[data_idx], qangle_array[data_idx],
+                                       block_hists_array[data_idx],
+                                       smaller_img_array[data_idx], labels_array[data_idx],
+                                       found,
+                                       j, stream, frame_start_time,
+                                       omlp_sem_od);
+
+            found = new vector<Rect>();
+            img = new Mat();
+            count_frame++;
+            if (t_info.realtime)
+                sleep_next_period();
+        }
+    }
+
+    delete frame;
+
+    cudaStreamDestroy(stream);
+
+    if (args.realtime)
+        CALL( task_mode(BACKGROUND_TASK) );
+
+    for (unsigned i = 0; i < cons_copies; i++)
+    {
+        gpu_img_array[i]->release();
+
+        for (unsigned j = 0; j < 13; j++)
+        {
+            grad_array[i][j]->release();
+            qangle_array[i][j]->release();
+            block_hists_array[i][j]->release();
+            smaller_img_array[i][j]->release();
+            labels_array[i][j]->release();
+        }
+    }
 }
 
 void App::thread_image_acquisition(node_t node, pthread_barrier_t* init_barrier,
@@ -1476,6 +1699,11 @@ void App::sched_configurable_hog(cv::Ptr<cv::cuda::HOG_RT> gpu_hog, cv::HOGDescr
         }
     }
 
+    bool is_single_node_graph = args.merge_color_convert &&
+                                (num_total_level_nodes == 0) &&
+                                (!is_source_A && !is_source_B && !is_source_C && !is_source_D && !is_source_E) &&
+                                (!is_sink_A   && !is_sink_B   && !is_sink_C   && !is_sink_D   && !is_sink_E);
+
     // Create the graphs
     char buf[30];
     sprintf(buf, "/tmp/graph_c%d_t%d", args.cluster, args.task_id);
@@ -1494,8 +1722,60 @@ void App::sched_configurable_hog(cv::Ptr<cv::cuda::HOG_RT> gpu_hog, cv::HOGDescr
     // Store pointers to the threads for joining later
     std::vector< std::vector< std::vector<thread *> > > all_threads;
 
+    if (is_single_node_graph)
+    {
+        for (int inst_idx = 0; inst_idx < args.num_hog_inst; inst_idx++)
+        {
+            fprintf(stderr, "\nInitializing single-node instance %d\n", inst_idx);
+
+            // Store pointers to the threads for joining later
+            std::vector< std::vector<thread *> > inst_threads;
+
+            for (int g_idx = 0; g_idx < args.num_fine_graphs; g_idx++)
+            {
+                fprintf(stderr, "Initializing 'graph' %d\n", g_idx);
+
+                std::vector<thread *> graph_threads;
+
+                unsigned task_id = 0;
+                int period = PERIOD * args.num_fine_graphs;
+                struct task_info t_info;
+                t_info.early = false;
+                t_info.realtime = args.realtime;
+                t_info.sched = CONFIGURABLE;
+                t_info.period = period;
+                t_info.relative_deadline = period; // use EDF
+                t_info.source_config = &args.source_configuration;
+                t_info.sink_config = &args.sink_configuration;
+                t_info.has_display_node = has_display_node;
+                if (args.cluster != -1)
+                    t_info.cluster = args.cluster;
+                else
+                    t_info.cluster = args.cluster;
+
+                t_info.phase = PERIOD * g_idx;
+                t_info.id = task_id++;
+                t_info.graph_idx = g_idx;
+
+                thread *t = new thread(&App::thread_hog_single_node, this,
+                                       gpu_hog, cpu_hog, frames, t_info, g_idx);
+                graph_threads.push_back(t);
+
+                inst_threads.push_back(graph_threads);
+            }
+
+            all_threads.push_back(inst_threads);
+        }
+    }
+
     for (int inst_idx = 0; inst_idx < args.num_hog_inst; inst_idx++)
     {
+        // Skip if it's a single-node graph
+        if (is_single_node_graph)
+        {
+            break;
+        }
+
         fprintf(stderr, "\nInitializing instance %d\n", inst_idx);
 
         /* graph construction */
@@ -1980,12 +2260,19 @@ void App::sched_configurable_hog(cv::Ptr<cv::cuda::HOG_RT> gpu_hog, cv::HOGDescr
                 delete t;
             }
 
-            CheckError(pgm_destroy_graph(g));
+            if (!is_single_node_graph)
+            {
+                CheckError(pgm_destroy_graph(g));
+            }
         }
     }
 
-    //CheckError(pgm_destroy_graph(g));
-    CheckError(pgm_destroy());
+    if (!is_single_node_graph)
+    {
+        //CheckError(pgm_destroy_graph(g));
+        CheckError(pgm_destroy());
+    }
+
     fprintf(stdout, "cleaned up ...");
 }
 

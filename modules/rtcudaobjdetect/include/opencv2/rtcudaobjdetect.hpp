@@ -262,6 +262,16 @@ public:
     /* five-node entire-level combination */
     virtual void* thread_fine_ABCDE(node_t node, pthread_barrier_t* init_barrier, struct task_info t_info) = 0; // resize -> classify hists
 
+    /* color-convert and source-node and sink-node combination */
+    virtual void fine_CC_S_ABCDE_T(struct task_info &t_info,
+                                   cuda::GpuMat* gpu_img,
+                                   cuda::GpuMat** grad_array, cuda::GpuMat** qangle_array,
+                                   cuda::GpuMat** block_hists_array,
+                                   cuda::GpuMat** smaller_img_array, cuda::GpuMat** labels_array,
+                                   std::vector<Rect>* found,
+                                   int frame_idx, const cudaStream_t& stream, lt_t frame_start_time,
+                                   int omlp_sem_od) = 0; // color-convert -> collection-locations
+
     /* color-convert and source-node combination */
     virtual void fine_CC_S_ABCDE(struct task_info &t_info, void** out_buf_ptrs,
                                  cuda::GpuMat* gpu_img,
