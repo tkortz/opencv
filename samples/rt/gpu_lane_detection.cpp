@@ -45,6 +45,8 @@ public:
     bool src_is_camera;
     int camera_id;
 
+    int count;
+
     // Real-time parameters
     int period;
     int deadline;
@@ -57,8 +59,9 @@ public:
     App(const Args& s);
     void run();
 
+    void readFrames();
     void readImage(Mat& dst);
-    void houghlines(Mat& src, Mat& img);
+    void houghlines(Mat& src, Mat& img, int frame_num);
 
 private:
     App operator=(App&);
@@ -67,7 +70,10 @@ private:
 
     Args args;
     bool running;
-    unsigned int count;
+
+    unsigned int img_read_count;
+
+    std::vector<Mat> frames;
 
     bool use_gpu;
 
@@ -84,6 +90,7 @@ static void printHelp()
          << "  (<image>|--video <vide>|--camera <camera_id>) # frames source\n"
          << "  or"
          << "  (--folder <folder_path>) # load images from folder\n"
+         << " --count <number of frames to process if sequence (repeating if necessary)>\n"
          << " --period <period in ms>\n"
          << " --deadline <relative deadline in ms>\n"
          << " --phase <task offset in ms>\n";
@@ -108,6 +115,7 @@ int main(int argc, char** argv)
                 return -1;
         }
         App app(args);
+        app.readFrames();
         app.run();
     }
     catch (const Exception& e) { return cout << "error: "  << e.what() << endl, 1; }
@@ -123,6 +131,8 @@ Args::Args()
     src_is_folder = false;
     camera_id = 0;
 
+    count = 1000;
+
     period = 25; // ms
     deadline = 25; // ms
     phase = 0; // ms
@@ -137,6 +147,12 @@ Args Args::readArgs(int argc, char** argv)
         else if (string(argv[i]) == "--video") { args.src = argv[++i]; args.src_is_video = true; }
         else if (string(argv[i]) == "--camera") { args.camera_id = atoi(argv[++i]); args.src_is_camera = true; }
         else if (string(argv[i]) == "--folder") { args.src = argv[++i]; args.src_is_folder = true;}
+        else if (string(argv[i]) == "--count") {
+            int count = atoi(argv[++i]);
+            if (count < 0)
+                throw runtime_error((string("negative number of frames: ") + argv[i]));
+            args.count = count;
+        }
         else if (string(argv[i]) == "--rt_period") {
             int period = atoi(argv[++i]);
             if (period <= 0)
@@ -194,6 +210,35 @@ void App::makeRealTimeTask()
     CALL( wait_for_ts_release() );
 }
 
+void App::readFrames()
+{
+    if (args.src_is_camera)
+    {
+        return;
+    }
+
+    frames.clear();
+    img_read_count = 1;
+
+    while (true)
+    {
+        Mat f;
+        readImage(f);
+
+        if (f.empty())
+        {
+            break;
+        }
+
+        frames.push_back(f);
+
+        if (!args.src_is_folder)
+        {
+            break;
+        }
+    }
+}
+
 void App::readImage(Mat& dst)
 {
     VideoCapture vc;
@@ -209,7 +254,7 @@ void App::readImage(Mat& dst)
     else if (args.src_is_folder) {
         String folder = args.src;
         glob(folder, filenames);
-        dst = imread(filenames[count++]);	// 0 --> .gitignore
+        dst = imread(filenames[img_read_count++]);	// 0 --> .gitignore
         if (!dst.data)
             cerr << "Problem loading image from folder!!!" << endl;
     }
@@ -232,7 +277,7 @@ void App::readImage(Mat& dst)
     }
 }
 
-void App::houghlines(Mat& src, Mat& img)
+void App::houghlines(Mat& src, Mat& img, int frame_num)
 {
     double timeSec = 0.0;
 
@@ -284,8 +329,9 @@ void App::houghlines(Mat& src, Mat& img)
         putText(src_copy, "Mode: CPU", Point(5, 20), FONT_HERSHEY_SIMPLEX, 0.8, Scalar(255, 255, 255), 2);
     else
         putText(src_copy, "Mode: GPU", Point(5, 20), FONT_HERSHEY_SIMPLEX, 0.8, Scalar(255, 255, 255), 2);
-    putText(src_copy, "Time: " + execTime(timeSec), Point(5, 60), FONT_HERSHEY_SIMPLEX, 0.8, Scalar(255, 255, 255), 2);
-    putText(src_copy, "Found: " + foundCount(lines.size()), Point(5, 100), FONT_HERSHEY_SIMPLEX, 0.8, Scalar(255, 255, 255), 2);
+    putText(src_copy, "Frame: " + std::to_string(frame_num), Point(5, 60), FONT_HERSHEY_SIMPLEX, 0.8, Scalar(255, 255, 255), 2);
+    putText(src_copy, "Time: " + execTime(timeSec), Point(5, 100), FONT_HERSHEY_SIMPLEX, 0.8, Scalar(255, 255, 255), 2);
+    putText(src_copy, "Found: " + foundCount(lines.size()), Point(5, 140), FONT_HERSHEY_SIMPLEX, 0.8, Scalar(255, 255, 255), 2);
 
     imshow("Detected Lanes", src_copy);
 }
@@ -296,17 +342,23 @@ void App::run()
 
     makeRealTimeTask();
 
+    int count_frame = 0;
     running = true;
-    count = 1;
-
-    while (running)
+    while (count_frame < args.count && running)
     {
-        // Read in the image
-        readImage(frame);
-        if (frame.empty())
+        // Retrieve the image
+        if (args.src_is_camera)
         {
-            running = false;
-            break;
+            readImage(frame);
+            if (frame.empty())
+            {
+                running = false;
+                break;
+            }
+        }
+        else
+        {
+            frame = frames[count_frame % frames.size()];
         }
 
         // Change format of the image
@@ -332,9 +384,11 @@ void App::run()
         cv::threshold(img, img_thresholded, 160, 255, cv::THRESH_BINARY);
 
         // Run houghlines
-        houghlines(frame, img_thresholded);
+        houghlines(frame, img_thresholded, count_frame % frames.size());
 
         handleKey((char)waitKey(3));
+
+        count_frame++;
 
         sleep_next_period();
     }
