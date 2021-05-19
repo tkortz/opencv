@@ -11,33 +11,38 @@
 using namespace std;
 
 /**
-  @addtogroup cuda
-  @{
-    @defgroup tbd Tracking by Detection
-  @}
- */
+  @defgroup tbd Tracking-By-Detection
+*/
 
-namespace cv { namespace tbd {
+namespace cv
+{
+
+//! @addtogroup tbd
+//! @{
+
+namespace tbd {
 
 class Track;
 class Tracker;
 
-class CV_EXPORTS TbdArgs
+class CV_EXPORTS_W_SIMPLE TbdArgs
 {
 public:
-    TbdArgs(double costOfNonAssignment,
-            unsigned int timeWindowSize,
-            unsigned int trackAgeThreshold,
-            double trackVisibilityThreshold,
-            double trackConfidenceThreshold,
-            bool shouldStoreMetrics);
+    CV_WRAP TbdArgs(double costOfNonAssignment,
+                    int timeWindowSize,
+                    int trackAgeThreshold,
+                    double trackVisibilityThreshold,
+                    double trackConfidenceThreshold,
+                    bool shouldStoreMetrics);
 
-    double costOfNonAssignment;
-    unsigned int timeWindowSize;
-    unsigned int trackAgeThreshold;
-    double trackVisibilityThreshold;
-    double trackConfidenceThreshold;
-    bool shouldStoreMetrics;
+    CV_PROP_RW double costOfNonAssignment;
+    CV_PROP_RW int timeWindowSize;
+    CV_PROP_RW int trackAgeThreshold;
+    CV_PROP_RW double trackVisibilityThreshold;
+    CV_PROP_RW double trackConfidenceThreshold;
+    CV_PROP_RW bool shouldStoreMetrics;
+
+    TbdArgs();
 };
 
 /*
@@ -74,19 +79,20 @@ public:
  * A detection corresponds to an observed (potentially incorrectly)
  * position of an object of interest.
  */
-class CV_EXPORTS Detection
+class CV_EXPORTS_W_SIMPLE Detection
 {
 public:
-    Detection(int id, int frame_id, Rect &bbox, double confidence);
+    CV_WRAP Detection();
+    CV_WRAP Detection(int id, int frame_id, Rect &bbox, double confidence);
 
-    int id; // -1 if not known
-    int frame_id;
+    CV_PROP_RW int id; // -1 if not known
+    CV_PROP_RW int frame_id;
 
-    Rect bbox; // in 2D image coordinates
+    CV_PROP_RW Rect bbox; // in 2D image coordinates
 
-    Vec3d worldPosition; // in 3D world coordinates
+    CV_PROP_RW Vec3d worldPosition; // in 3D world coordinates
 
-    double confidence; // between 0.0 and 1.0; -1.0 if not calculated/known
+    CV_PROP_RW double confidence; // between 0.0 and 1.0; -1.0 if not calculated/known
 };
 
 /*
@@ -123,32 +129,45 @@ public:
 /*
  * A tracker to track targets using tracking-by-detection.
  */
-class CV_EXPORTS Tracker
+class CV_EXPORTS_W Tracker
 {
 public:
-    Tracker(const TbdArgs *args);
+    CV_WRAP Tracker(TbdArgs& _args);
 
-    void reset();
+    CV_WRAP void reset();
 
     unsigned int getNextTrackId();
 
-    void setTracks(vector<Track> &tracks);
+    void setTracks(vector<Track> &tracks); // used for faking history choice
     vector<Track>& getTracks();
+
+    // Somewhat hacky approach to Python API; assumes not ground-truth detection
+    // (avoiding passing vector<Detection>)
+    CV_WRAP void prepDetectionForTrackingStep(Detection& detection, int frame_id);
+    CV_WRAP void performTrackingStep(int frame_id);
 
     // Perform a single tracking step given a set of detections
     void performTrackingStep(vector<Detection> &foundDetections,
-                             map<int, Trajectory> &trajectoryMap,
+                             map<int, Trajectory> *trajectoryMap,
                              int frame_id);
 
-    const TbdArgs *args;
+    // Python API
+    CV_WRAP int getNumTracks();
+    CV_WRAP Scalar getTrackColorByIdx(int idx);
+    CV_WRAP int getTrackAgeByIdx(int idx);
+    CV_WRAP double getTrackMaxConfidenceByIdx(int idx);
+    CV_WRAP vector<Rect> getTrackBboxesByIdx(int idx);
+    CV_WRAP vector<int> getFrameNumsByIdx(int idx);
 
-    // Metrics
-    vector<int> truePositives;  // TP_t: # assigned detections
-    vector<int> falseNegatives; // FN_t: # unmatched detections
-    vector<int> falsePositives; // FP_t: # unmatched tracks (hypotheses)
-    vector<int> groundTruths;   // GT_t: # objects in the scene
-    vector<int> numMatches;     // c_t:  # matches
-    vector<double> bboxOverlap; // sum_i d_it: bbox overlap total for frame t
+    TbdArgs args;
+
+    // Metrics (expose all to Python)
+    CV_PROP vector<int> truePositives;  // TP_t: # assigned detections
+    CV_PROP vector<int> falseNegatives; // FN_t: # unmatched detections
+    CV_PROP vector<int> falsePositives; // FP_t: # unmatched tracks (hypotheses)
+    CV_PROP vector<int> groundTruths;   // GT_t: # objects in the scene
+    CV_PROP vector<int> numMatches;     // c_t:  # matches
+    CV_PROP vector<double> bboxOverlap; // sum_i d_it: bbox overlap total for frame t
 
 private:
     Tracker();
@@ -156,6 +175,10 @@ private:
     unsigned int nextTrackId;
 
     vector<Track> tracks;
+
+    // Things to make Python API work (prep one Detection at a time for next tracking step)
+    vector<Detection> nextTrackingStepDetections;
+    int nextTrackingStepFrameId;
 
     // Predict new locations of tracks
     void predictNewLocationsOfTracks(int frame_id);
@@ -183,6 +206,10 @@ private:
     }
 };
 
-}} // namespace cv { namespace tbd {
+//! @} tbd
+
+} // namespace tbd {
+
+} // namespace cv {
 
 #endif /* OPENCV_TBD_HPP */

@@ -49,9 +49,19 @@ namespace cv { namespace tbd {
 double computeBoundingBoxOverlap(Rect &predBbox, Rect &bbox);
 Point2d constantVelocityMotionModel(Track &track, int frame_id);
 
+TbdArgs::TbdArgs()
+{
+    this->costOfNonAssignment = 10.0;
+    this->timeWindowSize = 16;
+    this->trackAgeThreshold = 4;
+    this->trackVisibilityThreshold = 0.3;
+    this->trackConfidenceThreshold = 0.2;
+    this->shouldStoreMetrics = false;
+}
+
 TbdArgs::TbdArgs(double costOfNonAssignment,
-                 unsigned int timeWindowSize,
-                 unsigned int trackAgeThreshold,
+                 int timeWindowSize,
+                 int trackAgeThreshold,
                  double trackVisibilityThreshold,
                  double trackConfidenceThreshold,
                  bool shouldStoreMetrics)
@@ -165,6 +175,14 @@ void Trajectory::addTrackingInfo(int frame, Track *track)
     }
 }
 
+Detection::Detection()
+{
+    this->id = -1;
+    this->frame_id = -1;
+    this->bbox = Rect(0,0,0,0);
+    this->confidence = -1;
+}
+
 Detection::Detection(int id, int frame_id, Rect &bbox, double confidence)
 {
     this->id = id;
@@ -173,9 +191,9 @@ Detection::Detection(int id, int frame_id, Rect &bbox, double confidence)
     this->confidence = confidence;
 }
 
-Tracker::Tracker(const TbdArgs *args)
+Tracker::Tracker(TbdArgs& _args)
 {
-    this->args = args;
+    this->args = _args;
     this->nextTrackId = 0;
 }
 
@@ -194,6 +212,36 @@ vector<Track>& Tracker::getTracks()
     return this->tracks;
 }
 
+int Tracker::getNumTracks()
+{
+    return this->tracks.size();
+}
+
+Scalar Tracker::getTrackColorByIdx(int idx)
+{
+    return this->tracks.at(idx).color;
+}
+
+int Tracker::getTrackAgeByIdx(int idx)
+{
+    return this->tracks.at(idx).age;
+}
+
+double Tracker::getTrackMaxConfidenceByIdx(int idx)
+{
+    return this->tracks.at(idx).maxConfidence;
+}
+
+vector<Rect> Tracker::getTrackBboxesByIdx(int idx)
+{
+    return this->tracks.at(idx).bboxes;
+}
+
+vector<int> Tracker::getFrameNumsByIdx(int idx)
+{
+    return this->tracks.at(idx).frames;
+}
+
 void Tracker::reset()
 {
     this->nextTrackId = 0;
@@ -207,8 +255,32 @@ void Tracker::reset()
     this->bboxOverlap.clear();
 }
 
+void Tracker::prepDetectionForTrackingStep(Detection& detection, int frame_id)
+{
+    if (this->nextTrackingStepDetections.size() == 0)
+    {
+        this->nextTrackingStepFrameId = frame_id;
+    }
+
+    this->nextTrackingStepDetections.push_back(detection);
+}
+
+void Tracker::performTrackingStep(int frame_id)
+{
+    if (this->nextTrackingStepDetections.size() == 0 ||
+        this->nextTrackingStepFrameId != frame_id)
+    {
+        return;
+    }
+
+    this->performTrackingStep(this->nextTrackingStepDetections, NULL, frame_id);
+
+    this->nextTrackingStepDetections.clear();
+    this->nextTrackingStepFrameId = -1;
+}
+
 void Tracker::performTrackingStep(vector<Detection> &foundDetections,
-                                  std::map<int, Trajectory> &trajectoryMap,
+                                  std::map<int, Trajectory> *trajectoryMap,
                                   int frame_id)
 {
     // Predict the new locations of the tracks
@@ -242,9 +314,9 @@ void Tracker::performTrackingStep(vector<Detection> &foundDetections,
         Detection *detection = &(foundDetections[detectionIdx]);
 
         // Ignore detections for which no ground truth information exists
-        if (detection->id < 0) { continue; }
+        if (!trajectoryMap || detection->id < 0) { continue; }
 
-        Trajectory *trajectory = &(trajectoryMap[detection->id]);
+        Trajectory *trajectory = &((*trajectoryMap)[detection->id]);
         trajectory->addTrackingInfo(frame_id, track);
     }
 
@@ -257,9 +329,9 @@ void Tracker::performTrackingStep(vector<Detection> &foundDetections,
         Detection *detection = &(foundDetections[detectionIdx]);
 
         // Ignore detections for which no ground truth information exists
-        if (detection->id < 0) { continue; }
+        if (!trajectoryMap || detection->id < 0) { continue; }
 
-        Trajectory *trajectory = &(trajectoryMap[detection->id]);
+        Trajectory *trajectory = &((*trajectoryMap)[detection->id]);
         trajectory->addTrackingInfo(frame_id, NULL);
     }
 
@@ -268,7 +340,7 @@ void Tracker::performTrackingStep(vector<Detection> &foundDetections,
     this->deleteLostTracks();
     this->createNewTracks(foundDetections, unassignedDetections);
 
-    if (this->args->shouldStoreMetrics)
+    if (this->args.shouldStoreMetrics)
     {
         this->truePositives.push_back(numAssigned);
         this->falseNegatives.push_back(unassignedDetections.size());
@@ -419,7 +491,7 @@ void Tracker::solveAssignmentProblem(vector<vector<double>> &costMatrix, unsigne
         {
             for (unsigned int j = 0; j < numTracks - numDetections; j++)
             {
-                costMatrix[i].push_back(this->args->costOfNonAssignment * 2);
+                costMatrix[i].push_back(this->args.costOfNonAssignment * 2);
             }
         }
     }
@@ -453,7 +525,7 @@ void Tracker::solveAssignmentProblem(vector<vector<double>> &costMatrix, unsigne
 
             for (unsigned int j = 0; j < numDetections; j++)
             {
-                costMatrix[numTracks + i].push_back(this->args->costOfNonAssignment * 2);
+                costMatrix[numTracks + i].push_back(this->args.costOfNonAssignment * 2);
             }
         }
     }
@@ -912,7 +984,7 @@ void Tracker::detectionToTrackAssignment(vector<Detection> &detections, vector<i
 
 void Tracker::updateTrackConfidence(Track *track)
 {
-    unsigned int numScoresToUse = (track->scores.size() < this->args->timeWindowSize) ? track->scores.size() : this->args->timeWindowSize;
+    unsigned int numScoresToUse = (track->scores.size() < this->args.timeWindowSize) ? track->scores.size() : this->args.timeWindowSize;
     double maxScore = 0.0, sumScores = 0.0;
     for (unsigned int scoreIdx = track->scores.size() - numScoresToUse; scoreIdx < track->scores.size(); scoreIdx++)
     {
@@ -1022,8 +1094,8 @@ void Tracker::deleteLostTracks()
         // Determine if the track is lost based on the visible fraction
         // and the confidence
         // TODO: remove check for maxConfidence >= when HOG gives confidence
-        if ((track->age <= this->args->trackAgeThreshold && visibility <= this->args->trackVisibilityThreshold) ||
-            (track->maxConfidence >= 0.0 && track->maxConfidence <= this->args->trackConfidenceThreshold))
+        if ((track->age <= this->args.trackAgeThreshold && visibility <= this->args.trackVisibilityThreshold) ||
+            (track->maxConfidence >= 0.0 && track->maxConfidence <= this->args.trackConfidenceThreshold))
         {
             trackIndicesToDelete.push_back(trackIdx);
         }

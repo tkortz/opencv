@@ -554,13 +554,13 @@ void App::run()
         cuda::GpuMat gpu_img;
 
         TbdArgs tbdArgs(this->args.costOfNonAssignment,
-                             this->args.timeWindowSize,
-                             this->args.trackAgeThreshold,
-                             this->args.trackVisibilityThreshold,
-                             this->args.trackConfidenceThreshold,
-                             true /* shouldStoreMetrics */);
-        Tracker pedestrianTracker(&tbdArgs);
-        Tracker vehicleTracker(&tbdArgs);
+                        this->args.timeWindowSize,
+                        this->args.trackAgeThreshold,
+                        this->args.trackVisibilityThreshold,
+                        this->args.trackConfidenceThreshold,
+                        true /* shouldStoreMetrics */);
+        Tracker pedestrianTracker(tbdArgs);
+        Tracker vehicleTracker(tbdArgs);
 
         this->frame_id = 0;
 
@@ -688,13 +688,13 @@ void App::run()
             if (args.track_pedestrians)
             {
                 pedestrianTracker.performTrackingStep(pedestrianDetections,
-                                                      pedestrianTrajectoryMap,
+                                                      &pedestrianTrajectoryMap,
                                                       this->frame_id);
             }
             if (args.track_vehicles)
             {
                 vehicleTracker.performTrackingStep(vehicleDetections,
-                                                   vehicleTrajectoryMap,
+                                                   &vehicleTrajectoryMap,
                                                    this->frame_id);
             }
 
