@@ -261,15 +261,22 @@ void Tracker::prepDetectionForTrackingStep(Detection& detection, int frame_id)
     {
         this->nextTrackingStepFrameId = frame_id;
     }
+    else if (this->nextTrackingStepFrameId != frame_id)
+    {
+        // Don't do anything if the frame ID doesn't match
+        return;
+    }
 
     this->nextTrackingStepDetections.push_back(detection);
 }
 
 void Tracker::performTrackingStep(int frame_id)
 {
-    if (this->nextTrackingStepDetections.size() == 0 ||
-        this->nextTrackingStepFrameId != frame_id)
+    if (this->nextTrackingStepFrameId != frame_id &&
+        this->nextTrackingStepDetections.size() > 0)
     {
+        // Don't do anything if the frame ID doesn't match
+        // what's set for detections
         return;
     }
 
