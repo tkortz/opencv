@@ -123,31 +123,31 @@ namespace cv { namespace cuda { namespace device
             switch (computation) {
                 case NODE_A: // resize
                     zone_length = us2ns(27);   // 27 us
-                    cpu_measured = us2ns(136); // 136 us
+                    cpu_measured = us2ns(161); // 161 us
                     break;
                 case NODE_B: // compute gradients
                     zone_length = us2ns(42);   // 42 us
-                    cpu_measured = us2ns(146); // 146 us
+                    cpu_measured = us2ns(148); // 148 us
                     break;
                 case NODE_C: // compute hists
                     zone_length = us2ns(56);   // 56 us
-                    cpu_measured = us2ns(181); // 181 us
+                    cpu_measured = us2ns(86); // 86 us
                     break;
                 case NODE_D: // normalize hists
                     zone_length = us2ns(28);   // 28 us
-                    cpu_measured = us2ns(137); // 137 us
+                    cpu_measured = us2ns(49); // 49 us
                     break;
                 case NODE_E: // classify hists
                     zone_length = us2ns(49);   // 49 us
-                    cpu_measured = us2ns(171); // 171 us
+                    cpu_measured = us2ns(76); // 76 us
                     break;
                 case NODE_AB: // stand-in for copy-in of image
                     zone_length = us2ns(77);   // 77 us
-                    cpu_measured = us2ns(178); // 178 us
+                    cpu_measured = us2ns(200); // 200 us
                     break;
                 case NODE_DE: // stand-in for copy-out of results
                     zone_length = us2ns(29);   // 29 us
-                    cpu_measured = us2ns(36);  // 36 us
+                    cpu_measured = us2ns(57);  // 57 us
                     break;
                 default:
                     zone_length = ms2ns(2);    // default to 2 milliseconds
