@@ -4385,22 +4385,37 @@ namespace
             hog_rt::lock_fzlp(omlp_sem_od);
 
             this->resize(gpu_img, smaller_img, stream, frame_idx, omlp_sem_od, false);
-            if (this->is_aborting_frame) return;
+            if (this->is_aborting_frame) {
+                hog_rt::unlock_fzlp(omlp_sem_od);
+                return;
+            }
 
             GpuMat *grad = grad_array[level_idx];
             GpuMat *qangle = qangle_array[level_idx];
             this->compute_gradients(smaller_img, grad, qangle, stream, omlp_sem_od, false);
-            if (this->is_aborting_frame) return;
+            if (this->is_aborting_frame) {
+                hog_rt::unlock_fzlp(omlp_sem_od);
+                return;
+            }
 
             GpuMat *block_hists = block_hists_array[level_idx];
             this->compute_hists(smaller_img, grad, qangle, block_hists, stream, omlp_sem_od, false);
-            if (this->is_aborting_frame) return;
+            if (this->is_aborting_frame) {
+                hog_rt::unlock_fzlp(omlp_sem_od);
+                return;
+            }
 
             this->normalize_hists(smaller_img, block_hists, stream, omlp_sem_od, false);
-            if (this->is_aborting_frame) return;
+            if (this->is_aborting_frame) {
+                hog_rt::unlock_fzlp(omlp_sem_od);
+                return;
+            }
 
             this->classify_hists(smaller_img, block_hists, confidences, labels, stream, omlp_sem_od, false);
-            if (this->is_aborting_frame) return;
+            if (this->is_aborting_frame) {
+                hog_rt::unlock_fzlp(omlp_sem_od);
+                return;
+            }
 
             hog_rt::unlock_fzlp(omlp_sem_od);
             /*
