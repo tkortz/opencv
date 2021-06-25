@@ -53,6 +53,8 @@ public:
     int period;
     int deadline;
     int phase;
+
+    bool display;
 };
 
 class App
@@ -101,7 +103,8 @@ static void printHelp()
          << " --count <number of frames to process if sequence (repeating if necessary)>\n"
          << " --period <period in ms>\n"
          << " --deadline <relative deadline in ms>\n"
-         << " --phase <task offset in ms>\n";
+         << " --phase <task offset in ms>\n"
+         << " [--display <true/false>] # whether to display the resulting frame\n";
     help_showed = true;
 }
 
@@ -144,6 +147,8 @@ Args::Args()
     period = 25; // ms
     deadline = 25; // ms
     phase = 0; // ms
+
+    display = false;
 }
 
 Args Args::readArgs(int argc, char** argv)
@@ -179,6 +184,7 @@ Args Args::readArgs(int argc, char** argv)
                 throw runtime_error(string("negative phase: ") + argv[i]);
             args.phase = phase;
         }
+        else if (string(argv[i]) == "--display") args.display = (string(argv[++i]) == "true");
         else if (args.src.empty()) args.src = argv[i];
         else throw runtime_error(string("unknown key: ") + argv[i]);
     }
@@ -266,7 +272,7 @@ void App::readImage(Mat& dst)
     else if (args.src_is_folder) {
         String folder = args.src;
         glob(folder, filenames);
-        dst = imread(filenames[img_read_count++]);	// 0 --> .gitignore
+        dst = imread(filenames[img_read_count++]); // 0 --> .gitignore
         if (!dst.data)
             cerr << "Problem loading image from folder!!!" << endl;
     }
@@ -358,21 +364,24 @@ void App::houghlines(cv::cuda::HoughSegmentDetector *hough,
     }
 
     // Display the detected lanes
-    for (size_t i = 0; i < lines.size(); ++i)
+    if (args.display)
     {
-        Vec4i l = lines[i];
-        line(src_copy, Point(l[0], l[1]), Point(l[2], l[3]), Scalar(0, 0, 255), 3, LINE_AA);
+        for (size_t i = 0; i < lines.size(); ++i)
+        {
+            Vec4i l = lines[i];
+            line(src_copy, Point(l[0], l[1]), Point(l[2], l[3]), Scalar(0, 0, 255), 3, LINE_AA);
+        }
+
+        if (!use_gpu)
+            putText(src_copy, "Mode: CPU", Point(5, 20), FONT_HERSHEY_SIMPLEX, 0.8, Scalar(255, 255, 255), 2);
+        else
+            putText(src_copy, "Mode: GPU", Point(5, 20), FONT_HERSHEY_SIMPLEX, 0.8, Scalar(255, 255, 255), 2);
+        putText(src_copy, "Frame: " + std::to_string(frame_num), Point(5, 60), FONT_HERSHEY_SIMPLEX, 0.8, Scalar(255, 255, 255), 2);
+        putText(src_copy, "Time: " + execTime(timeSec), Point(5, 100), FONT_HERSHEY_SIMPLEX, 0.8, Scalar(255, 255, 255), 2);
+        putText(src_copy, "Found: " + foundCount(lines.size()), Point(5, 140), FONT_HERSHEY_SIMPLEX, 0.8, Scalar(255, 255, 255), 2);
+
+        imshow("Detected Lanes", src_copy);
     }
-
-    if (!use_gpu)
-        putText(src_copy, "Mode: CPU", Point(5, 20), FONT_HERSHEY_SIMPLEX, 0.8, Scalar(255, 255, 255), 2);
-    else
-        putText(src_copy, "Mode: GPU", Point(5, 20), FONT_HERSHEY_SIMPLEX, 0.8, Scalar(255, 255, 255), 2);
-    putText(src_copy, "Frame: " + std::to_string(frame_num), Point(5, 60), FONT_HERSHEY_SIMPLEX, 0.8, Scalar(255, 255, 255), 2);
-    putText(src_copy, "Time: " + execTime(timeSec), Point(5, 100), FONT_HERSHEY_SIMPLEX, 0.8, Scalar(255, 255, 255), 2);
-    putText(src_copy, "Found: " + foundCount(lines.size()), Point(5, 140), FONT_HERSHEY_SIMPLEX, 0.8, Scalar(255, 255, 255), 2);
-
-    imshow("Detected Lanes", src_copy);
 }
 
 void App::run()
