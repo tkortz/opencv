@@ -49,6 +49,7 @@
 
 #include "opencv2/core/cuda.hpp"
 #include "opencv2/imgproc.hpp"
+#include <litmus.h>
 
 /**
   @addtogroup cuda
@@ -409,7 +410,7 @@ public:
 
     @sa HoughLinesP
      */
-    virtual void detect(InputArray src, OutputArray lines, Stream& stream = Stream::Null()) = 0;
+    virtual void detect(InputArray src, OutputArray lines, Stream& stream = Stream::Null(), int omlp_sem_od = -1) = 0;
 
     virtual void setRho(float rho) = 0;
     virtual float getRho() const = 0;
@@ -425,6 +426,13 @@ public:
 
     virtual void setMaxLines(int maxLines) = 0;
     virtual int getMaxLines() const = 0;
+
+    virtual int open_lock(int resource_id) = 0;
+    virtual int lock_fzlp(int sem_od) = 0;
+    virtual int wait_forbidden_zone(int sem_od) = 0;
+    virtual int set_fz_launch_done(int sem_od) = 0;
+    virtual int exit_forbidden_zone(int sem_od) = 0;
+    virtual int unlock_fzlp(int sem_od) = 0;
 };
 
 /** @brief Creates implementation for cuda::HoughSegmentDetector .

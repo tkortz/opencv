@@ -55,7 +55,9 @@ namespace cv { namespace cuda { namespace device
 {
     namespace hough
     {
-        int buildPointList_gpu(PtrStepSzb src, unsigned int* list);
+        int buildPointList_gpu(PtrStepSzb src, unsigned int* list,
+                               const cudaStream_t& stream,
+                               int omlp_sem_od = -1);
     }
 
     namespace hough_circles
@@ -158,7 +160,7 @@ namespace
     void HoughCirclesDetectorImpl::detect(InputArray _src, OutputArray circles, Stream& stream)
     {
         // TODO : implement async version
-        CV_UNUSED(stream);
+        // CV_UNUSED(stream);
 
         using namespace cv::cuda::device::hough;
         using namespace cv::cuda::device::hough_circles;
@@ -188,7 +190,7 @@ namespace
         unsigned int* srcPoints = list_.ptr<unsigned int>(0);
         unsigned int* centers = list_.ptr<unsigned int>(1);
 
-        const int pointsCount = buildPointList_gpu(edges_, srcPoints);
+        const int pointsCount = buildPointList_gpu(edges_, srcPoints, StreamAccessor::getStream(stream));
         if (pointsCount == 0)
         {
             circles.release();

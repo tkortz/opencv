@@ -1,3 +1,10 @@
+ocv_include_directories($ENV{LIBLITMUS_DIR}/include)
+ocv_include_directories($ENV{LIBLITMUS_DIR}/arch/x86/include)
+ocv_include_directories($ENV{LIBLITMUS_DIR}/arch/x86/include/uapi)
+ocv_include_directories($ENV{LIBLITMUS_DIR}/arch/x86/include/generated/uapi)
+
+link_directories($ENV{LIBLITMUS_DIR})
+
 if(IOS OR WINRT OR (NOT HAVE_CUDA AND NOT BUILD_CUDA_STUBS))
   ocv_module_disable(cudaimgproc)
 endif()

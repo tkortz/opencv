@@ -44,9 +44,121 @@
 
 #include "opencv2/core/cuda/common.hpp"
 #include "opencv2/core/cuda/vec_math.hpp"
+#include "opencv2/cudaimgproc.hpp"
+
+#include <unistd.h>
 
 namespace cv { namespace cuda { namespace device
 {
+    namespace hough_segments_locks
+    {
+        int use_locks = 0;
+
+        /* resource_id must be a non-negative int */
+        int open_fzlp_lock(int resource_id)
+        {
+            if (!use_locks) return -3;
+
+            fprintf(stdout, "[%d | %d] Attempting to open OMLP (%d) semaphore now.\n", gettid(), getpid(), OMLP_SEM);
+
+            int lock_od = -1;
+            obj_type_t protocol = OMLP_SEM;
+            const char *lock_namespace = "./rtspin-locks";
+            int cluster = 0;
+            if (protocol >= 0) {
+                /* open reference to semaphore */
+                lock_od = litmus_open_lock(protocol, resource_id, lock_namespace, &cluster);
+                if (lock_od < 0) {
+                    perror("litmus_open_lock");
+                    fprintf(stderr, "Could not open lock.\n");
+                }
+                else {
+                    fprintf(stdout, "[%d | %d] Successfully opened OMLP semaphore lock: %d.\n", gettid(), getpid(), lock_od);
+                }
+            }
+
+            return lock_od;
+        }
+
+        int lock_fzlp(int sem_od)
+        {
+            if (!use_locks) return -3;
+
+            int res = -2;
+
+            if (sem_od >= 0)
+            {
+                fprintf(stdout, "[%d | %d] Calling lock (%d) at time \t%llu\n", gettid(), getpid(), sem_od, litmus_clock());
+                res = litmus_lock(sem_od);
+                fprintf(stdout, "[%d | %d] Acquired lock at time \t%llu (status=%d)\n", gettid(), getpid(), litmus_clock(), res);
+            }
+
+            return res;
+        }
+
+        int wait_forbidden_zone(int sem_od)
+        {
+            if (!use_locks) return -3;
+
+            int res = -2;
+
+            int zone_length = 0;
+            int cpu_measured = 0;
+
+            // Just use defaults here
+            zone_length = ms2ns(1); // default to 2 ms
+            cpu_measured = ms2ns(3); // default to 3 ms
+
+            if (sem_od >= 0)
+            {
+                fprintf(stdout, "[%d | %d] Checking FZ at time \t%llu\n", gettid(), getpid(), litmus_clock());
+                res = litmus_access_forbidden_zone_check(sem_od, cpu_measured, zone_length);
+                fprintf(stdout, "[%d | %d] Not in FZ at time \t%llu (status=%d)\n", gettid(), getpid(), litmus_clock(), res);
+            }
+
+            return res;
+        }
+
+        int set_fz_launch_done(int sem_od)
+        {
+            if (!use_locks) return -3;
+            int res = -2;
+            if (sem_od >= 0)
+                res = litmus_set_fz_launch_done(sem_od);
+            return res;
+        }
+
+        int exit_forbidden_zone(int sem_od)
+        {
+            if (!use_locks) return -3;
+
+            int res = -2;
+
+            if (sem_od >= 0)
+            {
+                res = litmus_exit_forbidden_zone(sem_od);
+            }
+
+            return res;
+        }
+
+        int unlock_fzlp(int sem_od)
+        {
+            if (!use_locks) return -3;
+
+            int res = -2;
+
+            if (sem_od >= 0)
+            {
+                fprintf(stdout, "[%d | %d] Unlocking at time \t\t%llu\n", gettid(), getpid(), litmus_clock());
+                res = litmus_unlock(sem_od);
+                fprintf(stdout, "[%d | %d] Unlocked at time \t\t%llu (status=%d)\n", gettid(), getpid(), litmus_clock(), res);
+            }
+
+            return res;
+        }
+    }
+
     namespace hough_segments
     {
         __device__ int g_counter;
@@ -214,29 +326,54 @@ namespace cv { namespace cuda { namespace device
             }
         }
 
-        int houghLinesProbabilistic_gpu(PtrStepSzb mask, PtrStepSzi accum, int4* out, int maxSize, float rho, float theta, int lineGap, int lineLength)
+        int houghLinesProbabilistic_gpu(PtrStepSzb mask, PtrStepSzi accum, int4* out, int maxSize, float rho, float theta, int lineGap, int lineLength,
+                                        const cudaStream_t& stream,
+                                        int omlp_sem_od = -1)
         {
             void* counterPtr;
             cudaSafeCall( cudaGetSymbolAddress(&counterPtr, g_counter) );
 
-            cudaSafeCall( cudaMemset(counterPtr, 0, sizeof(int)) );
-
             const dim3 block(32, 8);
             const dim3 grid(divUp(accum.cols - 2, block.x), divUp(accum.rows - 2, block.y));
 
+            /* =============
+             * LOCK: houghLinesProbabilistic_gpu
+             */
+            hough_segments_locks::lock_fzlp(omlp_sem_od);
+
+            // Memset of counterPtr
+            hough_segments_locks::wait_forbidden_zone(omlp_sem_od);
+            cudaSafeCall( cudaMemsetAsync(counterPtr, 0, sizeof(int), stream) );
+            hough_segments_locks::set_fz_launch_done(omlp_sem_od);
+            cudaSafeCall( cudaStreamSynchronize(stream) );
+            hough_segments_locks::exit_forbidden_zone(omlp_sem_od);
+
             bindTexture(&tex_mask, mask);
 
-            houghLinesProbabilistic<<<grid, block>>>(accum,
-                                                     out, maxSize,
-                                                     rho, theta,
-                                                     lineGap, lineLength,
-                                                     mask.rows, mask.cols);
+            // Kernel: houghLinesProbabilistic
+            hough_segments_locks::wait_forbidden_zone(omlp_sem_od);
+            houghLinesProbabilistic<<<grid, block, 0, stream>>>(accum,
+                                                                out, maxSize,
+                                                                rho, theta,
+                                                                lineGap, lineLength,
+                                                                mask.rows, mask.cols);
             cudaSafeCall( cudaGetLastError() );
-
+            hough_segments_locks::set_fz_launch_done(omlp_sem_od);
             cudaSafeCall( cudaDeviceSynchronize() );
+            hough_segments_locks::exit_forbidden_zone(omlp_sem_od);
 
             int totalCount;
-            cudaSafeCall( cudaMemcpy(&totalCount, counterPtr, sizeof(int), cudaMemcpyDeviceToHost) );
+            // Memcpy d2h of counterPtr
+            hough_segments_locks::wait_forbidden_zone(omlp_sem_od);
+            cudaSafeCall( cudaMemcpyAsync(&totalCount, counterPtr, sizeof(int), cudaMemcpyDeviceToHost, stream) );
+            hough_segments_locks::set_fz_launch_done(omlp_sem_od);
+            cudaSafeCall( cudaStreamSynchronize(stream) );
+            hough_segments_locks::exit_forbidden_zone(omlp_sem_od);
+
+            hough_segments_locks::unlock_fzlp(omlp_sem_od);
+            /*
+            * UNLOCK: houghLinesProbabilistic_gpu
+            * ============= */
 
             totalCount = ::min(totalCount, maxSize);
 

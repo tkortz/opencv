@@ -42,6 +42,9 @@
 
 #include "precomp.hpp"
 
+#include "opencv2/cudaimgproc.hpp"
+#include <unistd.h>
+
 using namespace cv;
 using namespace cv::cuda;
 
@@ -53,19 +56,35 @@ Ptr<cuda::HoughSegmentDetector> cv::cuda::createHoughSegmentDetector(float, floa
 
 namespace cv { namespace cuda { namespace device
 {
+    namespace hough_locks
+    {
+        int open_fzlp_lock(int resource_id);
+        int lock_fzlp(int sem_od);
+        int wait_forbidden_zone(int sem_od, bool is_long = false);
+        int set_fz_launch_done(int sem_od);
+        int exit_forbidden_zone(int sem_od);
+        int unlock_fzlp(int sem_od);
+    }
+
     namespace hough
     {
-        int buildPointList_gpu(PtrStepSzb src, unsigned int* list);
+        int buildPointList_gpu(PtrStepSzb src, unsigned int* list,
+                               const cudaStream_t& stream,
+                               int omlp_sem_od = -1);
     }
 
     namespace hough_lines
     {
-        void linesAccum_gpu(const unsigned int* list, int count, PtrStepSzi accum, float rho, float theta, size_t sharedMemPerBlock, bool has20);
+        void linesAccum_gpu(const unsigned int* list, int count, PtrStepSzi accum, float rho, float theta, size_t sharedMemPerBlock, bool has20,
+                            const cudaStream_t& stream,
+                            int omlp_sem_od = -1);
     }
 
     namespace hough_segments
     {
-        int houghLinesProbabilistic_gpu(PtrStepSzb mask, PtrStepSzi accum, int4* out, int maxSize, float rho, float theta, int lineGap, int lineLength);
+        int houghLinesProbabilistic_gpu(PtrStepSzb mask, PtrStepSzi accum, int4* out, int maxSize, float rho, float theta, int lineGap, int lineLength,
+                                        const cudaStream_t& stream,
+                                        int omlp_sem_od = -1);
     }
 }}}
 
@@ -79,7 +98,7 @@ namespace
         {
         }
 
-        void detect(InputArray src, OutputArray lines, Stream& stream);
+        void detect(InputArray src, OutputArray lines, Stream& stream, int omlp_sem_od);
 
         void setRho(float rho) { rho_ = rho; }
         float getRho() const { return rho_; }
@@ -95,6 +114,13 @@ namespace
 
         void setMaxLines(int maxLines) { maxLines_ = maxLines; }
         int getMaxLines() const { return maxLines_; }
+
+        int open_lock(int resource_id);
+        int lock_fzlp(int sem_od);
+        int wait_forbidden_zone(int sem_od);
+        int set_fz_launch_done(int sem_od);
+        int exit_forbidden_zone(int sem_od);
+        int unlock_fzlp(int sem_od);
 
         void write(FileStorage& fs) const
         {
@@ -129,11 +155,40 @@ namespace
         GpuMat result_;
     };
 
-    void HoughSegmentDetectorImpl::detect(InputArray _src, OutputArray lines, Stream& stream)
+    int HoughSegmentDetectorImpl::open_lock(int resource_id)
     {
-        // TODO : implement async version
-        CV_UNUSED(stream);
+        return cv::cuda::device::hough_locks::open_fzlp_lock(resource_id);
+    }
 
+    int HoughSegmentDetectorImpl::lock_fzlp(int sem_od)
+    {
+        return cv::cuda::device::hough_locks::lock_fzlp(sem_od);
+    }
+
+    int HoughSegmentDetectorImpl::wait_forbidden_zone(int sem_od)
+    {
+        return cv::cuda::device::hough_locks::wait_forbidden_zone(sem_od);
+    }
+    int HoughSegmentDetectorImpl::set_fz_launch_done(int sem_od)
+    {
+        return cv::cuda::device::hough_locks::set_fz_launch_done(sem_od);
+    }
+
+    int HoughSegmentDetectorImpl::exit_forbidden_zone(int sem_od)
+    {
+        return cv::cuda::device::hough_locks::exit_forbidden_zone(sem_od);
+    }
+
+    int HoughSegmentDetectorImpl::unlock_fzlp(int sem_od)
+    {
+        return cv::cuda::device::hough_locks::unlock_fzlp(sem_od);
+    }
+
+    void HoughSegmentDetectorImpl::detect(InputArray _src, OutputArray lines,
+                                          Stream& stream,
+                                          int omlp_sem_od)
+    {
+        using namespace cv::cuda::device;
         using namespace cv::cuda::device::hough;
         using namespace cv::cuda::device::hough_lines;
         using namespace cv::cuda::device::hough_segments;
@@ -147,7 +202,7 @@ namespace
         ensureSizeIsEnough(1, src.size().area(), CV_32SC1, list_);
         unsigned int* srcPoints = list_.ptr<unsigned int>();
 
-        const int pointsCount = buildPointList_gpu(src, srcPoints);
+        const int pointsCount = buildPointList_gpu(src, srcPoints, StreamAccessor::getStream(stream));
         if (pointsCount == 0)
         {
             lines.release();
@@ -159,14 +214,27 @@ namespace
         CV_Assert( numangle > 0 && numrho > 0 );
 
         ensureSizeIsEnough(numangle + 2, numrho + 2, CV_32SC1, accum_);
-        accum_.setTo(Scalar::all(0));
+
+        /* =============
+         * LOCK: memset accum_
+         */
+        hough_locks::lock_fzlp(omlp_sem_od);
+        hough_locks::wait_forbidden_zone(omlp_sem_od);
+        accum_.setTo(Scalar::all(0), stream);
+        hough_locks::set_fz_launch_done(omlp_sem_od);
+        cudaStreamSynchronize(StreamAccessor::getStream(stream));
+        hough_locks::exit_forbidden_zone(omlp_sem_od);
+        hough_locks::unlock_fzlp(omlp_sem_od);
+        /*
+         * UNLOCK: memset accum_
+         * ============= */
 
         DeviceInfo devInfo;
-        linesAccum_gpu(srcPoints, pointsCount, accum_, rho_, theta_, devInfo.sharedMemPerBlock(), devInfo.supports(FEATURE_SET_COMPUTE_20));
+        linesAccum_gpu(srcPoints, pointsCount, accum_, rho_, theta_, devInfo.sharedMemPerBlock(), devInfo.supports(FEATURE_SET_COMPUTE_20), StreamAccessor::getStream(stream));
 
         ensureSizeIsEnough(1, maxLines_, CV_32SC4, result_);
 
-        int linesCount = houghLinesProbabilistic_gpu(src, accum_, result_.ptr<int4>(), maxLines_, rho_, theta_, maxLineGap_, minLineLength_);
+        int linesCount = houghLinesProbabilistic_gpu(src, accum_, result_.ptr<int4>(), maxLines_, rho_, theta_, maxLineGap_, minLineLength_, StreamAccessor::getStream(stream));
 
         if (linesCount == 0)
         {
@@ -175,7 +243,20 @@ namespace
         }
 
         result_.cols = linesCount;
-        result_.copyTo(lines);
+        /* =============
+         * LOCK: d2d copy (and thus free/alloc) of lines/result_
+         */
+        hough_locks::lock_fzlp(omlp_sem_od);
+        // TODO: find a less heavy-handed solution
+        hough_locks::wait_forbidden_zone(omlp_sem_od, true);
+        result_.copyTo(lines, stream); // d2d copy, also has free/malloc usually
+        hough_locks::set_fz_launch_done(omlp_sem_od);
+        cudaStreamSynchronize(StreamAccessor::getStream(stream));
+        hough_locks::exit_forbidden_zone(omlp_sem_od); // done with d2d memcpy
+        hough_locks::unlock_fzlp(omlp_sem_od);
+        /*
+         * UNLOCK: d2d copy (and thus free/alloc) of lines/result_
+         * ============= */
     }
 }
 

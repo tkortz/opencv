@@ -12,12 +12,14 @@
 #include <sstream>
 
 #include "opencv2/core.hpp"
+#include "opencv2/core/cuda_stream_accessor.hpp"
 #include <opencv2/core/utility.hpp>
 #include "opencv2/highgui.hpp"
 #include "opencv2/imgproc.hpp"
 #include "opencv2/cudaimgproc.hpp"
 
 #include <litmus.h>
+#include <unistd.h>
 
 using namespace std;
 using namespace cv;
@@ -61,12 +63,18 @@ public:
 
     void readFrames();
     void readImage(Mat& dst);
-    void houghlines(Mat& src, Mat& img, int frame_num);
+    void houghlines(cv::cuda::HoughSegmentDetector *hough,
+                    Mat& src, Mat& img, int frame_num,
+                    cv::cuda::GpuMat* gpu_d_src,
+                    cv::cuda::GpuMat* gpu_d_lines,
+                    cv::cuda::Stream& stream,
+                    int omlp_sem_od);
 
 private:
     App operator=(App&);
 
-    void makeRealTimeTask();
+    void makeRealTimeTask(cv::Ptr<cv::cuda::HoughSegmentDetector> detector,
+                          int *sem_od);
 
     Args args;
     bool running;
@@ -191,7 +199,7 @@ App::App(const Args& s)
     use_gpu = true;
 }
 
-void App::makeRealTimeTask()
+void App::makeRealTimeTask(cv::Ptr<cv::cuda::HoughSegmentDetector> detector, int *sem_od)
 {
     struct rt_task param;
     init_rt_task_param(&param);
@@ -208,6 +216,10 @@ void App::makeRealTimeTask()
     CALL( set_rt_task_param(gettid(), &param) );
     CALL( task_mode(LITMUS_RT_TASK) );
     CALL( wait_for_ts_release() );
+
+    fprintf(stdout, "[%d | %d] Calling litmus_open_lock for OMLP_SEM.\n", gettid(), getpid());
+    *sem_od = detector->open_lock(18); // use the cluster ID as the resource ID
+    fprintf(stdout, "[%d | %d] Got OMLP_SEM=%d.\n", gettid(), getpid(), *sem_od);
 }
 
 void App::readFrames()
@@ -277,7 +289,12 @@ void App::readImage(Mat& dst)
     }
 }
 
-void App::houghlines(Mat& src, Mat& img, int frame_num)
+void App::houghlines(cv::cuda::HoughSegmentDetector *hough,
+                     Mat& src, Mat& img, int frame_num,
+                     cv::cuda::GpuMat* gpu_d_src,
+                     cv::cuda::GpuMat* gpu_d_lines,
+                     cv::cuda::Stream& stream,
+                     int omlp_sem_od)
 {
     double timeSec = 0.0;
 
@@ -299,22 +316,44 @@ void App::houghlines(Mat& src, Mat& img, int frame_num)
     }
     else
     {
-        cv::cuda::GpuMat d_src(mask);
-        cv::cuda::GpuMat d_lines;
+        /* =============
+         * LOCK: upload gpu_d_src
+         */
+        hough->lock_fzlp(omlp_sem_od);
+        hough->wait_forbidden_zone(omlp_sem_od);
+        gpu_d_src->upload(mask, stream);
+        hough->set_fz_launch_done(omlp_sem_od);
+        cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
+        hough->exit_forbidden_zone(omlp_sem_od);
+        hough->unlock_fzlp(omlp_sem_od);
+        /*
+         * UNLOCK: upload gpu_d_src
+         * ============= */
 
         const int64 start = getTickCount();
 
-        Ptr<cv::cuda::HoughSegmentDetector> hough = cv::cuda::createHoughSegmentDetector(1.0f, (float) (CV_PI / 180.0f), 30, 200);
-
-        hough->detect(d_src, d_lines);
+        hough->detect(*gpu_d_src, *gpu_d_lines, stream, omlp_sem_od);
 
         timeSec = (getTickCount() - start) / getTickFrequency();
 
-        if (!d_lines.empty())
+        if (!gpu_d_lines->empty())
         {
-            lines.resize(d_lines.cols);
-            Mat h_lines(1, d_lines.cols, CV_32SC4, &lines[0]);
-            d_lines.download(h_lines);
+            lines.resize(gpu_d_lines->cols);
+            Mat h_lines(1, gpu_d_lines->cols, CV_32SC4, &lines[0]);
+
+            /* =============
+             * LOCK: download gpu_d_lines
+             */
+            hough->lock_fzlp(omlp_sem_od);
+            hough->wait_forbidden_zone(omlp_sem_od);
+            gpu_d_lines->download(h_lines, stream);
+            hough->set_fz_launch_done(omlp_sem_od);
+            cudaStreamSynchronize(cv::cuda::StreamAccessor::getStream(stream));
+            hough->exit_forbidden_zone(omlp_sem_od);
+            hough->unlock_fzlp(omlp_sem_od);
+            /*
+             * UNLOCK: download gpu_d_lines
+             * ============= */
         }
     }
 
@@ -340,7 +379,23 @@ void App::run()
 {
     Mat frame, img, img_aux, img_thresholded;
 
-    makeRealTimeTask();
+    Ptr<cv::cuda::HoughSegmentDetector> hough = cv::cuda::createHoughSegmentDetector(1.0f, (float) (CV_PI / 180.0f), 30, 200);
+
+    // Use user-defined streams rather than the NULL stream
+    cv::cuda::Stream stream;
+
+    // Additional pointers: gpu_d_lines
+    cv::cuda::GpuMat* gpu_d_lines = new cv::cuda::GpuMat();
+    cv::cuda::GpuMat* gpu_d_src = new cv::cuda::GpuMat();
+
+    cv::cuda::Stream managed_stream;
+    cv::cuda::BufferPool pool(managed_stream);
+
+    Size sz(1280, 720);
+    *gpu_d_src = pool.getBuffer(sz, 0);
+
+    int omlp_sem_od = -1;
+    makeRealTimeTask(hough, &omlp_sem_od);
 
     int count_frame = 0;
     running = true;
@@ -384,7 +439,8 @@ void App::run()
         cv::threshold(img, img_thresholded, 160, 255, cv::THRESH_BINARY);
 
         // Run houghlines
-        houghlines(frame, img_thresholded, count_frame % frames.size());
+        houghlines(hough, frame, img_thresholded, count_frame % frames.size(),
+                   gpu_d_src, gpu_d_lines, stream, omlp_sem_od);
 
         handleKey((char)waitKey(3));
 
@@ -394,6 +450,10 @@ void App::run()
     }
 
     CALL( task_mode(BACKGROUND_TASK) );
+
+    // Free additional pointers: gpu_d_lines, gpu_d_src
+    gpu_d_lines->release();
+    gpu_d_src->release();
 }
 
 void App::handleKey(char key)

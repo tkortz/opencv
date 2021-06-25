@@ -55,12 +55,16 @@ namespace cv { namespace cuda { namespace device
 {
     namespace hough
     {
-        int buildPointList_gpu(PtrStepSzb src, unsigned int* list);
+        int buildPointList_gpu(PtrStepSzb src, unsigned int* list,
+                               const cudaStream_t& stream,
+                               int omlp_sem_od = -1);
     }
 
     namespace hough_lines
     {
-        void linesAccum_gpu(const unsigned int* list, int count, PtrStepSzi accum, float rho, float theta, size_t sharedMemPerBlock, bool has20);
+        void linesAccum_gpu(const unsigned int* list, int count, PtrStepSzi accum, float rho, float theta, size_t sharedMemPerBlock, bool has20,
+                            const cudaStream_t& stream,
+                            int omlp_sem_od = -1);
         int linesGetResult_gpu(PtrStepSzi accum, float2* out, int* votes, int maxSize, float rho, float theta, int threshold, bool doSort);
     }
 }}}
@@ -129,7 +133,7 @@ namespace
     void HoughLinesDetectorImpl::detect(InputArray _src, OutputArray lines, Stream& stream)
     {
         // TODO : implement async version
-        CV_UNUSED(stream);
+        // CV_UNUSED(stream);
 
         using namespace cv::cuda::device::hough;
         using namespace cv::cuda::device::hough_lines;
@@ -143,7 +147,7 @@ namespace
         ensureSizeIsEnough(1, src.size().area(), CV_32SC1, list_);
         unsigned int* srcPoints = list_.ptr<unsigned int>();
 
-        const int pointsCount = buildPointList_gpu(src, srcPoints);
+        const int pointsCount = buildPointList_gpu(src, srcPoints, StreamAccessor::getStream(stream));
         if (pointsCount == 0)
         {
             lines.release();
@@ -158,7 +162,7 @@ namespace
         accum_.setTo(Scalar::all(0));
 
         DeviceInfo devInfo;
-        linesAccum_gpu(srcPoints, pointsCount, accum_, rho_, theta_, devInfo.sharedMemPerBlock(), devInfo.supports(FEATURE_SET_COMPUTE_20));
+        linesAccum_gpu(srcPoints, pointsCount, accum_, rho_, theta_, devInfo.sharedMemPerBlock(), devInfo.supports(FEATURE_SET_COMPUTE_20), StreamAccessor::getStream(stream));
 
         ensureSizeIsEnough(2, maxLines_, CV_32FC2, result_);
 
