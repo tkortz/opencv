@@ -3,7 +3,7 @@
 Our implementation is based on LITMUS^RT, liblitmus, and PGM^RT (if using multiple nodes in the HOG graph).  The repositories/patches for the versions used are here:
 
 * [Modified LITMUS^RT](https://www.cs.unc.edu/~tamert/papers/timewall_litmusrt.patch), against the [5.4.0-rc7 LITMUSRT kernel](https://github.com/JoshuaJB/litmus-rt/tree/linux-5.4-litmus) (commit 55ce62849)
-* [Modified liblitmus](https://www.cs.unc.edu/~tamert/papers/timewall_liblitmus.patch), against the [base Liblitmus repository](https://github.com/LITMUS-RT/liblitmus/commits/master) (commit a430c7b5)
+* [Modified liblitmus](https://www.cs.unc.edu/~tamert/papers/timewall_liblitmus.patch), against the [base Liblitmus repository](https://github.com/LITMUS-RT/liblitmus) (commit a430c7b5)
 * [PGM^RT](https://github.com/GElliott/pgm)
 
 Our experiments were conducted with CUDA 10.2 and NVIDIA Driver version 440.33 on Ubuntu 18.04.
